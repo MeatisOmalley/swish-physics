@@ -71,12 +71,13 @@ def point_head(rt, name):
 base, vroid, group = scene_with(["Root"])
 scene.frame_set(1)
 scene.swish.simulate = True
+shown = {}
 for f in range(2, 11):
     scene.frame_set(f)
+    shown[f] = np.array(base.pose.bones["Root"].head) + np.array(base.matrix_world.translation)
 rt = live.runtime(scene)
-shown = np.array(base.pose.bones["Root"].head) + np.array(base.matrix_world.translation)
-check("a root driven by a constraint moves the solver's input with it",
-      np.allclose(point_head(rt, "Root"), shown, atol=1e-5), (point_head(rt, "Root"), shown))
+check("a root driven by a constraint moves the solver's input with it (live: one frame late)",
+      np.allclose(point_head(rt, "Root"), shown[9], atol=1e-5), (point_head(rt, "Root"), shown[9]))
 check("... and the warning names the constrained bones in the group",
       sorted(links.constrained_bones(vroid, group)) == ["Head", "Root"], links.constrained_bones(vroid, group))
 
@@ -88,11 +89,11 @@ scene.swish.simulate = True
 rt = live.runtime(scene)
 rest_offset = np.array(vroid.pose.bones["hair3"].tail) - np.array(vroid.pose.bones["hair0"].head)
 lag = []
-for f in range(2, 11):
+for f in range(2, 12):
     scene.frame_set(f)
     hair0 = np.array(vroid.pose.bones["hair0"].head)
     lag.append((np.array(vroid.pose.bones["hair3"].tail) - hair0)[2] - rest_offset[2])
-check("the hair root follows the constrained head: 0.3 m up by frame 10",
+check("the hair root follows the constrained head: 0.3 m up by frame 10, seen a frame later live",
       np.allclose(point_head(rt, "hair0")[2], 1.6 + 0.3, atol=1e-5), point_head(rt, "hair0"))
 check("... and the hair trails it while it rises", min(lag) < -0.005, min(lag))
 

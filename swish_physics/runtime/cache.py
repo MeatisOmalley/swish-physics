@@ -17,7 +17,8 @@ import copy
 
 import numpy as np
 
-CHANNELS = (("location", 3), ("rotation_quaternion", 4), ("rotation_euler", 3), ("rotation_axis_angle", 4))
+CHANNELS = (("location", 3), ("rotation_quaternion", 4), ("rotation_euler", 3), ("rotation_axis_angle", 4),
+            ("scale", 3))
 
 
 class Snapshot:
@@ -138,6 +139,23 @@ def collider_prints(rt):
     return prints
 
 
+def action_print(rt, action):
+    """What an action's curves say: keys and mute flags, but not the flags of curves Swish owns."""
+    owned = {(c.data_path, c.array_index) for rig in rt.rigs if rig.keys is not None and rig.keys.muted
+             for c, *_ in rig.keys.curves}
+    parts = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            for bag in strip.channelbags:
+                for curve in bag.fcurves:
+                    points = curve.keyframe_points
+                    co = np.empty(len(points) * 2, dtype=np.float32)
+                    points.foreach_get("co", co)
+                    muted = False if (curve.data_path, curve.array_index) in owned else curve.mute
+                    parts.append(curve.data_path.encode() + bytes([curve.array_index, muted]) + co.tobytes())
+    return hash(b"".join(parts))
+
+
 def relevant_update(rt, depsgraph):
     """Does this depsgraph update change the simulation's result? Our own writes do not.
 
@@ -153,7 +171,13 @@ def relevant_update(rt, depsgraph):
     for update in depsgraph.updates:
         found = update.id
         if isinstance(found, bpy.types.Action):
-            return True
+            # Swish mutes and unmutes the chains' curves itself (while simulating, around saves);
+            # only a change to what the keys say counts.
+            printed = action_print(rt, found)
+            if rt.action_prints.get(found.name) != printed:
+                rt.action_prints[found.name] = printed
+                return True
+            continue
         if isinstance(found, bpy.types.NodeTree) and found.name in (curves.HOST, colliders.TREE):
             return True
         if isinstance(found, bpy.types.Armature) and found.name in rig_data and not own:

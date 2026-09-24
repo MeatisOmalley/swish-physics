@@ -95,7 +95,14 @@ bpy.context.view_layer.update()
 check("inserting a keyframe clears the cache", len(live.runtime(scene).cache) == 0, len(live.runtime(scene).cache))
 rig.pose.bones["c1"].keyframe_insert("rotation_quaternion", frame=1)
 bpy.context.view_layer.update()
-check("a newly keyed chain is recognized for post-frame replay", live.runtime(scene).needs_post_replay())
+rt = live.runtime(scene)
+bag = rig.animation_data.action.layers[0].strips[0].channelbag(rig.animation_data.action_slot)
+chain_curves = [c for c in bag.fcurves if c.data_path.startswith('pose.bones["c1"]')]
+check("a newly keyed chain bone's curves are taken over (muted), so no post-frame replay is needed",
+      chain_curves and all(c.mute for c in chain_curves) and not rt.needs_post_replay())
+scene.swish.simulate = False
+check("... and handed back when simulation stops", all(not c.mute for c in chain_curves))
+scene.swish.simulate = True
 play(range(1, 11))
 ball = colliders.add(rig, "anchor", "Sphere")
 play(range(1, 11))

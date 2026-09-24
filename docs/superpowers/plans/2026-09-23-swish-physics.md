@@ -155,6 +155,14 @@ Decisions made while porting phase 8:
 - **Every bone below a root is placed at its simulated head**, as ApplySimulateResult sets each such bone's location. Sync bones show only through that translation, because rotations are measured against the synced pose. Connected bones ignore location in Blender and will not show sync movement.
 - **Not ported:** gust requests, shared wind publishers, transient and one-shot forces, custom (Blueprint) external forces, animation notifies.
 
+## Performance (2026-09-24)
+
+Measured on swaptest.blend with 202 hair and skirt bones and unthrottled playback. On the first runs, with the machine's baseline at 61-72 ms per frame, live mode and keyed cached playback each paid a full second scene evaluation (+45 to 51 ms), and Cache All took 16-18 s for 120 frames. In later runs the Swish-off baseline measured 41.6 ms. Unkeyed chains: live 42.5 ms, cached 41.7 ms. Keyed chains: live 46.1 ms, cached 42.3 ms. Cache All: 2.1-2.6 s. How:
+
+- **One evaluation a frame.** Blender applies keyframes after anything written before evaluation, so while simulating Swish mutes the chain bones' F-curves in the armature's own action and samples them itself (`runtime/keys.py`). Curves are unmuted when simulation stops, around every save, and on load after a crash (an ID property records what was muted). Chain channels animated by NLA strips or drivers can't be taken over, and that rig keeps the two-evaluation path.
+- **Live solves before the frame.** With keys taken over, live playback solves in frame_change_pre from the last evaluated pose: bones outside the chains are a frame late, and chain keys are sampled for this frame. Jumps and resets take the exact path. The user chose this trade (live favours running).
+- **Lean bake.** Cache All hides every object the input doesn't depend on (armatures, their parents, constraint and driver targets, colliders and wind fields stay). Results are bit-identical.
+
 ## Open items
 
 - **Unit dependence.** Radius, gravity and lengths carry units; damping, stiffness and world damping do not; XPBD compliance is compared with the unit inverse-mass sum, which looks unit-independent. Confirm each before any consumer converts to Unreal centimetres.

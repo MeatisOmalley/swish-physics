@@ -107,7 +107,8 @@ scene.swish.use_cache = True
 scene.swish.simulate = True
 bpy.ops.swish.cache_all()
 rt = live.runtime(scene)
-check("a keyed simulated bone requires post-frame replay", rt.needs_post_replay())
+check("a keyed simulated bone is taken over, so its cache replays before evaluation alone",
+      not rt.needs_post_replay() and rt.rigs[0].keys.muted)
 scene.frame_set(12)
 index = rt.rigs[0].index["child"]
 expected = rt.cache[12].channels[0]["rotation_euler"].reshape(-1, 3)[index]

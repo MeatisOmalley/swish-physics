@@ -23,6 +23,7 @@ from ..solver.curves import LinearCurve
 from ..solver.system import Group, COMPLIANCE_TYPES, PLANAR_NONE, PLANAR_X, PLANAR_Y, PLANAR_Z
 from . import cache as frame_cache
 from . import io
+from . import keys as chain_keys
 
 F32 = np.float32
 PLANAR = {"NONE": PLANAR_NONE, "X": PLANAR_X, "Y": PLANAR_Y, "Z": PLANAR_Z}
@@ -77,6 +78,8 @@ class Runtime:
             groups = [props for props in rig.obj.swish.groups if props.enabled and len(props.roots)]
             rig.set_chain(rig.subtree([root.name for props in groups for root in props.roots],
                                       [bone.name for props in groups for bone in props.excluded]))
+        self.stepped_ahead = None
+        self.action_prints = {}
         if settle:
             self.settle(scene)
         for r, rig in enumerate(self.rigs):
@@ -111,6 +114,9 @@ class Runtime:
         self.bone_of_point = combined - np.array(offsets)[self.rig_of_point] if len(offsets) else combined
         for r, rig in enumerate(self.rigs):
             rig.set_chain(self.bone_of_point[self.rig_of_point == r])
+            rig.keys.mute()                # Swish samples the chains' keys itself while it simulates
+        # One evaluation a frame needs every chain's keys to be Swish's (keys.py).
+        self.fast = all(rig.keys.ownable for rig in self.rigs)
         # Force filters and sync targets name bones; the points of each group by bone name.
         for i in self.real:
             s.bone_names[i] = names[s.bone[i]].split("|", 1)[1]
@@ -221,10 +227,11 @@ class Runtime:
         return self.rigs[r], self.rigs[r].obj.swish.groups[index]
 
     # ------------------------------------------------------------------ frames
-    def _read(self, scene, sample_number=None):
-        """This frame's input pose and component movement into the system."""
+    def _read(self, scene, sample_number=None, ahead=False):
+        """This frame's input pose and component movement into the system. ahead: before Blender
+        evaluates the frame, from its last evaluation (Rig.read_ahead)."""
         s = self.system
-        poses = [rig.read() for rig in self.rigs]
+        poses = [rig.read_ahead() if ahead else rig.read() for rig in self.rigs]
         pose = np.zeros((len(self.real), 4, 4))
         for r, rig_pose in enumerate(poses):
             rows = self.rig_of_point == r
@@ -304,8 +311,8 @@ class Runtime:
             rows = s.group == g
             s.loc[rows], s.prev[rows] = loc, prev
 
-    def step_seconds(self, scene, seconds, sample_number=None, max_substeps=None):
-        self._read(scene, sample_number)
+    def step_seconds(self, scene, seconds, sample_number=None, max_substeps=None, ahead=False):
+        self._read(scene, sample_number, ahead)
         s = self.system
         old_cap = s.max_substeps
         if max_substeps is not None:
@@ -321,12 +328,17 @@ class Runtime:
                                     (rotation.x, rotation.y, rotation.z, rotation.w), tuple(scale))
         self._write()
 
-    def step(self, scene, frames):
+    def step(self, scene, frames, ahead=False):
+        """ahead: solve in frame_change_pre, before Blender evaluates the frame, so it evaluates the
+        frame once with the result. The body's input is then a frame late; the chains' keys are
+        sampled for this frame."""
+        if ahead:
+            self.restore(frame_of(scene))
         seconds = frames * scene.render.fps_base / scene.render.fps
         # A normal 12 fps frame needs five 60 Hz steps. Do not silently discard
         # its elapsed time merely because the game-oriented default cap is four.
         needed = math.ceil((float(self.system.accumulator) + seconds) * self.system.target_framerate)
-        self.step_seconds(scene, seconds, max_substeps=max(self.system.max_substeps, needed))
+        self.step_seconds(scene, seconds, max_substeps=max(self.system.max_substeps, needed), ahead=ahead)
 
     def _write(self):
         """Rotations back onto every chain bone, and heads for bones Kawaii places directly."""
@@ -347,14 +359,23 @@ class Runtime:
         finally:
             _writing = False
 
-    def restore(self):
+    def restore(self, frame=None):
         for rig in self.rigs:
             if rig.obj.name in bpy.data.objects:
+                rig.restore(frame)
+
+    def release(self):
+        """Stop simulating: the chains' keys back to Blender, the chains back to their input."""
+        for rig in self.rigs:
+            try:
+                rig.keys.unmute()
                 rig.restore()
+            except ReferenceError:
+                pass
 
     def settle(self, scene):
         """Clear the chains' physics and re-evaluate now, so read() sees a clean input pose."""
-        self.restore()
+        self.restore(frame_of(scene))
         for layer in scene.view_layers:
             layer.update()
 
@@ -363,19 +384,81 @@ class Runtime:
             self.collider_prints = frame_cache.collider_prints(self)
         self.cache[frame] = frame_cache.Snapshot(self)
 
-    def show_unsimulated(self):
+    def show_unsimulated(self, frame=None):
         """A frame the cache has not reached: the chains at their input, as cloth shows them."""
         self.own_update = True
         for rig in self.rigs:
             rig.read()
-            rig.restore()
+            rig.restore(frame)
 
     def cached_range(self):
         return (min(self.cache), max(self.cache)) if self.cache else None
 
     def needs_post_replay(self):
-        return any(np.any(rig.chain & rig.keyed[kind])
+        """Keyed chain channels Blender still applies (not taken over) overwrite a replay made
+        before evaluation, so it must be made again after."""
+        return any(np.any(rig.chain & rig.keyed[kind]) and not rig.keys.muted
                    for rig in self.rigs for kind in ("location", "rotation", "scale"))
+
+    def keys_changed(self):
+        """Keys added to or removed from a chain: the curves Swish owns must be found again."""
+        return any(rig.keys.count(rig) != rig.keys.total for rig in self.rigs)
+
+
+def frame_of(scene):
+    return scene.frame_current + scene.frame_subframe
+
+
+def _essentials(scene, rt):
+    """The objects the simulation's input depends on: the armatures, what they are parented to,
+    their constraint and driver targets (followed through), colliders and wind fields."""
+    needed, stack = set(), [rig.obj for rig in rt.rigs]
+    while stack:
+        obj = stack.pop()
+        if obj is None or obj.name in needed:
+            continue
+        needed.add(obj.name)
+        stack.append(obj.parent)
+        owners = [obj] + (list(obj.pose.bones) if obj.pose is not None else [])
+        for owner in owners:
+            for constraint in owner.constraints:
+                stack.append(getattr(constraint, "target", None))
+                stack += [t.target for t in getattr(constraint, "targets", ())]
+        data = obj.animation_data
+        if data is not None:
+            for driver in data.drivers:
+                for variable in driver.driver.variables:
+                    stack += [t.id for t in variable.targets if isinstance(t.id, bpy.types.Object)]
+    for obj in scene.objects:
+        if obj.swish_collider.is_collider or (obj.field is not None and obj.field.type == "WIND"):
+            needed.add(obj.name)
+            parent = obj.parent
+            while parent is not None:
+                needed.add(parent.name)
+                parent = parent.parent
+    return needed
+
+
+class lean_evaluation:
+    """While baking, Blender evaluates only what the simulation reads: everything else is disabled
+    in the viewport (hide_viewport), so skinning, modifiers and geometry nodes are skipped."""
+
+    def __init__(self, scene, rt):
+        needed = _essentials(scene, rt)
+        self.hidden = [obj for obj in scene.objects if obj.name not in needed and not obj.hide_viewport]
+
+    def __enter__(self):
+        for obj in self.hidden:
+            obj.hide_viewport = True
+        return self
+
+    def __exit__(self, *exc):
+        for obj in self.hidden:
+            try:
+                obj.hide_viewport = False
+            except ReferenceError:
+                pass
+        return False
 
 
 def scene_wind(scene, cm):
@@ -414,7 +497,7 @@ def runtime(scene, rebuild=False):
         and current.system.target_framerate != live_rate
     if current is None or rebuild or changed_clock or wrong_live_rate or key in _dirty or "all" in _dirty:
         if current is not None:
-            current.restore()
+            current.release()
         _dirty.discard(key)
         _dirty.discard("all")
         current = _runtimes[key] = Runtime(scene)
@@ -438,7 +521,7 @@ def bake_cache(scene, progress=None):
         raise ValueError("Invalid simulation or scene frame rate")
     previous = _runtimes.get(key)
     if previous is not None:
-        previous.restore()
+        previous.release()
     _building_cache = True
     try:
         rt = Runtime(scene, target_framerate=rate, settle=True)
@@ -446,6 +529,7 @@ def bake_cache(scene, progress=None):
         _dirty.discard(key)
         _dirty.discard("all")
         start, end = scene.frame_start, scene.frame_end
+        lean = lean_evaluation(scene, rt).__enter__()
         scene.frame_set(start)
         if not scene.swish.simulate:
             raise RuntimeError("Simulate must stay enabled while building the cache")
@@ -485,6 +569,8 @@ def bake_cache(scene, progress=None):
             current.cache_mode = "auto"
         raise
     finally:
+        if "lean" in locals():
+            lean.__exit__(None, None, None)
         _building_cache = False
         scene.frame_set(original)
 
@@ -495,7 +581,7 @@ def set_simulating(scene, on):
     if on:
         previous = _runtimes.pop(scene.as_pointer(), None)
         if previous is not None:
-            previous.restore()
+            previous.release()
         rt = _runtimes[scene.as_pointer()] = Runtime(scene, settle=True)
         _dirty.discard(scene.as_pointer())
         _dirty.discard("all")
@@ -504,7 +590,7 @@ def set_simulating(scene, on):
     else:
         current = _runtimes.pop(scene.as_pointer(), None)
         if current is not None:
-            current.restore()
+            current.release()
 
 
 @persistent
@@ -518,13 +604,31 @@ def _frame_changing(scene, depsgraph=None):
     current = _runtimes.get(key)
     if current is None:
         return
-    if not _building_cache and settings.use_cache and current.cache_key == frame_cache.key(scene) \
-            and key not in _dirty and "all" not in _dirty:
-        snapshot = current.cache.get(scene.frame_current)
+    current.stepped_ahead = None
+    dirty = key in _dirty or "all" in _dirty
+    frame = scene.frame_current
+    if not _building_cache and settings.use_cache and current.cache_key == frame_cache.key(scene) and not dirty:
+        snapshot = current.cache.get(frame)
         if snapshot is not None:
             snapshot.replay(current)
             return
-    current.restore()
+    # Playing on: solve now, so Blender evaluates the frame once (the body's input a frame late).
+    if not _building_cache and not dirty and current.fast and current.cache_mode != "canonical" \
+            and current.cache_key == frame_cache.key(scene) and frame != scene.frame_start:
+        last = current.last_frame
+        frames = None if last is None else frame - last
+        if frames is not None and 1 <= frames <= MAX_FRAME_STEP:
+            if not settings.use_cache:
+                current.step(scene, frames, ahead=True)
+                current.stepped_ahead = frame
+                return
+            if last in current.cache:
+                current.cache[last].restore_state(current)
+                current.step(scene, frames, ahead=True)
+                current.store(frame)
+                current.stepped_ahead = frame
+                return
+    current.restore(frame_of(scene))
 
 
 @persistent
@@ -536,6 +640,9 @@ def _frame_changed(scene, depsgraph=None):
         return
     rt = runtime(scene)
     frame = scene.frame_current
+    if rt.stepped_ahead == frame:
+        rt.last_frame = frame
+        return
     frames = None if rt.last_frame is None else frame - rt.last_frame
     playing_on = frames is not None and 1 <= frames <= MAX_FRAME_STEP
     if not settings.use_cache:
@@ -558,7 +665,7 @@ def _frame_changed(scene, depsgraph=None):
             snapshot.replay(rt)
         rt.last_frame = frame
     elif rt.cache_mode == "canonical":
-        rt.show_unsimulated()
+        rt.show_unsimulated(frame)
         rt.last_frame = None
     elif frame == scene.frame_start:
         rt.reset(scene)
@@ -570,7 +677,7 @@ def _frame_changed(scene, depsgraph=None):
         rt.store(frame)
         rt.last_frame = frame
     else:
-        rt.show_unsimulated()
+        rt.show_unsimulated(frame)
         rt.last_frame = None
 
 
@@ -586,12 +693,35 @@ def _depsgraph_updated(scene, depsgraph):
         current.cache_mode = "auto"
         for rig in current.rigs:
             rig.refresh_keyed()
+        if current.keys_changed():
+            mark_dirty(scene)
 
 
 @persistent
 def _file_loaded(_file):
     _runtimes.clear()
     _dirty.clear()
+
+
+@persistent
+def _file_ready(_file):
+    """Curves a previous session left muted (it ended while simulating) are unmuted."""
+    chain_keys.recover(bpy.data.objects)
+
+
+@persistent
+def _saving(_file):
+    """Files are saved with the user's keys unmuted."""
+    for current in _runtimes.values():
+        for rig in current.rigs:
+            rig.keys.unmute()
+
+
+@persistent
+def _saved(_file):
+    for current in _runtimes.values():
+        for rig in current.rigs:
+            rig.keys.mute()
 
 
 def register():
@@ -603,11 +733,14 @@ def register():
         bpy.app.handlers.depsgraph_update_post.append(_depsgraph_updated)
     if _file_loaded not in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.append(_file_loaded)
+    for handler, name in ((_file_ready, "load_post"), (_saving, "save_pre"), (_saved, "save_post")):
+        if handler not in getattr(bpy.app.handlers, name):
+            getattr(bpy.app.handlers, name).append(handler)
 
 
 def unregister():
     for current in _runtimes.values():
-        current.restore()
+        current.release()
     _runtimes.clear()
     _dirty.clear()
     while _frame_changed in bpy.app.handlers.frame_change_post:
@@ -618,3 +751,6 @@ def unregister():
         bpy.app.handlers.depsgraph_update_post.remove(_depsgraph_updated)
     while _file_loaded in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_file_loaded)
+    for handler, name in ((_file_ready, "load_post"), (_saving, "save_pre"), (_saved, "save_post")):
+        while handler in getattr(bpy.app.handlers, name):
+            getattr(bpy.app.handlers, name).remove(handler)

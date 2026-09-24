@@ -10,6 +10,8 @@ chain bone's local rotation, written in the bone's own rotation mode.
 import numpy as np
 from mathutils import Euler, Matrix, Quaternion
 
+from . import keys as chain_keys
+
 EULER_ORDERS = {1: "XYZ", 2: "XZY", 3: "YXZ", 4: "YZX", 5: "ZXY", 6: "ZYX"}   # rotation_mode as foreach_get reads it
 QUATERNION, AXIS_ANGLE = 0, -1
 
@@ -117,6 +119,8 @@ class Rig:
         self.chain = np.zeros(self.count, dtype=bool)
         self.chain_levels = []
         self.keyed = {}
+        self.keys = None
+        self.constrained = np.zeros(self.count, dtype=bool)
 
     # ------------------------------------------------------------------ setup
     def set_chain(self, bone_indices):
@@ -130,6 +134,11 @@ class Rig:
         rows = np.flatnonzero(self.chain)
         self.chain_levels = [rows[depth[rows] == d] for d in sorted(set(depth[rows]))]
         self.refresh_keyed()
+        if self.keys is not None:
+            self.keys.unmute()
+        self.keys = chain_keys.ChainKeys(self)
+        bones = self.obj.pose.bones
+        self.constrained = np.array([any(c.enabled and c.influence > 0 for c in pb.constraints) for pb in bones])
 
     def subtree(self, roots, excluded):
         """Bones under the roots, as Kawaii collects them: an excluded bone cuts off its subtree."""
@@ -167,6 +176,34 @@ class Rig:
         bones.foreach_get("rotation_mode", self._modes)
         for path, buffer in self._buffers.items():
             bones.foreach_get(path, buffer)
+        self.basis = self._basis()
+        self.pose = evaluated
+        return evaluated
+
+    def read_ahead(self):
+        """The input before Blender evaluates the frame (live's one-evaluation path): bones
+        outside the chains, and constrained chain bones, as Blender last evaluated them -- a
+        frame late -- and the chain rebuilt from its channels, which restore(frame) has just set
+        to this frame's keys or rest."""
+        bones = self.obj.pose.bones
+        bones.foreach_get("matrix", self._matrices)
+        evaluated = self._matrices.reshape(self.count, 4, 4).transpose(0, 2, 1).astype(np.float64)
+        bones.foreach_get("rotation_mode", self._modes)
+        for path, buffer in self._buffers.items():
+            bones.foreach_get(path, buffer)
+        basis = self._basis()
+        pose = evaluated.copy()
+        for level in self.chain_levels:
+            parent = self.parents[level]
+            parent_pose = np.where((parent >= 0)[:, None, None], pose[np.maximum(parent, 0)], np.eye(4))
+            rebuilt = parent_pose @ self.rest_rel[level] @ basis[level]
+            pose[level] = np.where(self.constrained[level][:, None, None], evaluated[level], rebuilt)
+        self.basis = basis
+        self.pose = pose
+        return pose
+
+    def _basis(self):
+        """The chain bones' local basis matrices from their keyed channels (rest where unkeyed)."""
         basis = np.tile(np.eye(4), (self.count, 1, 1))
         rows = np.flatnonzero(self.chain)
         keyed_loc = rows[self.keyed["location"][rows]]
@@ -179,10 +216,7 @@ class Rig:
         for i in keyed_scale:
             basis[i, :3, :3] = basis[i, :3, :3] * scale[i]
         basis[keyed_loc, :3, 3] = location[keyed_loc]
-        pose = evaluated
-        self.pose = pose
-        self.basis = basis
-        return pose
+        return basis
 
     def _rotation_of(self, i):
         mode = int(self._modes[i])
@@ -264,14 +298,15 @@ class Rig:
         if changed:
             self.obj.update_tag(refresh={"DATA"})
 
-    def restore(self):
+    def restore(self, frame=None):
         """Put the chain bones back to their input channels: keyed values, or rest. Before a frame
-        is evaluated this clears last frame's physics, so the evaluated pose is a clean input."""
+        is evaluated this clears last frame's physics, so the evaluated pose is a clean input.
+        Keys Swish has taken over (muted) are sampled at frame; with no frame they are left."""
         bones = self.obj.pose.bones
         rows = np.flatnonzero(self.chain)
-        for path, size, rest_value in (("location", 3, 0.0), ("rotation_quaternion", 4, None),
-                                       ("rotation_euler", 3, 0.0), ("rotation_axis_angle", 4, None),
-                                       ("scale", 3, 1.0)):
+        paths = (("location", 3, 0.0), ("rotation_quaternion", 4, None), ("rotation_euler", 3, 0.0),
+                 ("rotation_axis_angle", 4, None), ("scale", 3, 1.0))
+        for path, size, rest_value in paths:
             kind = "rotation" if path.startswith("rotation") else path
             buffer = self._buffers[path]
             bones.foreach_get(path, buffer)
@@ -283,5 +318,8 @@ class Rig:
                 values[reset] = (0.0, 0.0, 1.0, 0.0)
             else:
                 values[reset] = rest_value
-            bones.foreach_set(path, buffer)
+        if frame is not None and self.keys is not None and self.keys.muted:
+            self.keys.sample(frame, self._buffers)
+        for path, _size, _rest in paths:
+            bones.foreach_set(path, self._buffers[path])
         self.obj.update_tag(refresh={"DATA"})
