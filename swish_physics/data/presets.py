@@ -4,7 +4,9 @@ A preset is a partial settings dict (serialize.settings_to_dict): what it
 names is set, the rest of the group is left alone, and every curve is turned
 off. Lengths are Blender units for a rig about 1.6 units tall.
 """
+import json
 import math
+import os
 
 from . import curves, serialize
 
@@ -28,6 +30,119 @@ ITEMS = [(key, label, description) for key, (label, description, _values) in PRE
 
 def apply(group, key):
     serialize.settings_from_dict(group, {**_NO_CURVES, **PRESETS[key][2]})
+    group.preset_name = PRESETS[key][0]
+
+
+# --------------------------------------------------------------------------- the user's own presets
+# Saved as the group's settings and curves (what Copy Settings copies), one JSON file each, in Blender's user
+# presets folder, so every file can use them. The group's on/off switch is not a setting a preset should set.
+FOLDER = "presets/swish_physics/groups"
+_NOT_PRESET = {"enabled"}
+
+
+def folder(create=False):
+    import bpy
+    return bpy.utils.user_resource("SCRIPTS", path=FOLDER, create=create)
+
+
+def user_presets():
+    """{name: path} of the user's presets, by name."""
+    found = {}
+    path = folder()
+    if path and os.path.isdir(path):
+        for entry in sorted(os.listdir(path), key=str.lower):
+            if entry.lower().endswith(".json"):
+                found[entry[:-5]] = os.path.join(path, entry)
+    return found
+
+
+def _file_name(name):
+    return "".join("_" if c in '<>:"/\\|?*' else c for c in name).strip(" .") or "Preset"
+
+
+def save_user(group, name):
+    """Save the group's settings as a preset of this name, replacing one with the same name."""
+    data = json.loads(serialize.settings_text(group))
+    for key in _NOT_PRESET:
+        data["settings"].pop(key, None)
+    name = _file_name(name)
+    with open(os.path.join(folder(create=True), name + ".json"), "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=1)
+    group.preset_name = name
+    return name
+
+
+def delete_user(name):
+    path = user_presets().get(name)
+    if path is not None:
+        os.remove(path)
+        return True
+    return False
+
+
+_cache = {}                # path -> (modified time, data): the panel asks which preset matches on every redraw
+
+
+def _read(path):
+    stamp = os.path.getmtime(path)
+    found = _cache.get(path)
+    if found is None or found[0] != stamp:
+        with open(path, encoding="utf-8") as handle:
+            found = _cache[path] = (stamp, json.load(handle))
+    return json.loads(json.dumps(found[1]))            # a copy: callers edit it
+
+
+def apply_user(group, name):
+    data = _read(user_presets()[name])
+    for key in _NOT_PRESET:
+        data["settings"].pop(key, None)
+    serialize.paste(group, json.dumps(data))
+    group.preset_name = name
+
+
+# --------------------------------------------------------------------------- which preset a group still matches
+
+def _same(a, b):
+    if isinstance(a, float) or isinstance(b, float):
+        try:
+            return math.isclose(float(a), float(b), rel_tol=1e-5, abs_tol=1e-6)
+        except (TypeError, ValueError):
+            return False
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    return a == b
+
+
+def _matches(group, current, settings, saved_curves=None):
+    if not all(name in current and _same(current[name], value) for name, value in settings.items()):
+        return False
+    for setting, data in (saved_curves or {}).items():
+        now = serialize.curve_to_dict(group, setting)
+        if now is None or not _same(now["points"][:], data["points"]):
+            return False
+    return True
+
+
+def matching(group):
+    """The name of the preset the group's settings still match, or None once one of them has changed.
+    The preset applied last is tried first; the others after, for a group set to one by hand."""
+    current = serialize.settings_to_dict(group)                 # read once, compared with each preset
+    candidates = [(label, lambda values=values: _matches(group, current, {**_NO_CURVES, **values}))
+                  for label, _description, values in PRESETS.values()]
+    for name, path in user_presets().items():
+        def user(path=path):
+            try:
+                data = _read(path)
+            except (OSError, ValueError):
+                return False
+            settings = {k: v for k, v in data.get("settings", {}).items() if k not in _NOT_PRESET}
+            return _matches(group, current, settings, data.get("curves"))
+        candidates.append((name, user))
+    candidates.sort(key=lambda item: item[0] != group.preset_name)
+    for name, test in candidates:
+        if test():
+            return name
+    return None
 
 
 # Kawaii's own Procedural Wind presets (KawaiiPhysicsWindPresetDataAsset.cpp, GetDefaultPresets), in its

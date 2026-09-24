@@ -22,7 +22,8 @@ VERSION = 1
 KAWAII_COMMIT = "64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21"
 SCENE_SETTINGS = ("target_framerate", "max_substeps", "fixed_substepping")
 _NOT_SETTINGS = {"rna_type", "name", "curve_key", "active_link", "active_force", "active_sync", "active_target",
-                 "show_advanced", "stiffness_level", "movement_inertia", "turning_inertia", "show_chains"}
+                 "show_advanced", "stiffness_level", "damping_level", "movement_inertia", "turning_inertia",
+                 "show_chains", "preset_name"}
 
 
 def _plain(value):

@@ -13,7 +13,7 @@ import bpy
 from ..solver.curves import LinearCurve
 
 HOST = ".Swish Curves"
-CURVED = ("damping", "stiffness", "world_damping_location", "world_damping_rotation", "radius", "limit_angle")
+CURVED = ("stiffness", "damping", "world_damping_location", "world_damping_rotation", "radius", "limit_angle")
 
 _cache = {}                  # node name -> (points signature, LinearCurve)
 

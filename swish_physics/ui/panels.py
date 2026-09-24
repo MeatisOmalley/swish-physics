@@ -124,7 +124,9 @@ class SWISH_PT_main(bpy.types.Panel):
             box.label(text="Start the group below them: " + ", ".join(constrained[:3])
                            + (" ..." if len(constrained) > 3 else ""))
         row = layout.row(align=True)
-        row.operator_menu_enum("swish.preset_apply", "preset", text="Preset", icon="PRESET")
+        from ..data import presets
+        row.menu("SWISH_MT_presets", text=presets.matching(group) or "Preset", icon="PRESET")
+        row.operator("swish.preset_save", text="", icon="ADD")
         row.operator("swish.group_copy", text="", icon="COPYDOWN")
         row.operator("swish.group_paste", text="", icon="PASTEDOWN")
 
@@ -147,7 +149,7 @@ class _GroupPanel:
 
 
 # Settings shown the intuitive way round (display only: Kawaii's values are stored and exported).
-_SHOWN = {"stiffness": "stiffness_level", "world_damping_location": "movement_inertia",
+_SHOWN = {"stiffness": "stiffness_level", "damping": "damping_level", "world_damping_location": "movement_inertia",
           "world_damping_rotation": "turning_inertia"}
 _SHORT_LABELS = {"world_damping_location": "Movement", "world_damping_rotation": "Turning"}
 

@@ -1010,16 +1010,96 @@ def _pose_menu(self, context):
 class SWISH_OT_preset_apply(_GroupOperator, bpy.types.Operator):
     bl_idname = "swish.preset_apply"
     bl_label = "Apply Preset"
-    bl_description = "Set the group's physics to a starting point for this kind of chain"
+    bl_description = "Set the group's physics to this preset"
     bl_options = {"REGISTER", "UNDO"}
 
-    preset: bpy.props.EnumProperty(name="Preset", items=presets.ITEMS)
+    preset: bpy.props.StringProperty(name="Preset", description="A built-in preset's key, or a saved preset's name")
+    user: bpy.props.BoolProperty(options={"SKIP_SAVE"}, description="One of the user's saved presets")
+
+    @classmethod
+    def description(cls, context, properties):
+        if not properties.user and properties.preset in presets.PRESETS:
+            return presets.PRESETS[properties.preset][1]
+        return "Apply your saved preset"
 
     def execute(self, context):
-        for group in _target_groups(context):
-            presets.apply(group, self.preset)
+        if not self.user and self.preset not in presets.PRESETS:
+            return {"CANCELLED"}
+        try:
+            for group in _target_groups(context):
+                if self.user:
+                    presets.apply_user(group, self.preset)
+                else:
+                    presets.apply(group, self.preset)
+        except (OSError, KeyError, ValueError) as error:
+            self.report({"ERROR"}, f"Could not apply the preset: {error}")
+            return {"CANCELLED"}
         live.mark_dirty(context.scene)
         return {"FINISHED"}
+
+
+class SWISH_OT_preset_save(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.preset_save"
+    bl_label = "Save Preset"
+    bl_description = "Save the active group's settings and curves as a preset of your own, for any file"
+
+    name: bpy.props.StringProperty(name="Name", default="My Preset")
+
+    def invoke(self, context, event):
+        current = presets.matching(_active_group(context))
+        if current and current in presets.user_presets():
+            self.name = current
+        return context.window_manager.invoke_props_dialog(self, title="Save Preset")
+
+    def execute(self, context):
+        name = self.name.strip()
+        if not name:
+            return {"CANCELLED"}
+        builtin = {label for label, _description, _values in presets.PRESETS.values()}
+        if name in builtin:
+            self.report({"WARNING"}, f"'{name}' is a built-in preset's name: pick another")
+            return {"CANCELLED"}
+        saved = presets.save_user(_active_group(context), name)
+        self.report({"INFO"}, f"Saved preset '{saved}'")
+        return {"FINISHED"}
+
+
+class SWISH_OT_preset_delete(bpy.types.Operator):
+    bl_idname = "swish.preset_delete"
+    bl_label = "Delete Preset"
+    bl_description = "Delete this saved preset"
+
+    name: bpy.props.StringProperty()
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_confirm(self, event, title=f"Delete preset '{self.name}'?",
+                                                     confirm_text="Delete")
+
+    def execute(self, context):
+        if not presets.delete_user(self.name):
+            return {"CANCELLED"}
+        self.report({"INFO"}, f"Deleted preset '{self.name}'")
+        return {"FINISHED"}
+
+
+class SWISH_MT_presets(bpy.types.Menu):
+    bl_idname = "SWISH_MT_presets"
+    bl_label = "Presets"
+
+    def draw(self, context):
+        layout = self.layout
+        for key, (label, _description, _values) in presets.PRESETS.items():
+            layout.operator("swish.preset_apply", text=label).preset = key
+        saved = presets.user_presets()
+        if saved:
+            layout.separator()
+            for name in saved:
+                row = layout.row(align=True)
+                apply = row.operator("swish.preset_apply", text=name)
+                apply.preset, apply.user = name, True
+                row.operator("swish.preset_delete", text="", icon="X", emboss=False).name = name
+        layout.separator()
+        layout.operator("swish.preset_save", text="Save Current as Preset...", icon="ADD")
 
 
 class SWISH_OT_group_copy(_GroupOperator, bpy.types.Operator):
@@ -1108,7 +1188,7 @@ class SWISH_OT_setup_import(ImportHelper, bpy.types.Operator):
 CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_group_remove, SWISH_OT_reset,
            SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove,
            SWISH_OT_link_chains, SWISH_OT_links_clear, SWISH_OT_link_remove, SWISH_OT_cache_all,
-           SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_group_copy, SWISH_OT_group_paste,
+           SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_preset_save, SWISH_OT_preset_delete, SWISH_MT_presets, SWISH_OT_group_copy, SWISH_OT_group_paste,
            SWISH_OT_setup_export, SWISH_OT_setup_import, SWISH_OT_force_add, SWISH_OT_force_remove,
            SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
            SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add, SWISH_OT_chain_click,
