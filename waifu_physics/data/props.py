@@ -28,6 +28,19 @@ def _colliders():
     return colliders
 
 
+def _picked_index(settings):
+    objects = bpy.data.objects
+    found = _colliders().picked(settings.id_data, objects.get(settings.last_collider))
+    return objects.find(found.name) if found is not None else -1
+
+
+def _pick_index(settings, index):
+    objects = bpy.data.objects
+    if 0 <= index < len(objects) and _colliders().is_collider(objects[index]):
+        settings.last_collider = objects[index].name
+        _colliders().pick(settings.id_data, objects[index])
+
+
 def _structure_changed(self, context):
     """Something that shapes the chains changed: rebuild the simulation."""
     from ..runtime import live
@@ -516,7 +529,6 @@ class WaifuPhysicsArmature(PropertyGroup):
     groups: CollectionProperty(type=WaifuPhysicsGroup)
     known_bones: CollectionProperty(type=WaifuPhysicsKnownBone, options={"HIDDEN"})
     active_group: IntProperty(update=_group_picked)
-    active_collider: IntProperty(options={"HIDDEN"})       # an index into bpy.data.objects: the Colliders list
     expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's groups")
 
 
@@ -540,7 +552,15 @@ class WaifuPhysicsScene(PropertyGroup):
         name="Show Colliders", get=lambda self: _colliders().shown(self.id_data),
         set=lambda self, value: _colliders().show(self.id_data, value),
         description="Show the colliders in the viewport (the eye of their collection). Hidden, they still collide")
-    active_scene_collider: IntProperty(options={"HIDDEN"})   # an index into bpy.data.objects: the Scene list
+    # The Colliders list's pick is the viewport's selection (colliders.picked / pick); the list's index is
+    # into bpy.data.objects.
+    active_collider: IntProperty(name="Active Collider", options={"HIDDEN"},
+                                 get=lambda self: _picked_index(self), set=lambda self, value: _pick_index(self, value))
+    last_collider: StringProperty(options={"HIDDEN"})     # the name of the one last picked in the list
+    collider_shape: EnumProperty(
+        name="Shape", items=_colliders().SHAPE_CHOICES, default="AUTO",
+        description="The shape of the colliders generated or added to bones: Auto fits each bone's skin with "
+                    "the shape that fits it best")
     selected_only: BoolProperty(
         name="Selected Only", default=True,
         description="List the selected armature's groups only; off lists every armature with a group")

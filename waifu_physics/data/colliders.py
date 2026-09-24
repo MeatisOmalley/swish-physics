@@ -29,6 +29,9 @@ TREE = ".Waifu Physics Collider"
 MODIFIER = "Waifu Physics Collider"
 TREE_VERSION = 1
 SHAPES = ("Sphere", "Inner Sphere", "Capsule", "Tapered Capsule", "Box", "Plane")
+# What a collider added to a bone may be: fitted to the skin, as one shape or the best fitting.
+SHAPE_CHOICES = [("AUTO", "Auto (Best Fit)", "The shape that fits the skin around the bone best")] + [
+    (s, s, "") for s in SHAPES]
 KINDS = {"Sphere": SPHERE_OUTER, "Inner Sphere": SPHERE_INNER, "Capsule": CAPSULE, "Tapered Capsule": TAPERED,
          "Box": BOX, "Plane": PLANE}
 # Turns a shape running along local Y onto Kawaii's Z: X stays, Z goes to Y.
@@ -219,19 +222,81 @@ def _layer_collection(view_layer):
     return None
 
 
+def _collection(scene):
+    """The colliders' collection, made and put in the scene if need be."""
+    collection = bpy.data.collections.get(COLLECTION)
+    if collection is None:
+        collection = bpy.data.collections.new(COLLECTION)
+    if collection not in scene.collection.children_recursive:
+        scene.collection.children.link(collection)
+    return collection
+
+
+def _view_layer(scene):
+    return bpy.context.view_layer if bpy.context.scene == scene else scene.view_layers[0]
+
+
 def shown(scene):
     """Are the colliders shown in the scene's view layer: their collection's eye."""
-    view_layer = bpy.context.view_layer if bpy.context.scene == scene else scene.view_layers[0]
-    found = _layer_collection(view_layer)
+    found = _layer_collection(_view_layer(scene))
     return found is None or not found.hide_viewport
 
 
 def show(scene, value):
     """Show or hide the colliders. The eye only hides them: they still move with their bones and collide."""
-    view_layer = bpy.context.view_layer if bpy.context.scene == scene else scene.view_layers[0]
-    found = _layer_collection(view_layer)
+    _collection(scene)
+    found = _layer_collection(_view_layer(scene))
     if found is not None:
         found.hide_viewport = not value
+
+
+def remove(obj):
+    """Delete a collider and its mesh."""
+    mesh = obj.data
+    bpy.data.objects.remove(obj)
+    if mesh is not None and not mesh.users:
+        bpy.data.meshes.remove(mesh)
+
+
+# --------------------------------------------------------------------------- the collider the lists show as picked
+# It is the viewport's selection, so the two always agree: the active object if it is a collider; in Pose Mode, a
+# collider on the active bone. Picking one in a list selects it (in Pose Mode, its bone).
+
+def picked(scene, stored=None):
+    """The collider the viewport has picked, else the one last picked in a list (stored), else None."""
+    view_layer = _view_layer(scene)
+    active = view_layer.objects.active
+    if is_collider(active):
+        return active
+    if active is not None and active.type == "ARMATURE" and active.mode == "POSE":
+        bone = active.data.bones.active
+        on_bone = [obj for obj in all_of(active) if bone is not None and obj.parent_bone == bone.name]
+        if stored in on_bone:
+            return stored
+        if on_bone:
+            return on_bone[0]
+        return stored if stored is not None and is_scene_collider(stored) else None
+    return stored if is_collider(stored) else None
+
+
+def pick(scene, obj):
+    """Select a collider in the viewport: the object itself, or in Pose Mode on its own armature, its bone."""
+    view_layer = _view_layer(scene)
+    active = view_layer.objects.active
+    if active is not None and active.type == "ARMATURE" and active.mode == "POSE":
+        if obj.parent == active and obj.parent_type == "BONE" and obj.parent_bone in active.pose.bones:
+            for bone in active.pose.bones:
+                bone.select = bone.name == obj.parent_bone
+            active.data.bones.active = active.data.bones[obj.parent_bone]
+        return
+    if active is not None and active.mode != "OBJECT" or obj.name not in view_layer.objects:
+        return                                            # editing something: its selection is left alone
+    show(scene, True)
+    for other in view_layer.objects.selected:
+        other.select_set(False)
+    obj.hide_set(False)
+    obj.select_set(True)
+    view_layer.objects.active = obj
 
 
 def modifier(obj):
@@ -416,23 +481,26 @@ def on_simulated_bone(obj):
             and obj.parent_bone in simulated_bones(parent))
 
 
-def from_bones(armature, bone_names, shape="AUTO", context=None):
-    """A collider fitted to the skin of each bone; bones with a collider already, and simulated bones, are
-    skipped. Returns them."""
+def from_bones(armature, bone_names, shape="AUTO", context=None, replace=False):
+    """A collider fitted to the skin of each bone, simulated bones skipped. A bone with colliders already is
+    skipped too, or with replace, has them replaced by the one fitted. Returns the new colliders."""
     points = skin_points(armature)
     skipped = simulated_bones(armature)
-    return [add(armature, name, shape, context, points) for name in bone_names
-            if name not in skipped and not has_collider(armature, name)]
+    made = []
+    for name in bone_names:
+        existing = [obj for obj in all_of(armature) if obj.parent_bone == name]
+        if name in skipped or existing and not replace:
+            continue
+        for obj in existing:
+            remove(obj)
+        made.append(add(armature, name, shape, context, points))
+    return made
 
 
 def _new(name, context=None):
     """A collider object in the colliders' collection, in the scene and shown (a new one should be seen)."""
     scene = (context or bpy.context).scene
-    collection = bpy.data.collections.get(COLLECTION)
-    if collection is None:
-        collection = bpy.data.collections.new(COLLECTION)
-    if collection not in scene.collection.children_recursive:
-        scene.collection.children.link(collection)
+    collection = _collection(scene)
     obj = bpy.data.objects.new(name, bpy.data.meshes.new(name))
     collection.objects.link(obj)
     obj.waifu_physics_collider.is_collider = True

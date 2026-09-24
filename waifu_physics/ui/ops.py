@@ -238,17 +238,13 @@ class WAIFU_PHYSICS_OT_reset(bpy.types.Operator):
         return {"FINISHED"}
 
 
-SHAPE_CHOICES = [("AUTO", "Auto (Best Fit)", "The shape that fits the skin around the bone best")] + [
-    (s, s, "") for s in colliders.SHAPES]
-
-
 class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
     bl_idname = "waifu_physics.collider_add"
     bl_label = "Add Collider"
     bl_description = "Add a collider to the active bone, fitted to the skin around it and weighted to it"
     bl_options = {"REGISTER", "UNDO"}
 
-    shape: bpy.props.EnumProperty(name="Shape", items=SHAPE_CHOICES, default="AUTO")
+    shape: bpy.props.EnumProperty(name="Shape", items=colliders.SHAPE_CHOICES, default="AUTO")
 
     @classmethod
     def poll(cls, context):
@@ -262,7 +258,8 @@ class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
             self.report({"ERROR"}, f"{name} is in a chain: a collider there would chase the chain it pushes. "
                                    "Put it on a bone the chain hangs from")
             return {"CANCELLED"}
-        colliders.add(context.object, name, self.shape, context)
+        obj = colliders.add(context.object, name, self.shape, context)
+        context.scene.waifu_physics.last_collider = obj.name
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
@@ -279,19 +276,26 @@ class WAIFU_PHYSICS_OT_scene_collider_add(bpy.types.Operator):
 
     def execute(self, context):
         obj = colliders.add_to_scene(self.shape, context, context.scene.cursor.location.copy())
-        context.scene.waifu_physics.active_scene_collider = bpy.data.objects.find(obj.name)
+        context.scene.waifu_physics.active_collider = bpy.data.objects.find(obj.name)     # picks it
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
 
 class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
     bl_idname = "waifu_physics.colliders_from_bones"
-    bl_label = "Colliders from Bones"
-    bl_description = ("Add a collider to each selected bone, fitted to the skin around it and weighted to it. "
-                      "Bones that have a collider already are skipped")
+    bl_label = "Generate Colliders"
     bl_options = {"REGISTER", "UNDO"}
 
-    shape: bpy.props.EnumProperty(name="Shape", items=SHAPE_CHOICES, default="AUTO")
+    shape: bpy.props.EnumProperty(name="Shape", items=colliders.SHAPE_CHOICES, default="AUTO")
+    replace: bpy.props.BoolProperty(name="Replace", default=False)
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.replace:
+            return ("Replace the colliders of each selected bone with one fitted to the skin around it and "
+                    "weighted to it")
+        return ("Add a collider to each selected bone, fitted to the skin around it and weighted to it. Bones "
+                "that have a collider already are skipped")
 
     @classmethod
     def poll(cls, context):
@@ -303,11 +307,12 @@ class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
         obj = context.object
         names = [pb.name for pb in context.selected_pose_bones if pb.id_data == obj]
         in_chains = len(set(names) & colliders.simulated_bones(obj))
-        made = colliders.from_bones(obj, names, self.shape, context)
+        made = colliders.from_bones(obj, names, self.shape, context, replace=self.replace)
         live.mark_dirty(context.scene)
         had = len(names) - len(made) - in_chains
         notes = ([f"{had} bones had one"] if had else []) + ([f"{in_chains} bones are in chains"] if in_chains else [])
-        self.report({"INFO"}, f"Added {len(made)} colliders" + (f"; skipped: {', '.join(notes)}" if notes else ""))
+        verb = "Regenerated" if self.replace else "Generated"
+        self.report({"INFO"}, f"{verb} {len(made)} colliders" + (f"; skipped: {', '.join(notes)}" if notes else ""))
         return {"FINISHED"}
 
 
@@ -360,7 +365,7 @@ class WAIFU_PHYSICS_OT_collider_set_remove(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_collider_remove(bpy.types.Operator):
     bl_idname = "waifu_physics.collider_remove"
     bl_label = "Remove Collider"
-    bl_description = "Delete this collider"
+    bl_description = "Delete the collider picked in the list"
     bl_options = {"REGISTER", "UNDO"}
 
     name: bpy.props.StringProperty()
@@ -369,32 +374,26 @@ class WAIFU_PHYSICS_OT_collider_remove(bpy.types.Operator):
         obj = bpy.data.objects.get(self.name)
         if not colliders.is_collider(obj):
             return {"CANCELLED"}
-        bpy.data.objects.remove(obj)
+        colliders.remove(obj)
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
 
-class WAIFU_PHYSICS_OT_collider_select(bpy.types.Operator):
-    bl_idname = "waifu_physics.collider_select"
-    bl_label = "Select Collider"
-    bl_description = "Select this collider in the viewport, to move, turn or scale it (scale sizes its shape)"
-    bl_options = {"REGISTER", "UNDO"}
+class WAIFU_PHYSICS_MT_collider_add(bpy.types.Menu):
+    """Add one collider: on the active bone (of the Generate shape), or in the scene."""
+    bl_idname = "WAIFU_PHYSICS_MT_collider_add"
+    bl_label = "Add Collider"
 
-    name: bpy.props.StringProperty()
-
-    def execute(self, context):
-        obj = bpy.data.objects.get(self.name)
-        if not colliders.is_collider(obj) or obj.name not in context.view_layer.objects:
-            return {"CANCELLED"}
-        if context.mode != "OBJECT":
-            bpy.ops.object.mode_set(mode="OBJECT")
-        for other in context.selected_objects:
-            other.select_set(False)
-        colliders.show(context.scene, True)
-        obj.hide_set(False)
-        obj.select_set(True)
-        context.view_layer.objects.active = obj
-        return {"FINISHED"}
+    def draw(self, context):
+        layout = self.layout
+        shape = context.scene.waifu_physics.collider_shape
+        label = dict((key, name) for key, name, _ in colliders.SHAPE_CHOICES)[shape]
+        layout.operator("waifu_physics.collider_add", text=f"On Active Bone: {label}", icon="BONE_DATA").shape = shape
+        layout.separator()
+        layout.label(text="In the Scene")
+        for shape in ("Plane", "Sphere", "Capsule", "Tapered Capsule", "Box"):
+            layout.operator("waifu_physics.scene_collider_add", text="Ground" if shape == "Plane" else shape,
+                            icon="MESH_PLANE" if shape == "Plane" else "ADD").shape = shape
 
 
 def _chain_root(obj, group, name):
@@ -1377,7 +1376,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_select, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_MT_collider_add, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_scene_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,

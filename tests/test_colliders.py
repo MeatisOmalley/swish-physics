@@ -320,5 +320,47 @@ late = colliders.add(own, "c3", "Sphere")
 check("a collider that ends up on a chain bone is flagged", colliders.on_simulated_bone(late)
       and not colliders.on_simulated_bone(made[0]))
 
+# --- the list's pick is the viewport's selection, both ways
+settings = scene.waifu_physics
+bpy.ops.object.mode_set(mode="OBJECT")
+floor_plane = colliders.add_to_scene("Plane")
+settings.active_collider = bpy.data.objects.find(floor_plane.name)
+check("picking a collider in the list selects it in the viewport",
+      bpy.context.view_layer.objects.active == floor_plane and floor_plane.select_get())
+bpy.context.view_layer.objects.active = made[0]
+check("... and selecting one in the viewport picks it in the list",
+      settings.active_collider == bpy.data.objects.find(made[0].name))
+for obj in list(bpy.context.view_layer.objects.selected):
+    obj.select_set(False)
+own.select_set(True)
+bpy.context.view_layer.objects.active = own
+bpy.ops.object.mode_set(mode="POSE")
+settings.active_collider = bpy.data.objects.find(made[0].name)
+check("in Pose Mode, picking a bone's collider in the list selects its bone",
+      own.data.bones.active.name == made[0].parent_bone and own.pose.bones[made[0].parent_bone].select)
+own.data.bones.active = own.data.bones["anchor"]
+anchor_collider = next(obj for obj in made if obj.parent_bone == "anchor")
+check("... and making a bone active picks its collider",
+      settings.active_collider == bpy.data.objects.find(anchor_collider.name))
+
+# --- Regenerate replaces a bone's colliders with one fitted; Generate leaves them
+before = {obj.name for obj in colliders.all_of(own)}
+check("Generate skips bones that have a collider", colliders.from_bones(own, ["anchor"], "Sphere") == [])
+redone = colliders.from_bones(own, ["anchor"], "Sphere", replace=True)
+on_anchor = [obj for obj in colliders.all_of(own) if obj.parent_bone == "anchor"]
+check("Regenerate replaces them with one fitted (a Capsule before, a Sphere now)",
+      on_anchor == redone and len(redone) == 1 and colliders.values(redone[0])["Shape"] == "Sphere"
+      and len(colliders.all_of(own)) == len(before), [obj.name for obj in on_anchor])
+bpy.ops.object.mode_set(mode="OBJECT")
+
+# --- the eye works before there is any collider: it makes their collection, hidden
+for obj in [obj for obj in bpy.data.objects if colliders.is_collider(obj)]:
+    colliders.remove(obj)
+bpy.data.collections.remove(bpy.data.collections[colliders.COLLECTION])
+settings.show_colliders = False
+check("hiding with no colliders yet makes their collection, hidden",
+      colliders.COLLECTION in bpy.data.collections and not settings.show_colliders)
+settings.show_colliders = True
+
 addon.unregister()
 finish()
