@@ -235,13 +235,13 @@ check("0 is the loosest: ten seconds to settle, still some pull", 0.0 < g.stiffn
 g.stiffness_level = 10.0
 check("10 snaps straight back", g.stiffness > 0.99, g.stiffness)
 g.world_damping_location = 0.8
-check("World Damping 0.8 shows as Movement Inertia 0.2", abs(g.movement_inertia - 0.2) < 1e-6)
-g.turning_inertia = 1.0
-check("Turning Inertia 1 is World Damping Rotation 0", g.world_damping_rotation == 0.0)
+check("World Damping Location 0.8 shows as World Location Inertia 0.2", abs(g.world_location_inertia - 0.2) < 1e-6)
+g.world_rotation_inertia = 1.0
+check("World Rotation Inertia 1 is World Damping Rotation 0", g.world_damping_rotation == 0.0)
 serialize = sys.modules["waifu_physics.data.serialize"]
 saved = serialize.settings_to_dict(g)
 check("saved setups keep Kawaii's values, not the display ones",
-      not {"stiffness_level", "movement_inertia", "turning_inertia"} & set(saved) and "stiffness" in saved)
+      not {"stiffness_level", "world_location_inertia", "world_rotation_inertia"} & set(saved) and "stiffness" in saved)
 g.stiffness = 0.05
 
 # --- the right-click Move Chains to Group: from any groups, into one, or a new one
