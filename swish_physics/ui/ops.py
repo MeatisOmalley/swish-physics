@@ -164,7 +164,8 @@ class SWISH_OT_collider_add(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and obj.type == "ARMATURE" and context.mode == "POSE"             and context.active_pose_bone is not None
+        return (obj is not None and obj.type == "ARMATURE" and context.mode == "POSE"
+                and context.active_pose_bone is not None)
 
     def execute(self, context):
         colliders.add(context.object, context.active_pose_bone.name, self.shape, context)
