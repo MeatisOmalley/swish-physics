@@ -25,6 +25,7 @@ class Snapshot:
     def __init__(self, rt):
         s = rt.system
         self.loc, self.prev = s.loc.copy(), s.prev.copy()
+        self.step_start = None if s.step_start_loc is None else s.step_start_loc.copy()
         self.prev_pose, self.prev_pose_rot = s.prev_pose.copy(), s.prev_pose_rot.copy()
         self.scalars = (s.accumulator, s.dt_old, s.consume_fraction, s.pose_initialized, s.skip_known)
         self.forces = s.force_states()
@@ -34,6 +35,7 @@ class Snapshot:
     def restore_state(self, rt):
         s = rt.system
         s.loc[:], s.prev[:] = self.loc, self.prev
+        s.step_start_loc = None if self.step_start is None else self.step_start.copy()
         s.prev_pose[:], s.prev_pose_rot[:] = self.prev_pose, self.prev_pose_rot
         s.accumulator, s.dt_old, s.consume_fraction, s.pose_initialized, s.skip_known = self.scalars
         s.set_force_states(self.forces)

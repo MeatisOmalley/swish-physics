@@ -102,12 +102,15 @@ class Runtime:
         self.system = build(Skeleton(names, parents, ref_length,
                                      np.concatenate(pose) if pose else np.zeros((0, 3)),
                                      np.concatenate(rotation) if rotation else np.zeros((0, 4))),
-                            specs, target_framerate=target_framerate or max(
-                                scene_settings.target_framerate,
-                                math.ceil(scene.render.fps / scene.render.fps_base)),
+                            specs, target_framerate=target_framerate or scene_settings.target_framerate,
                             max_substeps=scene_settings.max_substeps,
                             fixed_substepping=scene_settings.fixed_substepping)
         s = self.system
+        # Stiffness and damping act per step, so the step rate stays the scene's simulation rate
+        # (Kawaii's 60 Hz by default) whatever the frame rate. Above it a frame can fall between
+        # steps; live playback then shows the chains between the last two steps.
+        self.interpolate = (target_framerate is None
+                            and scene.render.fps / scene.render.fps_base > s.target_framerate)
         self.real = np.flatnonzero(s.bone >= 0)
         combined = s.bone[self.real]
         self.rig_of_point = np.searchsorted(np.array(offsets + [len(names)]), combined, side="right") - 1
@@ -344,7 +347,16 @@ class Runtime:
         """Rotations back onto every chain bone, and heads for bones Kawaii places directly."""
         global _writing
         s = self.system
-        rotation, _turned = s.results()
+        simulated = s.loc
+        if self.interpolate and s.step_start_loc is not None:
+            # Between steps: blend from the last step's start by the time carried past it.
+            alpha = min(1.0, float(s.accumulator) * s.target_framerate)
+            s.loc = s.step_start_loc + (simulated - s.step_start_loc) * alpha
+        try:
+            rotation, _turned = s.results()
+            heads = s.loc
+        finally:
+            s.loc = simulated
         # Every bone below a group's root takes its simulated head (ApplySimulateResult sets each
         # such bone's location). Where a parent has one child its rotation already puts the head
         # there; sync bones and branching chains need the location itself.
@@ -355,7 +367,7 @@ class Runtime:
             for r, rig in enumerate(self.rigs):
                 rows = self.rig_of_point == r
                 rig.write(self.bone_of_point[rows], rotation[self.real[rows]],
-                          s.loc[self.real[rows]] / self.cm, placed[rows])
+                          heads[self.real[rows]] / self.cm, placed[rows])
         finally:
             _writing = False
 
@@ -490,12 +502,8 @@ def scene_wind(scene, cm):
 def runtime(scene, rebuild=False):
     key = scene.as_pointer()
     current = _runtimes.get(key)
-    live_rate = max(scene.swish.target_framerate,
-                    math.ceil(scene.render.fps / scene.render.fps_base))
     changed_clock = current is not None and current.cache_key != frame_cache.key(scene)
-    wrong_live_rate = current is not None and current.cache_mode != "canonical" \
-        and current.system.target_framerate != live_rate
-    if current is None or rebuild or changed_clock or wrong_live_rate or key in _dirty or "all" in _dirty:
+    if current is None or rebuild or changed_clock or key in _dirty or "all" in _dirty:
         if current is not None:
             current.release()
         _dirty.discard(key)

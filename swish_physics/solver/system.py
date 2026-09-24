@@ -127,6 +127,7 @@ class System:
         self.frame_pose, self.frame_pose_rot = self.pose.copy(), self.pose_rot.copy()
         self.prev_pose, self.prev_pose_rot = self.pose.copy(), self.pose_rot.copy()
         self.pose_initialized = False
+        self.step_start_loc = None
         self.frame_pose_scale = np.ones((n, 3))
         # Children in Kawaii's order (ChildIndices), and the bone whose transform a point's
         # bone-space forces use (ResolveExternalForceBoneTransform).
@@ -477,6 +478,7 @@ class System:
         self.accumulator = F32(0.0)
         self.skip_known = False
         self._forces = [[] for _ in self.groups]
+        self.step_start_loc = None
 
     def step_frame(self, frame_dt, backend, prepare=True, call=0):
         """SimulateModifyBones (Simulation.cpp:597): fixed substeps or one legacy step.
@@ -537,6 +539,7 @@ class System:
         self.skip_known = True
 
     def _substep(self, backend):
+        self.step_start_loc = self.loc.copy()        # for showing the chains between steps
         self.pull[:] = backend.pull(self.stiffness, self.exponent)
         backend.simulate_once(self)
 

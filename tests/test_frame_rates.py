@@ -116,8 +116,8 @@ actual = np.array(rig.pose.bones["child"].rotation_euler)
 check("post-frame replay restores the keyed bone's cached channel",
       np.allclose(actual, expected, atol=1e-5), (actual, expected))
 
-for fps, expected in ((12, 5), (24, 2), (30, 2), (60, 1), (120, 1)):
-    make_rig(fps)
+for fps, expected in ((12, 5), (24, 2), (30, 2), (60, 1), (120, 0)):
+    rig = make_rig(fps)
     scene.swish.use_cache = False
     scene.swish.simulate = True
     rt = live.runtime(scene)
@@ -132,6 +132,17 @@ for fps, expected in ((12, 5), (24, 2), (30, 2), (60, 1), (120, 1)):
     scene.frame_set(2)
     check(f"{fps} fps live frame does not lose normal elapsed time",
           calls[0] == expected, calls[0])
+    check(f"{fps} fps live keeps the {rt.system.target_framerate} Hz step whatever the frame rate",
+          rt.system.target_framerate == scene.swish.target_framerate)
+    if fps == 120:
+        shown = [np.array(rig.pose.bones["child"].tail) for _ in [0]]
+        scene.frame_set(3)
+        shown.append(np.array(rig.pose.bones["child"].tail))
+        check("at 120 fps two frames make one 60 Hz step", calls[0] == 1, calls[0])
+        scene.frame_set(4)
+        shown.append(np.array(rig.pose.bones["child"].tail))
+        check("... and the chains move on every frame, shown between steps",
+              all(not np.array_equal(a, b) for a, b in zip(shown, shown[1:])), shown)
 
 scene.swish.simulate = False
 swish.unregister()
