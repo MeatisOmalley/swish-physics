@@ -155,7 +155,12 @@ class Rig:
 
     # ------------------------------------------------------------------ input
     def read(self):
-        """The input pose: (matrices in armature space, local basis matrices of the chain bones)."""
+        """The input pose, Blender's evaluated matrices in armature space, and the chain bones'
+        local basis matrices from their keyed channels.
+
+        The evaluated pose is the input only because restore() cleared last frame's physics
+        from the chain channels before Blender evaluated it (frame_change_pre), so constraints,
+        drivers and IK on any bone reach the solver."""
         bones = self.obj.pose.bones
         bones.foreach_get("matrix", self._matrices)
         evaluated = self._matrices.reshape(self.count, 4, 4).transpose(0, 2, 1).astype(np.float64)
@@ -174,11 +179,7 @@ class Rig:
         for i in keyed_scale:
             basis[i, :3, :3] = basis[i, :3, :3] * scale[i]
         basis[keyed_loc, :3, 3] = location[keyed_loc]
-        pose = evaluated.copy()
-        for level in self.chain_levels:
-            parent = self.parents[level]
-            parent_pose = np.where((parent >= 0)[:, None, None], pose[np.maximum(parent, 0)], np.eye(4))
-            pose[level] = parent_pose @ self.rest_rel[level] @ basis[level]
+        pose = evaluated
         self.pose = pose
         self.basis = basis
         return pose
@@ -264,7 +265,8 @@ class Rig:
             self.obj.update_tag(refresh={"DATA"})
 
     def restore(self):
-        """Put the chain bones back to their input channels: keyed values, or rest."""
+        """Put the chain bones back to their input channels: keyed values, or rest. Before a frame
+        is evaluated this clears last frame's physics, so the evaluated pose is a clean input."""
         bones = self.obj.pose.bones
         rows = np.flatnonzero(self.chain)
         for path, size, rest_value in (("location", 3, 0.0), ("rotation_quaternion", 4, None),

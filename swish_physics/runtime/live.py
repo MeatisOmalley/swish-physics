@@ -64,19 +64,23 @@ def armatures(scene):
 class Runtime:
     """The simulation of one scene."""
 
-    def __init__(self, scene, target_framerate=None):
+    def __init__(self, scene, target_framerate=None, settle=False):
+        """settle: clear the chain channels and re-evaluate before reading the input pose. Needed
+        outside frame changes, where frame_change_pre has not cleared them."""
         self.scene_pointer = scene.as_pointer()
         self.cm = io.cm_per_unit(scene)
         self.rigs = [io.Rig(obj) for obj in armatures(scene)]
         self.group_props = []          # (rig index, group index in obj.swish.groups)
         names, parents, ref_length, pose, rotation = [], [], [], [], []
         offsets = []
-        for r, rig in enumerate(self.rigs):
-            offsets.append(len(names))
-            # The chain first, so the pose read rebuilds it from keyed channels, not last frame's physics.
+        for rig in self.rigs:
             groups = [props for props in rig.obj.swish.groups if props.enabled and len(props.roots)]
             rig.set_chain(rig.subtree([root.name for props in groups for root in props.roots],
                                       [bone.name for props in groups for bone in props.excluded]))
+        if settle:
+            self.settle(scene)
+        for r, rig in enumerate(self.rigs):
+            offsets.append(len(names))
             input_pose = rig.read()
             names += [f"{r}|{name}" for name in rig.names]
             parents += [p + offsets[-1] if p >= 0 else -1 for p in rig.parents]
@@ -348,6 +352,12 @@ class Runtime:
             if rig.obj.name in bpy.data.objects:
                 rig.restore()
 
+    def settle(self, scene):
+        """Clear the chains' physics and re-evaluate now, so read() sees a clean input pose."""
+        self.restore()
+        for layer in scene.view_layers:
+            layer.update()
+
     def store(self, frame):
         if not self.cache:
             self.collider_prints = frame_cache.collider_prints(self)
@@ -431,7 +441,7 @@ def bake_cache(scene, progress=None):
         previous.restore()
     _building_cache = True
     try:
-        rt = Runtime(scene, target_framerate=rate)
+        rt = Runtime(scene, target_framerate=rate, settle=True)
         _runtimes[key] = rt
         _dirty.discard(key)
         _dirty.discard("all")
@@ -483,7 +493,12 @@ def set_simulating(scene, on):
     if _building_cache:
         return
     if on:
-        rt = runtime(scene, rebuild=True)
+        previous = _runtimes.pop(scene.as_pointer(), None)
+        if previous is not None:
+            previous.restore()
+        rt = _runtimes[scene.as_pointer()] = Runtime(scene, settle=True)
+        _dirty.discard(scene.as_pointer())
+        _dirty.discard("all")
         rt.reset(scene)
         rt.last_frame = scene.frame_current
     else:
@@ -494,18 +509,22 @@ def set_simulating(scene, on):
 
 @persistent
 def _frame_changing(scene, depsgraph=None):
-    """A cached frame is written before Blender evaluates it, so renders see it."""
+    """Before Blender evaluates a frame: write a cached frame, so renders see it; otherwise clear
+    last frame's physics from the chains, so the evaluated pose is a clean input."""
     settings = scene.swish
-    if _building_cache or not (settings.simulate and settings.use_cache):
+    if not settings.simulate:
         return
     key = scene.as_pointer()
     current = _runtimes.get(key)
-    if current is None or current.cache_key != frame_cache.key(scene) \
-            or key in _dirty or "all" in _dirty:
+    if current is None:
         return
-    snapshot = current.cache.get(scene.frame_current)
-    if snapshot is not None:
-        snapshot.replay(current)
+    if not _building_cache and settings.use_cache and current.cache_key == frame_cache.key(scene) \
+            and key not in _dirty and "all" not in _dirty:
+        snapshot = current.cache.get(scene.frame_current)
+        if snapshot is not None:
+            snapshot.replay(current)
+            return
+    current.restore()
 
 
 @persistent

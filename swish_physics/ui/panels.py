@@ -2,6 +2,7 @@
 import bpy
 
 from ..data import colliders, curves
+from ..data import links as chain_links
 from ..data.props import FORCE_CHANNELS, FORCE_KINDS
 from ..solver import native
 
@@ -57,6 +58,15 @@ class SWISH_PT_main(bpy.types.Panel):
         if not len(swish.groups):
             layout.label(text="Select bones in Pose Mode, then New Group", icon="INFO")
         else:
+            group = swish.groups[min(swish.active_group, len(swish.groups) - 1)]
+            constrained = chain_links.constrained_bones(obj, group)
+            if constrained:
+                box = layout.box().column(align=True)
+                box.alert = True
+                box.label(text=f"{len(constrained)} bone{'s' if len(constrained) != 1 else ''} in this group "
+                               f"have constraints", icon="ERROR")
+                box.label(text="Constraints override the simulation. Start the group below them.")
+                box.label(text=", ".join(constrained[:4]) + (" ..." if len(constrained) > 4 else ""))
             row = layout.row(align=True)
             row.operator_menu_enum("swish.preset_apply", "preset", text="Preset", icon="PRESET")
             row.operator("swish.group_copy", text="", icon="COPYDOWN")

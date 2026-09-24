@@ -13,6 +13,21 @@ import math
 import numpy as np
 
 
+def constrained_bones(obj, group):
+    """Bones in a group's chains with an active constraint: Blender applies it after the
+    simulation's output, so the simulation cannot move them."""
+    excluded = {bone.name for bone in group.excluded}
+    found, stack = [], [obj.pose.bones.get(root.name) for root in group.roots]
+    while stack:
+        bone = stack.pop()
+        if bone is None or bone.name in excluded:
+            continue
+        if any(c.enabled and c.influence > 0 for c in bone.constraints):
+            found.append(bone.name)
+        stack.extend(bone.children)
+    return found
+
+
 def chain_bones(obj, root, excluded=()):
     """The bones of a chain from its root down, following the first child at each step."""
     bones, bone = [], obj.pose.bones.get(root)
