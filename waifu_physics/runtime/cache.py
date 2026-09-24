@@ -130,7 +130,7 @@ def collider_prints(rt):
     armatures = [rig.obj for rig in rt.rigs]
     for g in range(len(rt.group_props)):
         _rig, props = rt._group(g)
-        armatures += [item.armature for item in props.collider_sets if item.armature is not None]
+        armatures += colliders.sources(props)
     prints = {}
     for armature in armatures:
         for obj in armature.children:

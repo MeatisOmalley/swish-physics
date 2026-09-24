@@ -160,5 +160,89 @@ drawn_radius = np.linalg.norm(drawn - np.array(ball.matrix_world.translation), a
 check("a keyframed collider radius reaches the solver", abs(radius_at_10 - 20.0) < 1e-3, radius_at_10)
 check("... and the drawing follows it", abs(drawn_radius - 0.2) < 1e-4, drawn_radius)
 
+# --- colliders on a body with no groups; a garment parented to it collides with them by default
+scene.frame_set(1)
+peach = armature("peach", chain=False)
+check("an armature with no groups can carry colliders", not len(peach.waifu_physics.groups))
+hip = colliders.add(peach, "anchor", "Sphere")
+garment = armature("garment")
+garment.parent = peach
+skirt = garment.waifu_physics.groups.add()
+skirt.roots.add().name = "c0"
+check("a group collides with its own armature's colliders and its parent armature's by default",
+      colliders.sources(skirt) == [garment, peach], [a.name for a in colliders.sources(skirt)])
+bpy.context.view_layer.objects.active = garment
+garment.waifu_physics.active_group = 0
+bpy.ops.waifu_physics.collider_set_remove(index=0)
+check("removing one of the defaults keeps the other: the list now names what is left",
+      colliders.sources(skirt) == [peach], [a.name for a in colliders.sources(skirt)])
+bpy.ops.waifu_physics.collider_set_add()
+check("adding makes an empty slot to pick an armature in", len(skirt.collider_sets) == 2)
+skirt.collider_sets.clear()
+check("with the list cleared, the defaults are back", colliders.sources(skirt) == [garment, peach])
+for other in list(scene.objects):
+    other.select_set(False)
+hip.select_set(True)
+bpy.context.view_layer.objects.active = hip
+check("with a collider selected, the panel shows its armature", colliders.armature_of(bpy.context) == peach)
+check("... and the list holds that armature's colliders", colliders.all_of(peach) == [hip])
+name = hip.name
+check("Remove deletes the collider", bpy.ops.waifu_physics.collider_remove(name=name) == {"FINISHED"}
+      and name not in bpy.data.objects and colliders.all_of(peach) == [])
+
+# --- colliders from bones, as thick as the skin around them
+limb = armature("limb", chain=False)                     # one bone, "anchor": (0, 0, 1.6) up to (0, 0, 2.0)
+bpy.ops.object.mode_set(mode="OBJECT")
+ring = [(0.1 * math.cos(a), 0.1 * math.sin(a), z) for z in (1.65, 1.8, 1.95) for a in
+        np.linspace(0.0, 2.0 * math.pi, 16, endpoint=False)]
+skin_mesh = bpy.data.meshes.new("skin")
+skin_mesh.from_pydata(ring, [], [])
+skin = bpy.data.objects.new("skin", skin_mesh)
+scene.collection.objects.link(skin)
+skin.modifiers.new("Armature", "ARMATURE").object = limb
+skin.vertex_groups.new(name="anchor").add(list(range(len(ring))), 1.0, "REPLACE")
+radius = colliders.estimate_radius(limb, "anchor")
+check("a bone's collider radius is the skin's distance from it", abs(radius - 0.1) < 1e-4, radius)
+check("... none when no mesh is skinned to the bone", colliders.estimate_radius(rig, "c1") is None)
+bpy.context.view_layer.objects.active = limb
+bpy.ops.object.mode_set(mode="POSE")
+for bone in limb.pose.bones:
+    bone.select = True
+check("Colliders from Bones adds one to each selected bone",
+      bpy.ops.waifu_physics.colliders_from_bones() == {"FINISHED"} and len(colliders.all_of(limb)) == 1)
+made = colliders.all_of(limb)[0]
+check("... a capsule along it, named from the bone, as thick as the skin",
+      colliders.values(made)["Shape"] == "Capsule" and made.name.startswith("anchor Collider")
+      and abs(colliders.values(made)["Radius"] - 0.1) < 1e-4, (made.name, colliders.values(made)))
+bpy.ops.waifu_physics.colliders_from_bones()
+check("... and a bone with a collider already is skipped", len(colliders.all_of(limb)) == 1)
+bpy.ops.object.mode_set(mode="OBJECT")
+check("VRoid bone names shorten", colliders.short_name("J_Bip_C_Head") == "Head"
+      and colliders.short_name("J_Bip_L_UpperArm") == "L_UpperArm")
+
+# --- a chain is never pushed by colliders on its own bones; on the bone it hangs from, only if asked
+for obj in list(scene.objects):
+    bpy.data.objects.remove(obj)
+own = armature("own")
+chain_group = own.waifu_physics.groups.add()
+chain_group.roots.add().name = "c0"
+on_chain = colliders.add(own, "c1", "Sphere")
+on_parent = colliders.add(own, "anchor", "Sphere")
+
+
+def collider_count():
+    scene.waifu_physics.simulate = False
+    scene.frame_set(1)
+    scene.waifu_physics.simulate = True
+    scene.frame_set(2)
+    count = len(live.runtime(scene).system.shape_type)
+    scene.waifu_physics.simulate = False
+    return count
+
+
+check("a collider on the chain's own bone is ignored; one on the bone it hangs from counts", collider_count() == 1)
+chain_group.ignore_parent_colliders = True
+check("Skip Colliders on Parent Bones ignores that one too", collider_count() == 0)
+
 addon.unregister()
 finish()

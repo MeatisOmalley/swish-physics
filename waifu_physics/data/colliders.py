@@ -19,6 +19,7 @@ Kawaii's capsules run along Z; `shape_of` turns ours onto its axis.
 import math
 
 import bpy
+import numpy as np
 from mathutils import Matrix, Quaternion, Vector
 
 from ..solver.system import Shape, SPHERE_OUTER, SPHERE_INNER, CAPSULE, TAPERED, BOX, PLANE
@@ -226,6 +227,43 @@ def input_path(obj, name):
     return md, _identifiers(md.node_group)[name]
 
 
+def default_sources(armature):
+    """The armatures a group collides with when it names none: its own, and the armature it hangs from, if
+    any (a garment rig parented to a body collides with the body's colliders)."""
+    found = [armature]
+    parent = armature.parent
+    while parent is not None:
+        if parent.type == "ARMATURE":
+            found.append(parent)
+            break
+        parent = parent.parent
+    return found
+
+
+def sources(group):
+    """The armatures whose colliders a group collides with: the ones it names, else the defaults."""
+    if len(group.collider_sets):
+        return [item.armature for item in group.collider_sets if item.armature is not None]
+    return default_sources(group.id_data)
+
+
+def armature_of(context):
+    """The armature whose colliders the panel shows: the active armature, or a selected collider's."""
+    obj = context.object
+    if obj is None:
+        return None
+    if obj.type == "ARMATURE":
+        return obj
+    if is_collider(obj) and obj.parent is not None and obj.parent.type == "ARMATURE":
+        return obj.parent
+    return None
+
+
+def all_of(armature):
+    """Every collider parented to the armature, on or off, by name."""
+    return sorted((obj for obj in armature.children if is_collider(obj)), key=lambda obj: obj.name)
+
+
 def colliders_of(armature):
     """Enabled colliders parented to this armature."""
     return [obj for obj in armature.children if is_collider(obj) and obj.waifu_physics_collider.enabled]
@@ -252,14 +290,96 @@ def shape_of(obj, armature, cm):
                  radius=radius * cm, radius1=radius1 * cm, length=length * cm, extent=extent)
 
 
-def add(armature, bone_name, shape="Capsule", context=None):
-    """A new collider on a bone: centred on it, a capsule along it by default."""
+def short_name(bone_name):
+    """A bone's name without VRoid's prefixes: J_Bip_C_Head -> Head, J_Bip_L_UpperArm -> L_UpperArm."""
+    import re
+    name = re.sub(r"^J_(Bip|Sec|Adj)_", "", bone_name)
+    return re.sub(r"^C_", "", name) or bone_name
+
+
+def _skinned_meshes(armature):
+    return [obj for obj in bpy.data.objects if obj.type == "MESH" and not is_collider(obj)
+            and any(md.type == "ARMATURE" and md.object == armature for md in obj.modifiers)]
+
+
+def _weights(obj):
+    """{vertex group index: (vertex indices, weights)} of a mesh, read once."""
+    found = {}
+    for vertex in obj.data.vertices:
+        for entry in vertex.groups:
+            found.setdefault(entry.group, ([], []))
+            found[entry.group][0].append(vertex.index)
+            found[entry.group][1].append(entry.weight)
+    return {group: (np.array(indices), np.array(weights)) for group, (indices, weights) in found.items()}
+
+
+def estimate_radius(armature, bone_name, skins=None):
+    """How thick the body is around a bone, in world units: the 75th percentile of the distance from the bone
+    of the skin weighted mostly to it, at rest. None when no mesh is skinned to it. skins: the armature's
+    meshes with their weights, to reuse over many bones."""
+    if skins is None:
+        skins = [(obj, _weights(obj)) for obj in _skinned_meshes(armature)]
+    bone = armature.data.bones[bone_name]
+    world = np.array(armature.matrix_world)
+    a = world[:3, :3] @ np.array(bone.head_local) + world[:3, 3]
+    b = world[:3, :3] @ np.array(bone.tail_local) + world[:3, 3]
+    ab = b - a
+    length2 = float(ab @ ab) or 1.0e-12
+    # The skin may be weighted to twins lying on the bone: children with the same head and tail (VRoid Swap's
+    # J_Scale_ bones scale the skin under each J_Bip_ bone).
+    names, stack = [bone_name], [bone]
+    while stack:
+        for child in stack.pop().children:
+            if (child.head_local - bone.head_local).length < 1e-5 and (child.tail_local - bone.tail_local).length < 1e-5:
+                names.append(child.name)
+                stack.append(child)
+    distances = []
+    for obj, weights in skins:
+        for name in names:
+            group = obj.vertex_groups.get(name)
+            if group is not None and group.index in weights:
+                distances += _distances(obj, weights[group.index], a, ab, length2)
+    if not distances:
+        return None
+    return float(np.percentile(np.concatenate(distances), 75.0))
+
+
+def _distances(obj, weighted, a, ab, length2):
+    """The world distances from the bone segment of the vertices weighted mostly to it (as a list of one array)."""
+    indices, amounts = weighted
+    chosen = indices[amounts >= 0.5]
+    if len(chosen) < 8:
+        chosen = indices[amounts >= 0.1]
+    if not len(chosen):
+        return []
+    co = np.empty(len(obj.data.vertices) * 3, dtype=np.float32)
+    obj.data.vertices.foreach_get("co", co)
+    mw = np.array(obj.matrix_world)
+    points = co.reshape(-1, 3)[chosen].astype(np.float64) @ mw[:3, :3].T + mw[:3, 3]
+    t = np.clip(((points - a) @ ab) / length2, 0.0, 1.0)
+    return [np.linalg.norm(points - (a + t[:, None] * ab), axis=1)]
+
+
+def has_collider(armature, bone_name):
+    return any(is_collider(obj) and obj.parent_bone == bone_name for obj in armature.children)
+
+
+def from_bones(armature, bone_names, context=None):
+    """A capsule along each bone, sized to the skin around it; bones with a collider already are skipped.
+    Returns the new colliders."""
+    skins = [(obj, _weights(obj)) for obj in _skinned_meshes(armature)]
+    return [add(armature, name, "Capsule", context, skins) for name in bone_names if not has_collider(armature, name)]
+
+
+def add(armature, bone_name, shape="Capsule", context=None, skins=None):
+    """A new collider on a bone: centred on it, a capsule along it by default, as thick as the skin around it
+    (a quarter of the bone's length where no mesh is skinned to it)."""
     collection = bpy.data.collections.get(COLLECTION)
     if collection is None:
         collection = bpy.data.collections.new(COLLECTION)
         (context or bpy.context).scene.collection.children.link(collection)
-    mesh = bpy.data.meshes.new(f"Collider {bone_name}")
-    obj = bpy.data.objects.new(f"Collider {bone_name}", mesh)
+    mesh = bpy.data.meshes.new(f"{short_name(bone_name)} Collider")
+    obj = bpy.data.objects.new(f"{short_name(bone_name)} Collider", mesh)
     collection.objects.link(obj)
     obj.waifu_physics_collider.is_collider = True
     obj.display_type = "WIRE"
@@ -273,8 +393,13 @@ def add(armature, bone_name, shape="Capsule", context=None):
     obj.parent_bone = bone_name
     bone_length = pose_bone.bone.length
     obj.matrix_world = armature.matrix_world @ pose_bone.matrix @ Matrix.Translation((0.0, bone_length / 2, 0.0))
+    radius = estimate_radius(armature, bone_name, skins)
+    if radius is None:
+        radius = bone_length * 0.25
+    else:
+        radius /= max(obj.matrix_world.to_scale()[0], 1.0e-9)          # world size into the collider's own
     set_value(obj, "Shape", shape)
     set_value(obj, "Length", bone_length)
-    set_value(obj, "Radius", bone_length * 0.25)
-    set_value(obj, "Radius 1", bone_length * 0.25)
+    set_value(obj, "Radius", radius)
+    set_value(obj, "Radius 1", radius)
     return obj

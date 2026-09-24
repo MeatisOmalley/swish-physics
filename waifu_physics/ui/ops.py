@@ -257,6 +257,29 @@ class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
+    bl_idname = "waifu_physics.colliders_from_bones"
+    bl_label = "Colliders from Bones"
+    bl_description = ("Add a capsule along each selected bone, as thick as the skin weighted to it. Bones that "
+                      "have a collider already are skipped")
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        return (obj is not None and obj.type == "ARMATURE" and context.mode == "POSE"
+                and any(pb.id_data == obj for pb in context.selected_pose_bones or ()))
+
+    def execute(self, context):
+        obj = context.object
+        names = [pb.name for pb in context.selected_pose_bones if pb.id_data == obj]
+        made = colliders.from_bones(obj, names, context)
+        live.mark_dirty(context.scene)
+        skipped = len(names) - len(made)
+        self.report({"INFO"}, f"Added {len(made)} colliders" + (f"; {skipped} bones had one" if skipped else ""))
+        return {"FINISHED"}
+
+
 class WAIFU_PHYSICS_OT_collider_set_add(bpy.types.Operator):
     bl_idname = "waifu_physics.collider_set_add"
     bl_label = "Add Collider Set"
@@ -271,10 +294,16 @@ class WAIFU_PHYSICS_OT_collider_set_add(bpy.types.Operator):
     def execute(self, context):
         obj = context.object
         group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
-        if not len(group.collider_sets):
-            group.collider_sets.add().armature = obj      # its own colliders stay in
+        _name_sources(group)
         group.collider_sets.add()
         return {"FINISHED"}
+
+
+def _name_sources(group):
+    """Write the default collider armatures into the group's list, so it can be edited from there."""
+    if not len(group.collider_sets):
+        for armature in colliders.default_sources(group.id_data):
+            group.collider_sets.add().armature = armature
 
 
 class WAIFU_PHYSICS_OT_collider_set_remove(bpy.types.Operator):
@@ -287,8 +316,50 @@ class WAIFU_PHYSICS_OT_collider_set_remove(bpy.types.Operator):
     def execute(self, context):
         obj = context.object
         group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
+        _name_sources(group)
+        if not 0 <= self.index < len(group.collider_sets):
+            return {"CANCELLED"}
         group.collider_sets.remove(self.index)
         live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+class WAIFU_PHYSICS_OT_collider_remove(bpy.types.Operator):
+    bl_idname = "waifu_physics.collider_remove"
+    bl_label = "Remove Collider"
+    bl_description = "Delete this collider"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.name)
+        if not colliders.is_collider(obj):
+            return {"CANCELLED"}
+        bpy.data.objects.remove(obj)
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+class WAIFU_PHYSICS_OT_collider_select(bpy.types.Operator):
+    bl_idname = "waifu_physics.collider_select"
+    bl_label = "Select Collider"
+    bl_description = "Select this collider in the viewport, to move, turn or scale it (scale sizes its shape)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.name)
+        if not colliders.is_collider(obj) or obj.name not in context.view_layer.objects:
+            return {"CANCELLED"}
+        if context.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        for other in context.selected_objects:
+            other.select_set(False)
+        obj.hide_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
         return {"FINISHED"}
 
 
@@ -1272,7 +1343,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_select, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,

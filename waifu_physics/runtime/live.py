@@ -139,6 +139,7 @@ class Runtime:
         self.cache_mode = "auto"
         self.cache_key = frame_cache.key(scene)
         self.own_update = False           # the next depsgraph update is our own write
+        self._skip = {}                   # group -> bones whose colliders it ignores
         self.collider_prints = {}
 
     def _spec(self, r, props):
@@ -303,14 +304,32 @@ class Runtime:
         s.set_shapes([self._shapes(g) for g in range(len(self.group_props))])
         s.resolve_settings()
 
+    def _skipped_bones(self, g, rig, props):
+        """Bones of the group's own armature whose colliders it ignores: its chains' bones (a chain cannot
+        collide with itself), and with Skip Colliders on Parent Bones, the bones the chains hang from."""
+        found = self._skip.get(g)
+        if found is None:
+            s = self.system
+            found = {s.bone_names[i] for i in np.flatnonzero(s.group == g) if s.bone_names[i]}
+            if props.ignore_parent_colliders:
+                for root in props.roots:
+                    bone = rig.obj.pose.bones.get(root.name)
+                    if bone is not None and bone.parent is not None:
+                        found.add(bone.parent.name)
+            self._skip[g] = found
+        return found
+
     def _shapes(self, g):
-        """This frame's colliders for a group: its own armature's, or those of its collider sets,
-        in its armature's space (Kawaii's Update*Limits, once a frame)."""
+        """This frame's colliders for a group (colliders.sources), in its armature's space (Kawaii's
+        Update*Limits, once a frame)."""
         rig, props = self._group(g)
-        sources = [item.armature for item in props.collider_sets if item.armature is not None] or [rig.obj]
+        sources = collider_objects.sources(props)
+        skipped = self._skipped_bones(g, rig, props)
         shapes = []
         for armature in sources:
             for obj in collider_objects.colliders_of(armature):
+                if armature == rig.obj and obj.parent_bone in skipped:
+                    continue
                 shape = collider_objects.shape_of(obj, rig.obj, self.cm)
                 if shape is not None:
                     shapes.append(shape)

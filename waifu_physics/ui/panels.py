@@ -296,44 +296,109 @@ class WAIFU_PHYSICS_PT_links(_GroupPanel, bpy.types.Panel):
         sub.prop(group, "bridge_feedback")
 
 
-class WAIFU_PHYSICS_PT_colliders(_GroupPanel, bpy.types.Panel):
+_SHAPE_ICONS = {"Sphere": "MESH_UVSPHERE", "Inner Sphere": "SPHERE", "Capsule": "MESH_CAPSULE",
+                "Tapered Capsule": "MESH_CONE", "Box": "MESH_CUBE", "Plane": "MESH_PLANE"}
+
+
+class WAIFU_PHYSICS_UL_colliders(bpy.types.UIList):
+    """The colliders of the armature the Colliders panel shows, from bpy.data.objects."""
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
+        found = colliders.values(item) or {}
+        row = layout.row(align=True)
+        row.prop(item.waifu_physics_collider, "enabled", text="")
+        row.prop(item, "name", text="", emboss=False, icon=_SHAPE_ICONS.get(found.get("Shape"), "MESH_UVSPHERE"))
+
+    def filter_items(self, context, data, propname):
+        armature = colliders.armature_of(context)
+        objects = getattr(data, propname)
+        flags = [self.bitflag_filter_item if colliders.is_collider(obj) and obj.parent == armature else 0
+                 for obj in objects]
+        return flags, []
+
+
+class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
+    """Colliders belong to the armature they are parented to, which needs no groups: a body can carry the
+    colliders its garments' chains hit."""
     bl_idname = "WAIFU_PHYSICS_PT_colliders"
     bl_label = "Colliders"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Waifu Physics"
+    bl_parent_id = "WAIFU_PHYSICS_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw_settings(self, context):
-        group = self.group(context)
+    @classmethod
+    def poll(cls, context):
+        return colliders.armature_of(context) is not None
+
+    def draw(self, context):
+        from ..runtime import live
+        armature = colliders.armature_of(context)
         layout = self.layout
-        layout.operator_menu_enum("waifu_physics.collider_add", "shape", icon="MESH_UVSPHERE")
+        layout.enabled = not live.is_cached(context.scene)
+        adding = context.object == armature and context.mode == "POSE" and context.active_pose_bone is not None
+        row = layout.row(align=True)
+        row.enabled = adding
+        row.operator_menu_enum("waifu_physics.collider_add", "shape", text="Add Collider", icon="ADD")
+        row.operator("waifu_physics.colliders_from_bones", text="From Selected Bones", icon="BONE_DATA")
+        if not adding:
+            note = layout.row()
+            note.enabled = False
+            note.label(text="Pose Mode: select a bone, then Add", icon="INFO")
+        found = colliders.all_of(armature)
+        if found:
+            layout.template_list("WAIFU_PHYSICS_UL_colliders", "", bpy.data, "objects", armature.waifu_physics,
+                                 "active_collider", rows=min(max(len(found), 2), 6))
+            index = armature.waifu_physics.active_collider
+            chosen = bpy.data.objects[index] if 0 <= index < len(bpy.data.objects) else None
+            if chosen not in found:
+                chosen = found[0]
+            self._collider(layout, chosen)
+        if armature.type == "ARMATURE" and len(armature.waifu_physics.groups) and context.object == armature:
+            self._sources(layout, armature)
+
+    @staticmethod
+    def _collider(layout, obj):
+        found = colliders.values(obj)
         box = layout.box()
-        box.label(text="Collides with the colliders of:")
-        if not len(group.collider_sets):
-            box.label(text=context.object.name + " (its own)", icon="ARMATURE_DATA")
+        col = box.column()
+        col.use_property_split = True
+        col.use_property_decorate = False
+        if found is not None:
+            md, ident = colliders.input_path(obj, "Shape")
+            col.prop(getattr(md.properties.inputs, ident), "value", text="Shape")
+            names = {"Box": ("Extent",), "Plane": ("Radius",), "Capsule": ("Radius", "Length"),
+                     "Tapered Capsule": ("Radius", "Radius 1", "Length")}
+            for name in names.get(found["Shape"], ("Radius",)):
+                md, ident = colliders.input_path(obj, name)
+                col.prop(getattr(md.properties.inputs, ident), "value", text=name)
+        note = box.row()
+        note.enabled = False
+        note.label(text=f"On {obj.parent_bone}", icon="BONE_DATA")
+        row = box.row(align=True)
+        row.operator("waifu_physics.collider_select", text="Select", icon="RESTRICT_SELECT_OFF").name = obj.name
+        row.operator("waifu_physics.collider_remove", text="Remove", icon="TRASH").name = obj.name
+
+    @staticmethod
+    def _sources(layout, armature):
+        group = armature.waifu_physics.groups[min(armature.waifu_physics.active_group,
+                                                   len(armature.waifu_physics.groups) - 1)]
+        layout.separator()
+        layout.label(text=f"{group.name} collides with")
+        col = layout.column(align=True)
+        if not len(group.collider_sets):                      # the defaults, until the list is edited
+            for index, source in enumerate(colliders.default_sources(armature)):
+                row = col.row(align=True)
+                row.label(text=source.name + ("  (its own)" if source == armature else "  (its parent)"),
+                          icon="ARMATURE_DATA")
+                row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
         for index, item in enumerate(group.collider_sets):
-            row = box.row(align=True)
+            row = col.row(align=True)
             row.prop(item, "armature", text="")
             row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
-        box.operator("waifu_physics.collider_set_add", icon="ADD")
-        sources = [item.armature for item in group.collider_sets if item.armature] or [context.object]
-        for armature in sources:
-            for obj in armature.children:
-                if not colliders.is_collider(obj):
-                    continue
-                found = colliders.values(obj)
-                col = layout.box().column(align=True)
-                row = col.row(align=True)
-                row.prop(obj.waifu_physics_collider, "enabled", text="")
-                row.label(text=f"{obj.name}  ({obj.parent_bone})", icon="MESH_UVSPHERE")
-                if found is None:
-                    continue
-                md, ident = colliders.input_path(obj, "Shape")
-                col.prop(getattr(md.properties.inputs, ident), "value", text="Shape")
-                shape = found["Shape"]
-                names = {"Box": ("Extent",), "Plane": ("Radius",),
-                         "Capsule": ("Radius", "Length"), "Tapered Capsule": ("Radius", "Radius 1", "Length")}
-                for name in names.get(shape, ("Radius",)):
-                    md, ident = colliders.input_path(obj, name)
-                    col.prop(getattr(md.properties.inputs, ident), "value", text=name)
+        layout.operator("waifu_physics.collider_set_add", text="Add Armature", icon="ADD")
+        layout.prop(group, "ignore_parent_colliders")
 
 
 def _curve_box(layout, owner, setting, label):
@@ -535,7 +600,7 @@ class WAIFU_PHYSICS_PT_sync(_GroupPanel, bpy.types.Panel):
         sub.prop(sync, "max_attenuation")
 
 
-CLASSES = (WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
+CLASSES = (WAIFU_PHYSICS_UL_colliders, WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
            WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_colliders, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
            WAIFU_PHYSICS_PT_advanced)
 

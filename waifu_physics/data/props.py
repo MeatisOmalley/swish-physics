@@ -340,6 +340,10 @@ class WaifuPhysicsGroup(PropertyGroup):
     excluded: CollectionProperty(type=WaifuPhysicsBoneName)
     links: CollectionProperty(type=WaifuPhysicsLink)
     collider_sets: CollectionProperty(type=WaifuPhysicsColliderSet)
+    ignore_parent_colliders: BoolProperty(
+        name="Skip Colliders on Parent Bones", default=False, update=_structure_changed,
+        description="Ignore colliders on the bones the chains hang from (a hips collider under a skirt). "
+                    "Colliders on the chains' own bones are always ignored")
     active_link: IntProperty()
 
     # FKawaiiPhysicsSettings, animatable. Radius is a length; limit angle an angle.
@@ -506,6 +510,7 @@ class WaifuPhysicsArmature(PropertyGroup):
     groups: CollectionProperty(type=WaifuPhysicsGroup)
     known_bones: CollectionProperty(type=WaifuPhysicsKnownBone, options={"HIDDEN"})
     active_group: IntProperty(update=_group_picked)
+    active_collider: IntProperty(options={"HIDDEN"})       # an index into bpy.data.objects: the Colliders list
     expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's groups")
 
 
