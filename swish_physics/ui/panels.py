@@ -138,6 +138,40 @@ class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
         sub.prop(settings, "max_substeps")
 
 
+class SWISH_UL_links(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
+        row = layout.row(align=True)
+        row.label(text=f"{item.bone_a}  –  {item.bone_b}", icon="CONSTRAINT_BONE")
+        row.prop(item, "compliance", text="")
+        row.operator("swish.link_remove", text="", icon="X", emboss=False).index = index
+
+
+class SWISH_PT_links(_GroupPanel, bpy.types.Panel):
+    bl_idname = "SWISH_PT_links"
+    bl_label = "Links"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        group = self.group(context)
+        layout = self.layout
+        row = layout.row(align=True)
+        row.operator("swish.link_chains", text="Link as Loop", icon="MESH_CIRCLE").mode = "LOOP"
+        row.operator("swish.link_chains", text="Link as Strip", icon="IPO_LINEAR").mode = "STRIP"
+        layout.template_list("SWISH_UL_links", "", group, "links", group, "active_link", rows=3)
+        row = layout.row(align=True)
+        row.prop(context.scene.swish, "show_links")
+        row.operator("swish.links_clear", icon="TRASH")
+        layout.use_property_split = True
+        layout.prop(group, "compliance")
+        layout.prop(group, "iterations_before_collision", text="Before Collision")
+        layout.prop(group, "iterations_after_collision", text="After Collision")
+        layout.prop(group, "auto_child_dummy_links")
+        layout.prop(group, "bridge_count")
+        sub = layout.column()
+        sub.active = group.bridge_count > 0
+        sub.prop(group, "bridge_feedback")
+
+
 class SWISH_PT_colliders(_GroupPanel, bpy.types.Panel):
     bl_idname = "SWISH_PT_colliders"
     bl_label = "Colliders"
@@ -178,8 +212,8 @@ class SWISH_PT_colliders(_GroupPanel, bpy.types.Panel):
                     col.prop(getattr(md.properties.inputs, ident), "value", text=name)
 
 
-CLASSES = (SWISH_UL_groups, SWISH_PT_main, SWISH_PT_settings, SWISH_PT_chains, SWISH_PT_colliders,
-           SWISH_PT_advanced)
+CLASSES = (SWISH_UL_groups, SWISH_UL_links, SWISH_PT_main, SWISH_PT_settings, SWISH_PT_chains, SWISH_PT_links,
+           SWISH_PT_colliders, SWISH_PT_advanced)
 
 
 def register():

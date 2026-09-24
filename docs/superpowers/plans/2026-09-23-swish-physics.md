@@ -121,11 +121,11 @@ Each phase ends with its tests passing headless and, where it changes what the m
 
 ### Phase 5: Links
 
-- [ ] Link Chains, Loop and Strip, angular ordering, tip dummies included.
-- [ ] Group compliance preset and iteration counts, per-link override.
-- [ ] Bone subdivision and bridge dummies (collision points along bones and along links, with the bridge feedback that pushes real bones).
-- [ ] Viewport drawing of links.
-- [ ] Tests: a linked ring keeps its spacing under gravity and sway; a collider between two linked chains pushes both.
+- [x] Link Chains, Loop and Strip, angular ordering, tip dummies included.
+- [x] Group compliance preset and iteration counts, per-link override.
+- [x] Bone subdivision and bridge dummies (collision points along bones and along links, with the bridge feedback that pushes real bones).
+- [x] Viewport drawing of links.
+- [x] Tests: a linked ring keeps its spacing under gravity and sway; a collider between two linked chains pushes both.
 
 ### Phase 6: Cache
 

@@ -188,6 +188,7 @@ class SwishScene(PropertyGroup):
     edit_selected_groups: BoolProperty(
         name="Edit Selected Groups", default=True,
         description="Changing a setting changes it in every group holding a selected bone")
+    show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
     follow_selection: BoolProperty(
         name="Follow Selection", default=True,
         description="Clicking a bone in Pose Mode shows its group")

@@ -2,6 +2,7 @@
 import bpy
 
 from ..data import colliders
+from ..data import links as chain_links
 from ..data import curves as group_curves
 from ..runtime import live
 
@@ -201,8 +202,92 @@ class SWISH_OT_collider_set_remove(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _chain_root(obj, group, name):
+    """The group root above a bone, or None."""
+    roots = {root.name for root in group.roots}
+    bone = obj.pose.bones.get(name)
+    while bone is not None:
+        if bone.name in roots:
+            return bone.name
+        bone = bone.parent
+    return None
+
+
+class SWISH_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "swish.link_chains"
+    bl_label = "Link Chains"
+    bl_description = ("Link the selected chains of the active group to their neighbours, bone by bone: "
+                      "a loop for a skirt, a strip for a cape")
+    bl_options = {"REGISTER", "UNDO"}
+
+    mode: bpy.props.EnumProperty(name="Mode", items=[
+        ("LOOP", "Loop", "Link the last chain back to the first, all the way round (a skirt)"),
+        ("STRIP", "Strip", "Link neighbours only, leaving the ends open (a cape)")], default="LOOP")
+
+    @classmethod
+    def poll(cls, context):
+        return super().poll(context) and len(context.object.swish.groups) > 0
+
+    def execute(self, context):
+        obj = context.object
+        group = obj.swish.groups[obj.swish.active_group]
+        roots = []
+        for pose_bone in context.selected_pose_bones:
+            root = _chain_root(obj, group, pose_bone.name)
+            if root is not None and root not in roots:
+                roots.append(root)
+        if len(roots) < 2:
+            self.report({"WARNING"}, "Select bones in at least two chains of the active group")
+            return {"CANCELLED"}
+        excluded = {bone.name for bone in group.excluded}
+        existing = {frozenset((link.bone_a, link.bone_b)) for link in group.links}
+        added = 0
+        for a, b in chain_links.pairs(obj, roots, self.mode == "LOOP", excluded):
+            if frozenset((a, b)) in existing:
+                continue
+            link = group.links.add()
+            link.bone_a, link.bone_b = a, b
+            added += 1
+        live.mark_dirty(context.scene)
+        self.report({"INFO"}, f"{added} links between {len(roots)} chains")
+        return {"FINISHED"}
+
+
+class SWISH_OT_links_clear(bpy.types.Operator):
+    bl_idname = "swish.links_clear"
+    bl_label = "Clear Links"
+    bl_description = "Remove every link of the active group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        return obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0             and len(obj.swish.groups[obj.swish.active_group].links) > 0
+
+    def execute(self, context):
+        obj = context.object
+        obj.swish.groups[obj.swish.active_group].links.clear()
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_link_remove(bpy.types.Operator):
+    bl_idname = "swish.link_remove"
+    bl_label = "Remove Link"
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        obj = context.object
+        obj.swish.groups[obj.swish.active_group].links.remove(self.index)
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
 CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_group_remove, SWISH_OT_reset,
-           SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove)
+           SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove,
+           SWISH_OT_link_chains, SWISH_OT_links_clear, SWISH_OT_link_remove)
 
 
 def register():
