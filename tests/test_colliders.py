@@ -201,9 +201,13 @@ skin = bpy.data.objects.new("skin", skin_mesh)
 scene.collection.objects.link(skin)
 skin.modifiers.new("Armature", "ARMATURE").object = limb
 skin.vertex_groups.new(name="anchor").add(list(range(len(ring))), 1.0, "REPLACE")
-radius = colliders.estimate_radius(limb, "anchor")
-check("a bone's collider radius is the skin's distance from it", abs(radius - 0.1) < 1e-4, radius)
-check("... none when no mesh is skinned to the bone", colliders.estimate_radius(rig, "c1") is None)
+found = colliders.fit(limb, "anchor")
+check("a limb of skin fits a capsule along its bone, as thick as the skin",
+      found.shape in ("Capsule", "Tapered Capsule") and abs(found.radius - 0.1) < 2e-3
+      and abs(found.radius1 - 0.1) < 2e-3, (found.shape, found.radius, found.radius1))
+check("... centred on the skin along the bone (from 0.05 to 0.35 of it)", abs(found.center[1] - 0.2) < 1e-3,
+      found.center)
+check("... nothing is fitted where no skin belongs to the bone", colliders.fit(rig, "c1") is None)
 bpy.context.view_layer.objects.active = limb
 bpy.ops.object.mode_set(mode="POSE")
 for bone in limb.pose.bones:
@@ -211,38 +215,42 @@ for bone in limb.pose.bones:
 check("Colliders from Bones adds one to each selected bone",
       bpy.ops.waifu_physics.colliders_from_bones() == {"FINISHED"} and len(colliders.all_of(limb)) == 1)
 made = colliders.all_of(limb)[0]
-check("... a capsule along it, named from the bone, as thick as the skin",
-      colliders.values(made)["Shape"] == "Capsule" and made.name.startswith("anchor Collider")
-      and abs(colliders.values(made)["Radius"] - 0.1) < 1e-4, (made.name, colliders.values(made)))
+check("... fitted to the skin (Auto), named from the bone",
+      colliders.values(made)["Shape"] in ("Capsule", "Tapered Capsule") and made.name.startswith("anchor Collider")
+      and abs(colliders.values(made)["Radius"] - 0.1) < 2e-3, (made.name, colliders.values(made)))
 bpy.ops.waifu_physics.colliders_from_bones()
 check("... and a bone with a collider already is skipped", len(colliders.all_of(limb)) == 1)
 bpy.ops.object.mode_set(mode="OBJECT")
 check("VRoid bone names shorten", colliders.short_name("J_Bip_C_Head") == "Head"
       and colliders.short_name("J_Bip_L_UpperArm") == "L_UpperArm")
 
-# --- a chain is never pushed by colliders on its own bones; on the bone it hangs from, only if asked
-for obj in list(scene.objects):
-    bpy.data.objects.remove(obj)
-own = armature("own")
-chain_group = own.waifu_physics.groups.add()
-chain_group.roots.add().name = "c0"
-on_chain = colliders.add(own, "c1", "Sphere")
-on_parent = colliders.add(own, "anchor", "Sphere")
-
-
-def collider_count():
-    scene.waifu_physics.simulate = False
-    scene.frame_set(1)
-    scene.waifu_physics.simulate = True
-    scene.frame_set(2)
-    count = len(live.runtime(scene).system.shape_type)
-    scene.waifu_physics.simulate = False
-    return count
-
-
-check("a collider on the chain's own bone is ignored; one on the bone it hangs from counts", collider_count() == 1)
-chain_group.ignore_parent_colliders = True
-check("Skip Colliders on Parent Bones ignores that one too", collider_count() == 0)
+# --- Auto picks the shape the skin has: a ball, a limb, a block
+from waifu_physics.data import collider_fit
+rng = np.random.default_rng(3)
+directions = rng.normal(size=(400, 3))
+directions /= np.linalg.norm(directions, axis=1)[:, None]
+ball = directions * 0.09 + np.array([0.0, 0.1, 0.02])
+check("skin shaped like a ball fits a sphere", collider_fit.fit(ball).shape == "Sphere", collider_fit.fit(ball).shape)
+check("... of its radius, around its centre", abs(collider_fit.fit(ball, "Sphere").radius - 0.09) < 3e-3
+      and np.allclose(collider_fit.fit(ball, "Sphere").center, (0.0, 0.1, 0.02), atol=5e-3))
+angles, heights = rng.uniform(0, 2 * np.pi, 600), rng.uniform(0.0, 0.4, 600)
+limb_skin = np.column_stack((0.05 * np.cos(angles), heights, 0.05 * np.sin(angles)))
+check("skin shaped like a limb fits a capsule", collider_fit.fit(limb_skin).shape == "Capsule",
+      collider_fit.fit(limb_skin).shape)
+cone_r = 0.03 + 0.05 * heights / 0.4
+cone = np.column_stack((cone_r * np.cos(angles), heights, cone_r * np.sin(angles)))
+fitted = collider_fit.fit(cone)
+check("skin that thickens along the bone fits a tapered capsule, thicker at the +Y end",
+      fitted.shape == "Tapered Capsule" and fitted.radius > fitted.radius1, (fitted.shape, fitted.radius, fitted.radius1))
+faces = rng.uniform(-1, 1, size=(900, 3))
+axis = rng.integers(0, 3, 900)
+faces[np.arange(900), axis] = np.sign(faces[np.arange(900), axis])
+block = faces * np.array([0.12, 0.05, 0.08])
+check("skin shaped like a block fits a box of its half sizes", collider_fit.fit(block).shape == "Box"
+      and np.allclose(collider_fit.fit(block).extent, (0.12, 0.05, 0.08), atol=0.01),
+      (collider_fit.fit(block).shape, collider_fit.fit(block).extent))
+check("a shape asked for is the shape fitted", collider_fit.fit(ball, "Box").shape == "Box")
+check("too little skin fits nothing", collider_fit.fit(ball[:5]) is None)
 
 addon.unregister()
 finish()

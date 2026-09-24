@@ -238,13 +238,17 @@ class WAIFU_PHYSICS_OT_reset(bpy.types.Operator):
         return {"FINISHED"}
 
 
+SHAPE_CHOICES = [("AUTO", "Auto (Best Fit)", "The shape that fits the skin around the bone best")] + [
+    (s, s, "") for s in colliders.SHAPES]
+
+
 class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
     bl_idname = "waifu_physics.collider_add"
     bl_label = "Add Collider"
-    bl_description = "Add a collider on the active bone: centred on it and, as a capsule, along it"
+    bl_description = "Add a collider to the active bone, fitted to the skin around it and weighted to it"
     bl_options = {"REGISTER", "UNDO"}
 
-    shape: bpy.props.EnumProperty(name="Shape", items=[(s, s, "") for s in colliders.SHAPES], default="Capsule")
+    shape: bpy.props.EnumProperty(name="Shape", items=SHAPE_CHOICES, default="AUTO")
 
     @classmethod
     def poll(cls, context):
@@ -254,15 +258,18 @@ class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
 
     def execute(self, context):
         colliders.add(context.object, context.active_pose_bone.name, self.shape, context)
+        live.mark_dirty(context.scene)
         return {"FINISHED"}
 
 
 class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
     bl_idname = "waifu_physics.colliders_from_bones"
     bl_label = "Colliders from Bones"
-    bl_description = ("Add a capsule along each selected bone, as thick as the skin weighted to it. Bones that "
-                      "have a collider already are skipped")
+    bl_description = ("Add a collider to each selected bone, fitted to the skin around it and weighted to it. "
+                      "Bones that have a collider already are skipped")
     bl_options = {"REGISTER", "UNDO"}
+
+    shape: bpy.props.EnumProperty(name="Shape", items=SHAPE_CHOICES, default="AUTO")
 
     @classmethod
     def poll(cls, context):
@@ -273,7 +280,7 @@ class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
     def execute(self, context):
         obj = context.object
         names = [pb.name for pb in context.selected_pose_bones if pb.id_data == obj]
-        made = colliders.from_bones(obj, names, context)
+        made = colliders.from_bones(obj, names, self.shape, context)
         live.mark_dirty(context.scene)
         skipped = len(names) - len(made)
         self.report({"INFO"}, f"Added {len(made)} colliders" + (f"; {skipped} bones had one" if skipped else ""))

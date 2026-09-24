@@ -341,7 +341,8 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
         row = layout.row(align=True)
         row.enabled = adding
         row.operator_menu_enum("waifu_physics.collider_add", "shape", text="Add Collider", icon="ADD")
-        row.operator("waifu_physics.colliders_from_bones", text="From Selected Bones", icon="BONE_DATA")
+        row.operator_menu_enum("waifu_physics.colliders_from_bones", "shape", text="From Selected Bones",
+                               icon="BONE_DATA")
         if not adding:
             note = layout.row()
             note.enabled = False
@@ -398,7 +399,6 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
             row.prop(item, "armature", text="")
             row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
         layout.operator("waifu_physics.collider_set_add", text="Add Armature", icon="ADD")
-        layout.prop(group, "ignore_parent_colliders")
 
 
 def _curve_box(layout, owner, setting, label):

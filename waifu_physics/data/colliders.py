@@ -302,78 +302,71 @@ def _skinned_meshes(armature):
             and any(md.type == "ARMATURE" and md.object == armature for md in obj.modifiers)]
 
 
-def _weights(obj):
-    """{vertex group index: (vertex indices, weights)} of a mesh, read once."""
+def _coincides(bone, other):
+    return (bone.head_local - other.head_local).length < 1e-5 and (bone.tail_local - other.tail_local).length < 1e-5
+
+
+def _owner(bones, name):
+    """The bone a vertex group's weights belong to: the group's bone, or the bone it lies on if it is a twin
+    with the same head and tail (VRoid Swap's J_Scale_ bones scale the skin under each J_Bip_ bone)."""
+    bone = bones.get(name)
+    while bone is not None and bone.parent is not None and _coincides(bone, bone.parent):
+        bone = bone.parent
+    return bone.name if bone is not None else None
+
+
+def skin_points(armature):
+    """{bone name: the world positions, at rest, of the skin that belongs to it}: each vertex of the meshes the
+    armature deforms goes to the bone with its largest weight, twins counting for the bone they lie on. So a
+    bone's points are the skin both around it and weighted to it."""
+    bones = armature.data.bones
     found = {}
-    for vertex in obj.data.vertices:
-        for entry in vertex.groups:
-            found.setdefault(entry.group, ([], []))
-            found[entry.group][0].append(vertex.index)
-            found[entry.group][1].append(entry.weight)
-    return {group: (np.array(indices), np.array(weights)) for group, (indices, weights) in found.items()}
+    for obj in _skinned_meshes(armature):
+        owners = [_owner(bones, group.name) for group in obj.vertex_groups]
+        co = np.empty(len(obj.data.vertices) * 3, dtype=np.float32)
+        obj.data.vertices.foreach_get("co", co)
+        mw = np.array(obj.matrix_world)
+        world = co.reshape(-1, 3).astype(np.float64) @ mw[:3, :3].T + mw[:3, 3]
+        chosen = {}
+        for vertex in obj.data.vertices:
+            best, weight = None, 0.0
+            for entry in vertex.groups:
+                owner = owners[entry.group] if entry.group < len(owners) else None
+                if owner is not None and entry.weight > weight:
+                    best, weight = owner, entry.weight
+            if best is not None:
+                chosen.setdefault(best, []).append(vertex.index)
+        for bone, indices in chosen.items():
+            found.setdefault(bone, []).append(world[indices])
+    return {bone: np.concatenate(parts) for bone, parts in found.items()}
 
 
-def estimate_radius(armature, bone_name, skins=None):
-    """How thick the body is around a bone, in world units: the 75th percentile of the distance from the bone
-    of the skin weighted mostly to it, at rest. None when no mesh is skinned to it. skins: the armature's
-    meshes with their weights, to reuse over many bones."""
-    if skins is None:
-        skins = [(obj, _weights(obj)) for obj in _skinned_meshes(armature)]
-    bone = armature.data.bones[bone_name]
-    world = np.array(armature.matrix_world)
-    a = world[:3, :3] @ np.array(bone.head_local) + world[:3, 3]
-    b = world[:3, :3] @ np.array(bone.tail_local) + world[:3, 3]
-    ab = b - a
-    length2 = float(ab @ ab) or 1.0e-12
-    # The skin may be weighted to twins lying on the bone: children with the same head and tail (VRoid Swap's
-    # J_Scale_ bones scale the skin under each J_Bip_ bone).
-    names, stack = [bone_name], [bone]
-    while stack:
-        for child in stack.pop().children:
-            if (child.head_local - bone.head_local).length < 1e-5 and (child.tail_local - bone.tail_local).length < 1e-5:
-                names.append(child.name)
-                stack.append(child)
-    distances = []
-    for obj, weights in skins:
-        for name in names:
-            group = obj.vertex_groups.get(name)
-            if group is not None and group.index in weights:
-                distances += _distances(obj, weights[group.index], a, ab, length2)
-    if not distances:
+def fit(armature, bone_name, shape="AUTO", points=None):
+    """A collider_fit.Fit for the bone in its rest frame, or None when too little skin belongs to it."""
+    from . import collider_fit
+    if points is None:
+        points = skin_points(armature)
+    world = points.get(bone_name)
+    if world is None:
         return None
-    return float(np.percentile(np.concatenate(distances), 75.0))
-
-
-def _distances(obj, weighted, a, ab, length2):
-    """The world distances from the bone segment of the vertices weighted mostly to it (as a list of one array)."""
-    indices, amounts = weighted
-    chosen = indices[amounts >= 0.5]
-    if len(chosen) < 8:
-        chosen = indices[amounts >= 0.1]
-    if not len(chosen):
-        return []
-    co = np.empty(len(obj.data.vertices) * 3, dtype=np.float32)
-    obj.data.vertices.foreach_get("co", co)
-    mw = np.array(obj.matrix_world)
-    points = co.reshape(-1, 3)[chosen].astype(np.float64) @ mw[:3, :3].T + mw[:3, 3]
-    t = np.clip(((points - a) @ ab) / length2, 0.0, 1.0)
-    return [np.linalg.norm(points - (a + t[:, None] * ab), axis=1)]
+    to_bone = np.linalg.inv(np.array(armature.matrix_world) @ np.array(armature.data.bones[bone_name].matrix_local))
+    local = world @ to_bone[:3, :3].T + to_bone[:3, 3]
+    return collider_fit.fit(local, shape)
 
 
 def has_collider(armature, bone_name):
     return any(is_collider(obj) and obj.parent_bone == bone_name for obj in armature.children)
 
 
-def from_bones(armature, bone_names, context=None):
-    """A capsule along each bone, sized to the skin around it; bones with a collider already are skipped.
-    Returns the new colliders."""
-    skins = [(obj, _weights(obj)) for obj in _skinned_meshes(armature)]
-    return [add(armature, name, "Capsule", context, skins) for name in bone_names if not has_collider(armature, name)]
+def from_bones(armature, bone_names, shape="AUTO", context=None):
+    """A collider fitted to the skin of each bone; bones with a collider already are skipped. Returns them."""
+    points = skin_points(armature)
+    return [add(armature, name, shape, context, points) for name in bone_names if not has_collider(armature, name)]
 
 
-def add(armature, bone_name, shape="Capsule", context=None, skins=None):
-    """A new collider on a bone: centred on it, a capsule along it by default, as thick as the skin around it
-    (a quarter of the bone's length where no mesh is skinned to it)."""
+def add(armature, bone_name, shape="AUTO", context=None, points=None):
+    """A new collider on a bone, fitted to the skin that belongs to it (AUTO: the shape that fits it best).
+    Where no skin belongs to the bone: centred on it, a capsule along it, a quarter of its length thick."""
     collection = bpy.data.collections.get(COLLECTION)
     if collection is None:
         collection = bpy.data.collections.new(COLLECTION)
@@ -392,14 +385,20 @@ def add(armature, bone_name, shape="Capsule", context=None, skins=None):
     obj.parent_type = "BONE"
     obj.parent_bone = bone_name
     bone_length = pose_bone.bone.length
-    obj.matrix_world = armature.matrix_world @ pose_bone.matrix @ Matrix.Translation((0.0, bone_length / 2, 0.0))
-    radius = estimate_radius(armature, bone_name, skins)
-    if radius is None:
-        radius = bone_length * 0.25
+    fitted = None
+    if shape != "Plane":
+        fitted = fit(armature, bone_name, "Sphere" if shape == "Inner Sphere" else shape, points)
+    if fitted is None:
+        center, kind = (0.0, bone_length / 2, 0.0), ("Capsule" if shape == "AUTO" else shape)
+        radius = radius1 = bone_length * 0.25
+        length, extent = bone_length, (bone_length * 0.25,) * 3
     else:
-        radius /= max(obj.matrix_world.to_scale()[0], 1.0e-9)          # world size into the collider's own
-    set_value(obj, "Shape", shape)
-    set_value(obj, "Length", bone_length)
+        center, kind = tuple(fitted.center), (shape if shape == "Inner Sphere" else fitted.shape)
+        radius, radius1, length, extent = fitted.radius, fitted.radius1, fitted.length, tuple(fitted.extent)
+    obj.matrix_world = armature.matrix_world @ pose_bone.matrix @ Matrix.Translation(center)
+    set_value(obj, "Shape", kind)
     set_value(obj, "Radius", radius)
-    set_value(obj, "Radius 1", radius)
+    set_value(obj, "Radius 1", radius1)
+    set_value(obj, "Length", length)
+    set_value(obj, "Extent", extent)
     return obj
