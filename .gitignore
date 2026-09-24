@@ -1,0 +1,8 @@
+swish_physics/bin/
+build/
+dist/
+*.obj
+*.exp
+*.lib
+__pycache__/
+*.pyc

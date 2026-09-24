@@ -1,0 +1,25 @@
+schema_version = "1.0.0"
+
+id = "swish_physics"
+version = "0.1.0"
+name = "Swish Physics"
+tagline = "Fast bone-chain physics for hair, skirts and accessories"
+maintainer = "MeatisOmalley"
+type = "add-on"
+
+blender_version_min = "5.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+copyright = ["2026 MeatisOmalley"]
+
+tags = ["Animation", "Physics", "Rigging"]
+
+[build]
+# The C source ships with the package; compiler leftovers do not.
+paths_exclude_pattern = [
+  "__pycache__/",
+  "*.pyc",
+  "*.obj",
+  "*.exp",
+  "*.lib",
+]
