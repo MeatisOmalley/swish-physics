@@ -136,6 +136,22 @@ moved = float(np.abs(synced - unsynced).max())
 check("the skirt follows the thigh's sideways movement", synced[0] - unsynced[0] > 0.03, (synced, unsynced))
 scene.swish.simulate = False
 
+# --- a new Procedural Wind force starts as Kawaii's Breeze and blows
+rig, group = build()
+bpy.context.view_layer.objects.active = rig
+bpy.ops.swish.force_add(kind="PROCEDURAL_WIND")
+breeze = group.forces[0]
+check("a new Procedural Wind force starts as Kawaii's Breeze, in Blender units",
+      math.isclose(breeze.constant, 0.02, rel_tol=1e-6) and math.isclose(breeze.sway_period, 3.0, rel_tol=1e-6)
+      and math.isclose(math.degrees(breeze.ripple_delay), 120.0, rel_tol=1e-5))
+scene.frame_set(1)
+scene.swish.simulate = True
+play(range(1, 41))
+check("... and moves the chain out of the box", float(np.abs(tip(rig) - rest).max()) > 0.005, tip(rig) - rest)
+scene.swish.simulate = False
+bpy.ops.swish.wind_preset(preset="STORM")
+check("the Storm preset sets Kawaii's Storm values", math.isclose(breeze.constant, 0.15, rel_tol=1e-6))
+
 # --- procedural wind resumes from the cache exactly as an uninterrupted run
 def windy():
     rig, group = build()

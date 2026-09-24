@@ -289,8 +289,11 @@ class SWISH_PT_forces(_GroupPanel, bpy.types.Panel):
         sub.active = group.enable_wind
         sub.prop(group, "wind_scale")
         sub.prop(group, "wind_direction_noise_angle", text="Direction Noise")
-        if group.enable_wind and not any(o.field and o.field.type == "WIND" for o in context.scene.objects):
-            col.label(text="Add a Wind force field to the scene to blow", icon="INFO")
+        has_field = any(o.field and o.field.type == "WIND" for o in context.scene.objects)
+        if group.enable_wind and not has_field:
+            row = col.row()
+            row.label(text="No Wind force field in the scene", icon="INFO")
+            row.operator("swish.wind_field_add", text="", icon="FORCE_WIND")
         row = layout.row()
         row.template_list("SWISH_UL_forces", "", group, "forces", group, "active_force", rows=3)
         column = row.column(align=True)
@@ -324,8 +327,14 @@ class SWISH_PT_forces(_GroupPanel, bpy.types.Panel):
             for axis, channel in zip("XYZ", FORCE_CHANNELS):
                 _curve_box(box, force, channel, f"{axis} over time, -1 to 1")
         elif kind == "WIND":
+            if not any(o.field and o.field.type == "WIND" for o in context.scene.objects):
+                row = col.row()
+                row.alert = True
+                row.label(text="Blows only with a Wind force field", icon="ERROR")
+                row.operator("swish.wind_field_add", text="Add", icon="FORCE_WIND")
             col.prop(force, "noise_angle")
         else:
+            col.operator_menu_enum("swish.wind_preset", "preset", text="Kawaii Preset", icon="PRESET")
             col.prop(force, "direction")
             col.prop(force, "constant")
             col.prop(force, "sway")

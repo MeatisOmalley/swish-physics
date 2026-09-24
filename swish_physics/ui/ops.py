@@ -369,7 +369,42 @@ class SWISH_OT_force_add(_GroupOperator, bpy.types.Operator):
         if self.kind == "CURVE":
             for channel in FORCE_CHANNELS:
                 group_curves.node(force, channel)
+        if self.kind == "PROCEDURAL_WIND":
+            # Blowing from a character's front to its back (Blender characters face -Y), as Kawaii's
+            # Breeze, rather than Kawaii's all-zero defaults, which push nothing.
+            force.direction = (0.0, 1.0, 0.0)
+            presets.apply_wind(force, "BREEZE", 100.0 * context.scene.unit_settings.scale_length)
         group.active_force = len(group.forces) - 1
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_wind_preset(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.wind_preset"
+    bl_label = "Wind Preset"
+    bl_description = "Set the Procedural Wind force to one of Kawaii's presets"
+    bl_options = {"REGISTER", "UNDO"}
+
+    preset: bpy.props.EnumProperty(name="Preset", items=presets.WIND_ITEMS)
+
+    def execute(self, context):
+        group = _active_group(context)
+        force = _active_item(group.forces, group.active_force)
+        if force is None or force.kind != "PROCEDURAL_WIND":
+            return {"CANCELLED"}
+        presets.apply_wind(force, self.preset, 100.0 * context.scene.unit_settings.scale_length)
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_wind_field_add(bpy.types.Operator):
+    bl_idname = "swish.wind_field_add"
+    bl_label = "Add Wind Field"
+    bl_description = "Add a Wind force field: it blows along its Z axis at its Strength"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        bpy.ops.object.effector_add(type="WIND", rotation=(-1.5707963, 0.0, 0.0))
         live.invalidate(context.scene)
         return {"FINISHED"}
 
@@ -614,7 +649,7 @@ CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_gr
            SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_group_copy, SWISH_OT_group_paste,
            SWISH_OT_setup_export, SWISH_OT_setup_import, SWISH_OT_force_add, SWISH_OT_force_remove,
            SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
-           SWISH_OT_sync_target_remove)
+           SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add)
 
 
 def register():
