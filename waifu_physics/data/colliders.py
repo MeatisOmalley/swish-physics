@@ -220,19 +220,8 @@ def scene_colliders(scene, enabled_only=True):
                    and (obj.waifu_physics_collider.enabled or not enabled_only)), key=lambda obj: obj.name)
 
 
-def _layer_collection(view_layer):
-    """The view layer's entry for the colliders' collection, or None."""
-    pending = [view_layer.layer_collection]
-    while pending:
-        found = pending.pop()
-        if found.collection.name == COLLECTION:
-            return found
-        pending += found.children
-    return None
-
-
 def _collection(scene):
-    """The colliders' collection, made and put in the scene if need be."""
+    """The colliders' collection, made and put in the scene if need be (only when a collider is made)."""
     collection = bpy.data.collections.get(COLLECTION)
     if collection is None:
         collection = bpy.data.collections.new(COLLECTION)
@@ -245,18 +234,21 @@ def _view_layer(scene):
     return bpy.context.view_layer if bpy.context.scene == scene else scene.view_layers[0]
 
 
-def shown(scene):
-    """Are the colliders shown in the scene's view layer: their collection's eye."""
-    found = _layer_collection(_view_layer(scene))
-    return found is None or not found.hide_viewport
+def apply_shown(scene):
+    """Every collider in the scene shown or hidden as Show Colliders says, by its own eye: that costs no
+    rebuild of the scene's dependency graph (a collection's eye tags the view layer for a resync), and a hidden
+    collider still follows its bone and collides."""
+    hidden = not scene.waifu_physics.show_colliders
+    view_layer = _view_layer(scene)
+    for obj in scene.objects:
+        if is_collider(obj) and obj.name in view_layer.objects and obj.hide_get(view_layer=view_layer) != hidden:
+            obj.hide_set(hidden, view_layer=view_layer)
 
 
-def show(scene, value):
-    """Show or hide the colliders. The eye only hides them: they still move with their bones and collide."""
-    _collection(scene)
-    found = _layer_collection(_view_layer(scene))
-    if found is not None:
-        found.hide_viewport = not value
+def show(scene):
+    """Show the colliders: a collider just added or picked should be seen."""
+    if not scene.waifu_physics.show_colliders:
+        scene.waifu_physics.show_colliders = True
 
 
 def remove(obj):
@@ -300,7 +292,7 @@ def pick(scene, obj):
         return
     if active is not None and active.mode != "OBJECT" or obj.name not in view_layer.objects:
         return                                            # editing something: its selection is left alone
-    show(scene, True)
+    show(scene)
     for other in view_layer.objects.selected:
         other.select_set(False)
     obj.hide_set(False)
@@ -518,7 +510,7 @@ def _new(name, context=None):
     obj.hide_render = True
     md = obj.modifiers.new(MODIFIER, "NODES")
     md.node_group = node_group()
-    show(scene, True)
+    show(scene)
     return obj
 
 

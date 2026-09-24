@@ -140,18 +140,17 @@ def _draw_groups(layout, context):
         lists.template_list("WAIFU_PHYSICS_UL_groups", rig.name, rig.waifu_physics, "groups", rig.waifu_physics,
                             "active_group", rows=len(rig.waifu_physics.groups),
                             maxrows=len(rig.waifu_physics.groups))
+    if obj is not None and obj.type == "ARMATURE":
+        row = layout.row(align=True)
+        row.operator("waifu_physics.group_add", icon="PLUS")
+        row.operator("waifu_physics.exclude", icon="X")
 
 
 def _draw_group_tools(layout, context, span):
-    """The Physics tab's head: editing the active armature's chains, its warnings, and the group's preset. Its
-    settings follow in the subpanels."""
+    """The Physics tab's head: the active armature's warnings and the group's preset. Its settings follow in
+    the subpanels."""
     obj = context.object
-    if obj is None or obj.type != "ARMATURE":
-        return
-    row = layout.row(align=True)
-    row.operator("waifu_physics.group_add", icon="PLUS")
-    row.operator("waifu_physics.exclude", icon="X")
-    if not len(obj.waifu_physics.groups):
+    if obj is None or obj.type != "ARMATURE" or not len(obj.waifu_physics.groups):
         return
     from ..data import bone_refs
     lost = bone_refs.missing(obj)

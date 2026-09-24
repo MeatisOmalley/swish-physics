@@ -171,8 +171,9 @@ check("a group can leave the scene's colliders out", len(live.runtime(scene).sys
 g.use_scene_colliders = True
 scene.waifu_physics.show_colliders = False
 bpy.context.view_layer.update()
-check("Show Colliders off hides them (their collection's eye) ...", not ground.visible_get()
-      and not scene.waifu_physics.show_colliders)
+check("Show Colliders off hides them (each one's own eye, not their collection's) ...", not ground.visible_get()
+      and not scene.waifu_physics.show_colliders
+      and not bpy.context.view_layer.layer_collection.children[colliders.COLLECTION].hide_viewport)
 scene.frame_set(61)
 check("... and hidden, they still collide", len(live.runtime(scene).system.shape_type) == 2)
 colliders.add_to_scene("Sphere")
@@ -354,14 +355,16 @@ check("Regenerate replaces them with one fitted (a Capsule before, a Sphere now)
       and len(colliders.all_of(own)) == len(before), [obj.name for obj in on_anchor])
 bpy.ops.object.mode_set(mode="OBJECT")
 
-# --- the eye works before there is any collider: it makes their collection, hidden
+# --- the eye before there is any collider: nothing to hide, and nothing is made
 for obj in [obj for obj in bpy.data.objects if colliders.is_collider(obj)]:
     colliders.remove(obj)
 bpy.data.collections.remove(bpy.data.collections[colliders.COLLECTION])
 settings.show_colliders = False
-check("hiding with no colliders yet makes their collection, hidden",
-      colliders.COLLECTION in bpy.data.collections and not settings.show_colliders)
-settings.show_colliders = True
+check("hiding with no colliders yet makes no collection: it only remembers",
+      colliders.COLLECTION not in bpy.data.collections and not settings.show_colliders)
+made_hidden = colliders.add_to_scene("Sphere")
+check("... and the next collider made shows the colliders again", settings.show_colliders and made_hidden.visible_get())
+colliders.remove(made_hidden)
 
 addon.unregister()
 finish()

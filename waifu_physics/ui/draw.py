@@ -1,16 +1,87 @@
-"""Viewport overlay: a group's links drawn as lines between the bones they join."""
+"""Viewport overlay: a group's links drawn as lines between the bones they join, and with Show Colliders, the
+chains' collision spheres (a circle facing the view round each point, as big as it collides)."""
+import math
+
 import bpy
 import gpu
+import numpy as np
 from gpu_extras.batch import batch_for_shader
+from mathutils import Vector
 
 _handle = None
 COLOURS = ((0.35, 0.8, 1.0, 1.0), (1.0, 0.6, 0.25, 1.0), (0.6, 1.0, 0.4, 1.0), (1.0, 0.45, 0.8, 1.0))
 
 
+SEGMENTS = 20
+_CIRCLE = [(math.cos(2 * math.pi * k / SEGMENTS), math.sin(2 * math.pi * k / SEGMENTS)) for k in range(SEGMENTS + 1)]
+
+
+def _simulated_spheres(scene):
+    """(world position, world radius, group colour) of every simulated point, from the running simulation: what
+    collides, where it is now. None when nothing simulates."""
+    from ..runtime import live
+    rt = live._runtimes.get(scene.as_pointer())
+    if rt is None or getattr(rt, "system", None) is None:
+        return None
+    s = rt.system
+    found = []
+    try:
+        worlds = [rig.obj.matrix_world for rig in rt.rigs]
+        for i in np.flatnonzero(s.parent >= 0):
+            rig, index = rt.group_props[s.group[i]]
+            world = worlds[rig]
+            found.append((world @ Vector(s.loc[i] / rt.cm), float(s.radius[i]) / rt.cm * max(world.to_scale()),
+                          COLOURS[index % len(COLOURS)]))
+    except (ReferenceError, IndexError, AttributeError):
+        return None
+    return found
+
+
+def _posed_spheres(scene):
+    """The same from the pose, when nothing simulates: each chain bone's head below its root and each tip's
+    tail, sized by the group's radius and its curve along the chain."""
+    from ..data import curves
+    from ..data.links import chain_subtree
+    found = []
+    for obj in scene.objects:
+        if obj.type != "ARMATURE" or not obj.visible_get() or not len(obj.waifu_physics.groups):
+            continue
+        world, scale = obj.matrix_world, max(obj.matrix_world.to_scale())
+        bones = obj.pose.bones
+        for index, group in enumerate(obj.waifu_physics.groups):
+            if not group.enabled:
+                continue
+            colour = COLOURS[index % len(COLOURS)]
+            curve = curves.curve(group, "radius")
+            excluded = [bone.name for bone in group.excluded]
+            for root in group.roots:
+                names = chain_subtree(obj, root.name, excluded)[1:]
+                points, reach = [], {}
+                for name in names:
+                    bone = bones[name]
+                    reach[name] = reach.get(bone.parent.name, 0.0) + bone.parent.length if bone.parent else 0.0
+                    points.append((bone.head, reach[name]))
+                    if not any(child.name in names for child in bone.children):
+                        points.append((bone.tail, reach[name] + bone.length))
+                if not points:
+                    continue
+                longest = max(distance for _head, distance in points) or 1.0
+                rates = np.array([distance / longest for _head, distance in points], dtype=np.float32)
+                sizes = curve.many(rates) if curve is not None else np.ones(len(points))
+                for (head, _distance), size in zip(points, sizes):
+                    found.append((world @ head, group.radius * float(size) * scale, colour))
+    return found
+
+
 def _draw():
     context = bpy.context
     scene = context.scene
-    if scene is None or not scene.waifu_physics.show_links:
+    if scene is None:
+        return
+    settings = scene.waifu_physics
+    if settings.show_colliders and context.region_data is not None:
+        _draw_spheres(context, scene)
+    if not settings.show_links:
         return
     lines, colours = [], []
     for obj in scene.objects:
@@ -38,6 +109,31 @@ def _draw():
     gpu.state.blend_set("ALPHA")
     gpu.state.depth_test_set("NONE")
     batch.draw(shader)
+    gpu.state.blend_set("NONE")
+
+
+def _draw_spheres(context, scene):
+    spheres = _simulated_spheres(scene) if scene.waifu_physics.simulate else None
+    if spheres is None:
+        spheres = _posed_spheres(scene)
+    if not spheres:
+        return
+    rotation = context.region_data.view_rotation
+    right, up = rotation @ Vector((1.0, 0.0, 0.0)), rotation @ Vector((0.0, 1.0, 0.0))
+    lines, colours = [], []
+    for centre, radius, colour in spheres:
+        faded = colour[:3] + (0.55,)
+        ring = [tuple(centre + (right * c + up * s) * radius) for c, s in _CIRCLE]
+        for a, b in zip(ring, ring[1:]):
+            lines += [a, b]
+        colours += [faded] * (2 * SEGMENTS)
+    shader = gpu.shader.from_builtin("POLYLINE_SMOOTH_COLOR")
+    region = context.region
+    shader.uniform_float("viewportSize", (region.width, region.height))
+    shader.uniform_float("lineWidth", 1.2)
+    gpu.state.blend_set("ALPHA")
+    gpu.state.depth_test_set("NONE")
+    batch_for_shader(shader, "LINES", {"pos": lines, "color": colours}).draw(shader)
     gpu.state.blend_set("NONE")
 
 
