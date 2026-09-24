@@ -1,6 +1,7 @@
 """Operators: make and edit groups from the bones selected in Pose Mode."""
 import bpy
 
+from ..data import curves as group_curves
 from ..runtime import live
 
 
@@ -127,6 +128,7 @@ class SWISH_OT_group_remove(bpy.types.Operator):
     def execute(self, context):
         obj = context.object
         live.set_simulating(context.scene, False)
+        group_curves.remove(obj.swish.groups[obj.swish.active_group])
         obj.swish.groups.remove(obj.swish.active_group)
         obj.swish.active_group = max(0, obj.swish.active_group - 1)
         if context.scene.swish.simulate:

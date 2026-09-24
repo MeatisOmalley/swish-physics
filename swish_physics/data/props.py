@@ -29,6 +29,38 @@ def _structure_changed(self, context):
     live.mark_dirty()
 
 
+_propagating = False
+
+
+def _setting_changed(name):
+    """With Edit Selected Groups on, a change to one group's setting reaches every group
+    holding a selected bone (Swish's version of Alt-editing)."""
+    def update(self, context):
+        global _propagating
+        if _propagating or context is None or not context.scene.swish.edit_selected_groups:
+            return
+        from ..ui.selection import groups_of_selected
+        value = getattr(self, name)
+        _propagating = True
+        try:
+            for group in groups_of_selected(context):
+                if group != self and getattr(group, name) != value:
+                    setattr(group, name, value)
+        finally:
+            _propagating = False
+    return update
+
+
+def _curve_toggled(name):
+    def update(self, context):
+        from . import curves
+        if getattr(self, f"use_{name}_curve"):
+            curves.node(self, name)
+        if name == "radius":                # bridge and densified points are sized from it when built
+            _structure_changed(self, context)
+    return update
+
+
 class SwishBoneName(PropertyGroup):
     name: StringProperty()
 
@@ -60,20 +92,33 @@ class SwishGroup(PropertyGroup):
     active_link: IntProperty()
 
     # FKawaiiPhysicsSettings, animatable. Radius is a length; limit angle an angle.
-    damping: FloatProperty(name="Damping", default=0.1, min=0.0, max=1.0,
+    damping: FloatProperty(name="Damping", default=0.1, min=0.0, max=1.0, update=_setting_changed("damping"),
                            description="How much of its velocity a point loses each step")
-    stiffness: FloatProperty(name="Stiffness", default=0.05, min=0.0, max=1.0,
+    stiffness: FloatProperty(name="Stiffness", default=0.05, min=0.0, max=1.0, update=_setting_changed("stiffness"),
                              description="How strongly a point is pulled back toward its animated pose")
     world_damping_location: FloatProperty(
         name="World Damping Location", default=0.8, min=0.0, max=1.0,
+        update=_setting_changed("world_damping_location"),
         description="How little the chains feel the armature object moving: 0 trails fully, 1 rides along")
     world_damping_rotation: FloatProperty(
         name="World Damping Rotation", default=0.8, min=0.0, max=1.0,
+        update=_setting_changed("world_damping_rotation"),
         description="How little the chains feel the armature object turning: 0 trails fully, 1 rides along")
     radius: FloatProperty(name="Radius", default=0.03, min=0.0, subtype="DISTANCE", precision=4,
-                          description="Each point's collision radius")
+                          update=_setting_changed("radius"), description="Each point's collision radius")
     limit_angle: FloatProperty(name="Limit Angle", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
+                               update=_setting_changed("limit_angle"),
                                description="How far a bone may swing from its animated direction; 0 for no limit")
+    # Curves along the chain, root to tip, multiplying each setting (Kawaii's *CurveData).
+    curve_key: StringProperty(options={"HIDDEN"})
+    use_damping_curve: BoolProperty(name="Damping Curve", update=_curve_toggled("damping"))
+    use_stiffness_curve: BoolProperty(name="Stiffness Curve", update=_curve_toggled("stiffness"))
+    use_world_damping_location_curve: BoolProperty(name="World Damping Location Curve",
+                                                   update=_curve_toggled("world_damping_location"))
+    use_world_damping_rotation_curve: BoolProperty(name="World Damping Rotation Curve",
+                                                   update=_curve_toggled("world_damping_rotation"))
+    use_radius_curve: BoolProperty(name="Radius Curve", update=_curve_toggled("radius"))
+    use_limit_angle_curve: BoolProperty(name="Limit Angle Curve", update=_curve_toggled("limit_angle"))
 
     gravity: FloatVectorProperty(name="Gravity", default=(0.0, 0.0, -1.0), subtype="ACCELERATION", size=3,
                                  description="Gravity; with Use Scene Gravity, a direction scaled by the scene's")
@@ -134,6 +179,12 @@ class SwishScene(PropertyGroup):
                               description="Most simulation steps one frame may take; the rest of a long frame is dropped")
     fixed_substepping: BoolProperty(name="Fixed Steps", default=True, update=_structure_changed,
                                     description="Step at a fixed rate; off steps once per frame (Kawaii's legacy mode)")
+    edit_selected_groups: BoolProperty(
+        name="Edit Selected Groups", default=True,
+        description="Changing a setting changes it in every group holding a selected bone")
+    follow_selection: BoolProperty(
+        name="Follow Selection", default=True,
+        description="Clicking a bone in Pose Mode shows its group")
 
 
 def _simulate_changed(settings):

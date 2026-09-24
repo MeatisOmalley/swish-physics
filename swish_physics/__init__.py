@@ -7,17 +7,18 @@ if "bpy" in locals():
     for _module in _RELOAD_ORDER:
         importlib.reload(_module)
 else:
-    from .solver import uemath, system, step_numpy, native, build
-    from .data import props
+    from .solver import uemath, system, curves as solver_curves, step_numpy, native, build
+    from .data import props, curves
     from .runtime import io, live
-    from .ui import ops, panels
+    from .ui import selection, ops, panels
 
 import bpy  # noqa: E402,F401  (its presence marks a reload, above)
 
-_RELOAD_ORDER = (uemath, system, step_numpy, native, build, props, io, live, ops, panels)
+_RELOAD_ORDER = (uemath, system, solver_curves, step_numpy, native, build, props, curves, io, live, selection,
+                 ops, panels)
 
 # Registered in this order, unregistered in reverse.
-MODULES = (props, live, ops, panels)
+MODULES = (props, live, selection, ops, panels)
 
 
 def register():

@@ -1,6 +1,7 @@
 """The Swish sidebar tab in the 3D viewport."""
 import bpy
 
+from ..data import curves
 from ..solver import native
 
 
@@ -41,6 +42,7 @@ class SWISH_PT_main(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("swish.group_add", icon="PLUS")
         row.operator("swish.exclude", icon="X")
+        layout.prop(settings, "follow_selection")
         if not len(swish.groups):
             layout.label(text="Select bones in Pose Mode, then New Group", icon="INFO")
 
@@ -69,11 +71,19 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
     def draw(self, context):
         group = self.group(context)
         layout = self.layout
-        layout.use_property_split = True
-        for name in ("damping", "stiffness", "world_damping_location", "world_damping_rotation", "radius",
-                     "limit_angle"):
-            layout.prop(group, name)
+        layout.prop(context.scene.swish, "edit_selected_groups")
+        for name in curves.CURVED:
+            row = layout.row(align=True)
+            row.prop(group, name)
+            row.prop(group, f"use_{name}_curve", text="", icon="FCURVE")
+            if getattr(group, f"use_{name}_curve"):
+                node = curves.node(group, name, create=False)
+                if node is not None:
+                    box = layout.box()
+                    box.label(text="Along the chain, root to tip", icon="IPO_LINEAR")
+                    box.template_curve_mapping(node, "mapping")
         layout.separator()
+        layout.use_property_split = True
         layout.prop(group, "gravity")
         layout.prop(group, "use_scene_gravity")
         layout.prop(group, "use_world_space_gravity")

@@ -13,6 +13,7 @@ import bpy
 import numpy as np
 from bpy.app.handlers import persistent
 
+from ..data import curves as group_curves
 from ..solver import native
 from ..solver.build import Skeleton, GroupSpec, build, ComponentMotion
 from ..solver.system import Group, COMPLIANCE_TYPES, PLANAR_NONE, PLANAR_X, PLANAR_Y, PLANAR_Z
@@ -94,7 +95,7 @@ class Runtime:
         prefix = f"{r}|"
         cm = self.cm
         group = Group(
-            settings=self._settings(props),
+            settings=self._settings(props), curves=group_curves.curves(props),
             dummy_bone_length=props.dummy_bone_length * cm,
             bone_subdivision_count=props.bone_subdivision_count,
             bone_subdivision_collision_only=props.bone_subdivision_collision_only,
@@ -137,6 +138,7 @@ class Runtime:
         for g in range(len(self.group_props)):
             rig, props = self._group(g)
             s.groups[g].settings = self._settings(props)
+            s.groups[g].curves = group_curves.curves(props)
             world = rig.obj.matrix_world
             gravity = np.array(props.gravity, dtype=float)
             if props.use_scene_gravity:

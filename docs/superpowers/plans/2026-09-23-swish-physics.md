@@ -29,6 +29,7 @@ Recorded 2026-09-23 so implementation does not re-derive them. Benchmark and pro
 | The port reproduces Kawaii to the bit | Kawaii's own golden test (`KawaiiPhysicsGoldenTest.cpp`: chain, legacy chain, links, sphere/capsule/box/plane collisions with an angle limit; 200 frames each) matches 156 of 156 doubles bit for bit on both steps (`tests/test_solver_golden.py`). It took Kawaii's exact precisions: `DistSq` and `Dist` in sphere collision are floats, vector division multiplies by the reciprocal, `DegreesToRadians(double)` uses the double pi, and the test's `FVector(0.3f, ...)` inputs are floats |
 | C and numpy agree to the bit on every feature | Six random scenes (tip, inter-bone and bridge dummies, links, all collider types, curves, planar constraints, legacy and substep modes, teleports), 170 frames each (`tests/test_solver_agreement.py`) |
 | The whole frame loop is fast in C | Peach-sized scene (160 points, 32 links, 56 colliders), 24 fps: numpy 4.1 ms a frame, C 0.26 ms; five characters: numpy 7.7 ms, C 0.55 ms (`tests/bench_solver.py`, Blender I/O not included) |
+| Curves agree with the game by construction | Each Blender curve is sampled into 65 linear keys; the solver evaluates them exactly as `FRichCurve::Eval` does linear keys (bit for bit against a transcription, `tests/test_curves.py`), so an export of those keys gives Unreal the same values. The host node group's leading dot keeps it out of the node Add menu (`node_add_menu.py` skips such groups unless Show Hidden IDs is on) |
 | Posed chain lengths differ from rest | Peach MAXED's hair chains hang from `J_Scale_J_Bip_C_Head` at pose scale (2.44, 2.11, 2.23): up to 271 mm longer than rest. Kawaii restores posed lengths, so the solver handles it |
 
 ## Design decisions
@@ -107,9 +108,9 @@ Each phase ends with its tests passing headless and, where it changes what the m
 
 ### Phase 3: Curves and the group panel
 
-- [ ] `curves.py`: a hidden node group per armature with a Float Curve per curved setting; values sampled per point when the layout is built or a curve changes.
-- [ ] Panel: active group's settings and curves; Alt-edit across selected bones' groups; clicking a bone activates its group.
-- [ ] Verify the Float Curve host in a real window: widget draws, edits evaluate, nothing appears in brush shelves or asset browsers.
+- [x] `curves.py`: a hidden node group per armature with a Float Curve per curved setting; values sampled per point when the layout is built or a curve changes.
+- [x] Panel: active group's settings and curves; Alt-edit across selected bones' groups; clicking a bone activates its group.
+- [x] Verify the Float Curve host in a real window: widget draws, edits evaluate, nothing appears in brush shelves or asset browsers.
 
 ### Phase 4: Colliders
 

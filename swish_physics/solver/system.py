@@ -253,6 +253,8 @@ class System:
                 fn = grp.curves.get(name)
                 if fn is None:
                     return np.ones(rows.sum(), dtype=F32)
+                if hasattr(fn, "many"):
+                    return fn.many(rate)
                 return np.asarray([fn(float(r)) for r in rate], dtype=F32)
 
             base = {name: F32(grp.settings[name]) for name in SETTINGS}
