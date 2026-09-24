@@ -99,11 +99,11 @@ Each phase ends with its tests passing headless and, where it changes what the m
 
 ### Phase 2: Blender runtime, live mode
 
-- [ ] Groups on the armature object; New Group and Add to Group from selected bones (whole chains); remove; exclude bones.
-- [ ] `io.py`: bulk pose read; keyed-channel detection from the object's action; unkeyed chain bones at rest; rotations from positions; bulk write in each bone's own rotation mode.
-- [ ] `live.py`: post-frame-change step with a fixed 60 Hz clock and a substep cap of 4; pose interpolation across substeps; teleport reset by distance and rotation thresholds; warm-up frames.
-- [ ] Settings read in bulk every step, so keyframed settings take effect as they play.
-- [ ] Tests: a keyed chain follows its animation under stiffness 1; an unkeyed chain hangs from its rest pose; a bone in each rotation mode keeps its mode; keyframed damping changes behaviour mid-playback; teleport resets.
+- [x] Groups on the armature object; New Group and Add to Group from selected bones (whole chains); remove; exclude bones.
+- [x] `io.py`: bulk pose read; keyed-channel detection from the object's action; unkeyed chain bones at rest; rotations from positions; bulk write in each bone's own rotation mode.
+- [x] `live.py`: post-frame-change step with a fixed 60 Hz clock and a substep cap of 4; pose interpolation across substeps; teleport reset by distance and rotation thresholds; warm-up frames.
+- [x] Settings read in bulk every step, so keyframed settings take effect as they play.
+- [x] Tests: a keyed chain follows its animation under stiffness 1; an unkeyed chain hangs from its rest pose; a bone in each rotation mode keeps its mode; keyframed damping changes behaviour mid-playback; teleport resets.
 
 ### Phase 3: Curves and the group panel
 

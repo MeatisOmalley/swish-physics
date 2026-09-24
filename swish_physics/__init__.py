@@ -1,17 +1,23 @@
 """Swish Physics: bone-chain physics for Blender, ported from Kawaii Physics."""
 
 # Reload Scripts re-runs this file with its old globals still in place; reload
-# the submodules too, so an edit to any of them takes effect without a restart.
+# the submodules too (dependencies first), so an edit takes effect without a restart.
 if "bpy" in locals():
     import importlib
-    panels = importlib.reload(panels)
+    for _module in _RELOAD_ORDER:
+        importlib.reload(_module)
 else:
-    from .ui import panels
+    from .solver import uemath, system, step_numpy, native, build
+    from .data import props
+    from .runtime import io, live
+    from .ui import ops, panels
 
 import bpy  # noqa: E402,F401  (its presence marks a reload, above)
 
+_RELOAD_ORDER = (uemath, system, step_numpy, native, build, props, io, live, ops, panels)
+
 # Registered in this order, unregistered in reverse.
-MODULES = (panels,)
+MODULES = (props, live, ops, panels)
 
 
 def register():
