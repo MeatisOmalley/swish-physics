@@ -332,13 +332,13 @@ class WaifuPhysicsGroup(PropertyGroup):
                     "seconds to settle. (10 minus the seconds to get 95% of the way back; Kawaii's own stiffness "
                     "is what is saved and exported)")
     world_location_inertia: FloatProperty(
-        name="World Location Inertia", get=_inertia_get("world_damping_location"),
+        name="Moving Inertia", get=_inertia_get("world_damping_location"),
         set=_inertia_set("world_damping_location"), min=0.0, max=1.0, precision=2, options=set(),
         description="How much the chains lag behind and swing when the armature object moves through the "
                     "world (walking, jumping). 1: full inertia; 0: they move rigidly with it. Moves animated on "
                     "bones always count in full. (Kawaii's World Damping Location is 1 minus this)")
     world_rotation_inertia: FloatProperty(
-        name="World Rotation Inertia", get=_inertia_get("world_damping_rotation"),
+        name="Rotating Inertia", get=_inertia_get("world_damping_rotation"),
         set=_inertia_set("world_damping_rotation"), min=0.0, max=1.0, precision=2, options=set(),
         description="How much the chains lag behind and swing when the armature object turns. 1: full "
                     "inertia; 0: they turn rigidly with it. (Kawaii's World Damping Rotation is 1 minus this)")

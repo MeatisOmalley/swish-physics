@@ -160,7 +160,7 @@ class _GroupPanel:
 # Settings shown the intuitive way round (display only: Kawaii's values are stored and exported).
 _SHOWN = {"stiffness": "stiffness_level", "damping": "damping_level", "world_damping_location": "world_location_inertia",
           "world_damping_rotation": "world_rotation_inertia"}
-_SHORT_LABELS = {"world_damping_location": "Location", "world_damping_rotation": "Rotation"}
+_SHORT_LABELS = {"world_damping_location": "Moving", "world_damping_rotation": "Rotating"}
 
 
 class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
@@ -181,7 +181,7 @@ class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
             shown = _SHOWN.get(name, name)
             if name == "world_damping_location":
                 heading = column.split(factor=0.5)
-                heading.label(text="World Inertia")
+                heading.label(text="Inertia")
             split = column.split(factor=0.5, align=True)
             label = split.row()
             label.alignment = "RIGHT"
