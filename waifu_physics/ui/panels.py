@@ -7,12 +7,6 @@ from ..data.props import FORCE_CHANNELS, FORCE_KINDS
 from ..solver import native
 
 
-def _tree_and_side(box):
-    """A box's tree on the left and its + and - buttons in a column on the right, + above -."""
-    body = box.row()
-    return body.column(), body.column(align=True)
-
-
 def _tree_armatures(context):
     """The armatures the Groups box lists. Selected Only: every selected armature, groups or not.
     Otherwise: every armature with a group, plus the active one, so it can be given its first."""
@@ -67,15 +61,6 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
         row.operator("waifu_physics.bake", icon="KEYFRAME")          # greyed until cached (its poll)
         if native.backend() is native.step_numpy:
             layout.label(text=f"Using the slower numpy step: {native.reason()}", icon="INFO")
-        tabs = layout.row()
-        tabs.scale_y = 1.15
-        tabs.prop(settings, "tab", expand=True)
-        if settings.tab == "COLLIDERS":
-            _draw_colliders(layout, context)
-            return
-
-        obj = context.object
-        armatures = _tree_armatures(context)
         from . import manager
         if manager.listed(context):              # any armature with a group, selected or not
             showing = manager.is_open(context.area)
@@ -85,73 +70,116 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
                 note = layout.row()
                 note.alert = True
                 note.label(text="Turn on Gizmos in the header to see it", icon="ERROR")
-        box = layout.box()
-        header = box.row(align=True)
-        header.label(text="Groups")
-        header.prop(settings, "selected_only", text="", icon="RESTRICT_SELECT_OFF")
-        box, side = _tree_and_side(box)
-        side.enabled = obj is not None and obj.type == "ARMATURE"
-        side.operator("waifu_physics.group_new", text="", icon="ADD")
-        side.operator("waifu_physics.group_remove", text="", icon="REMOVE")
-        if not armatures:
-            box.label(text="Select an armature" if settings.selected_only else "No armature has a group yet",
-                      icon="INFO")
-            return
-        for number, rig in enumerate(armatures):
-            if number:
-                box.separator(factor=0.8)            # a little space between armatures
-            row = box.row(align=True)
-            row.prop(rig.waifu_physics, "expanded", text="", emboss=False,
-                     icon="DOWNARROW_HLT" if rig.waifu_physics.expanded else "RIGHTARROW")
-            left = row.row(align=True)
-            left.alignment = "LEFT"
-            name = left.operator("waifu_physics.armature_activate", text=rig.name, icon="ARMATURE_DATA",
-                                 emboss=rig == obj, depress=rig == obj)
-            name.armature = rig.name
-            if not rig.waifu_physics.expanded:
-                continue
-            if not len(rig.waifu_physics.groups):
-                if rig == obj:                       # one hint, for the armature being edited
-                    hint = box.row()
-                    hint.enabled = False
-                    hint.label(text="Select bones in Pose Mode, then +")
-                continue
-            lists = box.row()
-            lists.active = rig == obj                # other armatures' lists are dimmed: not being edited
-            lists.template_list("WAIFU_PHYSICS_UL_groups", rig.name, rig.waifu_physics, "groups", rig.waifu_physics, "active_group",
-                                rows=len(rig.waifu_physics.groups), maxrows=len(rig.waifu_physics.groups))
-        if obj is None or obj.type != "ARMATURE":
-            return
-        row = layout.row(align=True)
-        row.operator("waifu_physics.group_add", icon="PLUS")
-        row.operator("waifu_physics.exclude", icon="X")
-        if not len(obj.waifu_physics.groups):
-            return
-        from ..data import bone_refs
-        lost = bone_refs.missing(obj)
-        if lost:
-            box = layout.box().column(align=True)
-            box.alert = True
-            row = box.split(factor=0.65)
-            row.label(text=f"{len(lost)} missing bone{'' if len(lost) == 1 else 's'}", icon="ERROR")
-            row.operator("waifu_physics.bones_clean_up")
-            box.label(text=", ".join(lost[:3]) + (" ..." if len(lost) > 3 else ""))
-        group = obj.waifu_physics.groups[min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1)]
-        constrained = chain_links.constrained_bones(obj, group)
-        if constrained:
-            box = layout.box().column(align=True)
-            box.alert = True
-            box.label(text=f"{_plural(len(constrained), 'constrained bone')}: physics can't move them",
-                      icon="ERROR")
-            box.label(text="Start the group below them: " + ", ".join(constrained[:3])
-                           + (" ..." if len(constrained) > 3 else ""))
-        row = layout.row(align=True)
-        row.enabled = span is None                  # a cache plays what was simulated: settings wait for it to clear
-        from ..data import presets
-        row.menu("WAIFU_PHYSICS_MT_presets", text=presets.matching(group) or "Preset", icon="PRESET")
-        row.operator("waifu_physics.preset_save", text="", icon="ADD")
-        row.operator("waifu_physics.group_copy", text="", icon="COPYDOWN")
-        row.operator("waifu_physics.group_paste", text="", icon="PASTEDOWN")
+        _draw_groups(layout, context)
+        layout.separator()
+        page = _tabs(layout, settings, "tab")
+        if settings.tab == "COLLIDERS":
+            _draw_colliders(page, context)
+        else:
+            _draw_group_tools(page, context, span)
+
+
+def _tabs(layout, owner, prop):
+    """Folder tabs for an enum: the chosen one a box joined to the page below it (the box returned), the others
+    flat beside it. Blender's own tab widget (prop_tabs_enum) is the Properties editor's vertical bar only."""
+    column = layout.column(align=True)
+    row = column.row(align=True)
+    chosen = getattr(owner, prop)
+    for item in owner.bl_rna.properties[prop].enum_items:
+        if item.identifier == chosen:
+            cell = row.box()
+        else:
+            cell = row.column()
+            cell.separator(factor=0.35)          # level with the chosen tab's label, which its box pads
+        cell.emboss = "NONE"
+        cell.prop_enum(owner, prop, item.identifier)
+    return column.box()
+
+
+def _outside_buttons(layout):
+    """A box, and a column to its right, outside it, for its + and - (+ above -), as Blender's lists have."""
+    row = layout.row()
+    return row.box(), row.column(align=True)
+
+
+def _draw_groups(layout, context):
+    """The Groups box: a folder per armature (as _tree_armatures lists them) holding its groups."""
+    settings = context.scene.waifu_physics
+    obj = context.object
+    armatures = _tree_armatures(context)
+    box, side = _outside_buttons(layout)
+    side.enabled = obj is not None and obj.type == "ARMATURE"
+    side.operator("waifu_physics.group_new", text="", icon="ADD")
+    side.operator("waifu_physics.group_remove", text="", icon="REMOVE")
+    header = box.row(align=True)
+    header.label(text="Groups")
+    header.prop(settings, "selected_only", text="", icon="RESTRICT_SELECT_OFF")
+    if not armatures:
+        box.label(text="Select an armature" if settings.selected_only else "No armature has a group yet",
+                  icon="INFO")
+        return
+    for number, rig in enumerate(armatures):
+        if number:
+            box.separator(factor=0.8)            # a little space between armatures
+        row = box.row(align=True)
+        row.prop(rig.waifu_physics, "expanded", text="", emboss=False,
+                 icon="DOWNARROW_HLT" if rig.waifu_physics.expanded else "RIGHTARROW")
+        left = row.row(align=True)
+        left.alignment = "LEFT"
+        name = left.operator("waifu_physics.armature_activate", text=rig.name, icon="ARMATURE_DATA",
+                             emboss=rig == obj, depress=rig == obj)
+        name.armature = rig.name
+        if not rig.waifu_physics.expanded:
+            continue
+        if not len(rig.waifu_physics.groups):
+            if rig == obj:                       # one hint, for the armature being edited
+                hint = box.row()
+                hint.enabled = False
+                hint.label(text="Select bones in Pose Mode, then +")
+            continue
+        lists = box.row()
+        lists.active = rig == obj                # other armatures' lists are dimmed: not being edited
+        lists.template_list("WAIFU_PHYSICS_UL_groups", rig.name, rig.waifu_physics, "groups", rig.waifu_physics,
+                            "active_group", rows=len(rig.waifu_physics.groups),
+                            maxrows=len(rig.waifu_physics.groups))
+
+
+def _draw_group_tools(layout, context, span):
+    """The Physics tab's head: editing the active armature's chains, its warnings, and the group's preset. Its
+    settings follow in the subpanels."""
+    obj = context.object
+    if obj is None or obj.type != "ARMATURE":
+        return
+    row = layout.row(align=True)
+    row.operator("waifu_physics.group_add", icon="PLUS")
+    row.operator("waifu_physics.exclude", icon="X")
+    if not len(obj.waifu_physics.groups):
+        return
+    from ..data import bone_refs
+    lost = bone_refs.missing(obj)
+    if lost:
+        box = layout.box().column(align=True)
+        box.alert = True
+        row = box.split(factor=0.65)
+        row.label(text=f"{len(lost)} missing bone{'' if len(lost) == 1 else 's'}", icon="ERROR")
+        row.operator("waifu_physics.bones_clean_up")
+        box.label(text=", ".join(lost[:3]) + (" ..." if len(lost) > 3 else ""))
+    group = obj.waifu_physics.groups[min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1)]
+    constrained = chain_links.constrained_bones(obj, group)
+    if constrained:
+        box = layout.box().column(align=True)
+        box.alert = True
+        box.label(text=f"{_plural(len(constrained), 'constrained bone')}: physics can't move them",
+                  icon="ERROR")
+        box.label(text="Start the group below them: " + ", ".join(constrained[:3])
+                       + (" ..." if len(constrained) > 3 else ""))
+    row = layout.row(align=True)
+    row.enabled = span is None                  # a cache plays what was simulated: settings wait for it to clear
+    from ..data import presets
+    row.menu("WAIFU_PHYSICS_MT_presets", text=presets.matching(group) or "Preset", icon="PRESET")
+    row.operator("waifu_physics.preset_save", text="", icon="ADD")
+    row.operator("waifu_physics.group_copy", text="", icon="COPYDOWN")
+    row.operator("waifu_physics.group_paste", text="", icon="PASTEDOWN")
 
 
 class _GroupPanel:
@@ -382,12 +410,11 @@ def _draw_colliders(layout, context):
     settings = context.scene.waifu_physics
     layout = layout.column()
     layout.enabled = not live.is_cached(context.scene)
-    box = layout.box()
-    header = box.row(align=True)
+    tree, side = _outside_buttons(layout)
+    header = tree.row(align=True)
     header.label(text="Colliders")
     header.prop(settings, "show_colliders", text="", toggle=True,
                 icon="HIDE_OFF" if settings.show_colliders else "HIDE_ON")
-    tree, side = _tree_and_side(box)
     index = settings.active_collider
     picked = bpy.data.objects[index] if 0 <= index < len(bpy.data.objects) else None
     active = colliders.armature_of(context)
