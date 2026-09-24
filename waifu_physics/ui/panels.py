@@ -365,13 +365,16 @@ class WAIFU_PHYSICS_UL_forces(bpy.types.UIList):
         row.prop(item, "name", text="", emboss=False, icon=kind_icon)
 
 
-def _split_row(layout, label):
-    """A labelled row like the Physics panel's: the label right-aligned in the left half."""
-    split = layout.split(factor=0.28, align=True)
+def _pair_row(layout, label, owner, *names):
+    """Values sharing one label, laid out as Blender's property split lays out one: the label right-aligned in
+    the same 40% (so it lines up with the rows around it and shortens as the sidebar narrows)."""
+    split = layout.split(factor=0.4, align=True)
     left = split.row()
     left.alignment = "RIGHT"
     left.label(text=label)
-    return split.row(align=True)
+    row = split.row(align=True)
+    for name in names:
+        row.prop(owner, name, text="")
 
 
 class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
@@ -415,11 +418,9 @@ class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
             return
         force = group.forces[min(group.active_force, len(group.forces) - 1)]
         box = layout.box()
-        header = box.column(align=True)
+        header = box.row()
         header.scale_y = 1.2
         header.prop(force, "category", text="")                # what the force is, as its header
-        if force.category == "WIND":
-            header.prop(force, "wind_type", text="")           # and for wind, which kind, just under it
         col = box.column()
         col.use_property_split = True
         col.use_property_decorate = False
@@ -429,10 +430,12 @@ class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
             col.prop(force, "direction", text="Push")
             col.prop(force, "interval", text="Pulse Every")
         elif kind == "GRAVITY":
-            col.prop(force, "override_direction")
-            sub = col.column()
+            col.label(text="Direction")                          # a heading, as the Physics panel's Inertia
+            col.prop(force, "override_direction", text="Custom")
+            sub = col.column(align=True)
             sub.active = force.override_direction
-            sub.prop(force, "direction")
+            for index, axis in enumerate("XYZ"):
+                sub.prop(force, "direction", index=index, text=axis)
         elif kind == "CURVE":
             col.prop(force, "space")
             col.prop(force, "amplitude")
@@ -447,40 +450,21 @@ class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
             col.operator_menu_enum("waifu_physics.wind_preset", "preset", text="Preset", icon="PRESET")
             col.prop(force, "space")
             col.prop(force, "direction")
-            col.separator()
-            winds = box.column(align=True)
-            _split_row(winds, "Steady").prop(force, "constant", text="")
-            row = _split_row(winds, "Sway")
-            row.prop(force, "sway", text="")
-            row.prop(force, "sway_period", text="")
-            row = _split_row(winds, "Ripples")
-            row.prop(force, "ripple", text="")
-            row.prop(force, "ripple_period", text="")
-            row = _split_row(winds, "Gusts")
-            row.prop(force, "cycle_min", text="")
-            row.prop(force, "cycle_max", text="")
-            row.prop(force, "cycle_period", text="")
-            row = _split_row(winds, "Flutter")
-            row.prop(force, "random", text="")
-            row.prop(force, "random_period", text="")
-            col = box.column()
-            col.use_property_split = True
-            col.use_property_decorate = False
+            winds = col.column(align=True)
+            winds.prop(force, "constant", text="Steady")
+            for label, amount, period in (("Sway", "sway", "sway_period"), ("Ripples", "ripple", "ripple_period"),
+                                          ("Flutter", "random", "random_period")):
+                _pair_row(winds, label, force, amount, period)
+            _pair_row(winds, "Gusts", force, "cycle_min", "cycle_max")
+            _pair_row(winds, "Gust Period", force, "cycle_period")
             col.prop(force, "show_advanced")
             if force.show_advanced:
                 for name in ("noise_angle", "noise_period", "time_scale", "sway_phase", "ripple_phase",
                              "ripple_delay", "cycle_phase", "seed"):
                     col.prop(force, name)
-        if kind == "GRAVITY":
-            row = _split_row(col, "Strength")
-            row.prop(force, "random_min", text="")
-            row.prop(force, "random_max", text="to")
-        elif kind != "PROCEDURAL_WIND":
-            row = _split_row(col, "Random Scale")
-            row.prop(force, "random_min", text="")
-            row.prop(force, "random_max", text="to")
-        row = box.row()
-        row.prop(force, "use_rate_curve", icon="FCURVE")
+        if kind != "PROCEDURAL_WIND":
+            _pair_row(col, "Strength" if kind == "GRAVITY" else "Random Scale", force, "random_min", "random_max")
+        box.prop(force, "use_rate_curve", icon="FCURVE")
         if force.use_rate_curve:
             _curve_box(box, force, "rate", "Along the chain, root to tip")
         _filter_row(box, force, "apply_bones", "Only", "APPLY")

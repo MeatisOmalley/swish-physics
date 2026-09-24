@@ -130,12 +130,12 @@ FORCE_KINDS = [
     ("WIND", "Field Wind", "Kawaii's wind from Wind force fields (replaced by Blender Force Fields)", "FORCE_WIND", 3),
     ("PROCEDURAL_WIND", "Procedural Wind", "Seeded sway, ripple and gusting noise (Kawaii's Procedural Wind)",
      "FORCE_WIND", 4)]
-# What a force is, as its header shows it: the kinds, with every wind under Wind (its type in a second menu).
+# What a force is, as its header shows it. Wind is Procedural Wind: Kawaii's field-reading Wind force became
+# Blender Force Fields.
 FORCE_CATEGORIES = [("PUSH", "Push", "A steady push, or a pulse every interval", "FORCE_FORCE", 0),
                     ("GRAVITY", "Gravity", "Extra gravity, in world space", "FORCE_HARMONIC", 1),
                     ("CURVE", "Curve", "A push that follows curves over time", "FCURVE", 2),
-                    ("WIND", "Wind", "Wind blowing through the chains", "FORCE_WIND", 3)]
-WIND_TYPES = [("PROCEDURAL", "Procedural", "Generated sway, ripples and gusts; needs no force field", "MOD_WAVE", 0)]
+                    ("WIND", "Wind", "Generated sway, ripples and gusts; needs no force field", "FORCE_WIND", 3)]
 _CATEGORY_OF_KIND = {"BASIC": 0, "GRAVITY": 1, "CURVE": 2, "WIND": 3, "PROCEDURAL_WIND": 3}
 _KIND_OF_CATEGORY = ("BASIC", "GRAVITY", "CURVE", "PROCEDURAL_WIND")
 FORCE_NAMES = {"BASIC": "Push", "GRAVITY": "Gravity", "CURVE": "Curve", "WIND": "Wind", "PROCEDURAL_WIND": "Breeze"}
@@ -151,14 +151,6 @@ def _category_set(self, value):
         if self.name == FORCE_NAMES.get(self.kind):        # a default name follows the type
             self.name = FORCE_NAMES[kind]
         self.kind = kind
-
-
-def _wind_type_get(self):
-    return 0
-
-
-def _wind_type_set(self, value):
-    self.kind = "PROCEDURAL_WIND"
 
 
 FORCE_SPACES = [("COMPONENT", "Armature", "In the armature's space"),
@@ -181,8 +173,6 @@ class WaifuPhysicsForce(PropertyGroup):
     kind: EnumProperty(name="Type", items=FORCE_KINDS, default="BASIC", update=_force_kind_changed)
     category: EnumProperty(name="Type", items=FORCE_CATEGORIES, get=_category_get, set=_category_set,
                            options=set(), description="What the force is")
-    wind_type: EnumProperty(name="Wind", items=WIND_TYPES, get=_wind_type_get, set=_wind_type_set, options=set(),
-                            description="How the wind is made")
     space: EnumProperty(name="Space", items=FORCE_SPACES, default="WORLD", update=_result_changed)
     apply_bones: CollectionProperty(type=WaifuPhysicsBoneName)
     ignore_bones: CollectionProperty(type=WaifuPhysicsBoneName)
@@ -191,7 +181,7 @@ class WaifuPhysicsForce(PropertyGroup):
                                           "for Gravity it is the acceleration (Blender units a second squared)")
     random_max: FloatProperty(name="Scale Max", default=1.0, update=_result_changed)
     curve_key: StringProperty(options={"HIDDEN"})
-    use_rate_curve: BoolProperty(name="Along Chain", update=_item_curve_toggled("rate"),
+    use_rate_curve: BoolProperty(name="Force Curve", update=_item_curve_toggled("rate"),
                                  description="Scale the force along each chain, root to tip")
 
     direction: FloatVectorProperty(name="Direction", default=(0.0, 0.0, 0.0), size=3, update=_result_changed,

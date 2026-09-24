@@ -525,15 +525,7 @@ class WAIFU_PHYSICS_MT_force_add(bpy.types.Menu):
         for kind, text, icon in (("BASIC", "Push", "FORCE_FORCE"), ("GRAVITY", "Gravity", "FORCE_HARMONIC"),
                                  ("CURVE", "Curve", "FCURVE")):
             layout.operator("waifu_physics.force_add", text=text, icon=icon).kind = kind
-        layout.menu("WAIFU_PHYSICS_MT_wind_add", icon="FORCE_WIND")
-
-
-class WAIFU_PHYSICS_MT_wind_add(bpy.types.Menu):
-    bl_idname = "WAIFU_PHYSICS_MT_wind_add"
-    bl_label = "Wind"
-
-    def draw(self, context):
-        self.layout.operator("waifu_physics.force_add", text="Procedural", icon="MOD_WAVE").kind = "PROCEDURAL_WIND"
+        layout.operator("waifu_physics.force_add", text="Wind", icon="FORCE_WIND").kind = "PROCEDURAL_WIND"
 
 
 class WAIFU_PHYSICS_OT_wind_preset(_GroupOperator, bpy.types.Operator):
@@ -1253,7 +1245,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_MT_wind_add, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,

@@ -167,13 +167,12 @@ force.kind, force.name = "BASIC", "Push"
 check("a Push force shows as Push", force.category == "PUSH")
 force.category = "WIND"
 check("choosing Wind makes it Procedural Wind, and its default name follows",
-      force.kind == "PROCEDURAL_WIND" and force.wind_type == "PROCEDURAL" and force.name == "Breeze")
+      force.kind == "PROCEDURAL_WIND" and force.name == "Breeze")
 force.name = "My Gust"
 force.category = "CURVE"
 check("a name the user chose stays", force.kind == "CURVE" and force.name == "My Gust")
-check("the header's type is not saved as a setting", not {"category", "wind_type"} & set(serialize.settings_to_dict(force)))
-check("the Add menu and its Wind submenu are registered",
-      hasattr(bpy.types, "WAIFU_PHYSICS_MT_force_add") and hasattr(bpy.types, "WAIFU_PHYSICS_MT_wind_add"))
+check("the header's type is not saved as a setting", "category" not in serialize.settings_to_dict(force))
+check("the Add menu is registered", hasattr(bpy.types, "WAIFU_PHYSICS_MT_force_add"))
 
 addon.unregister()
 finish()
