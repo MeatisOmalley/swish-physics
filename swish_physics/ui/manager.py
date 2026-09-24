@@ -19,7 +19,7 @@ ROW = 20                   # a row's height, and the unit of the layout, at a UI
 WIDTH = 270                # the default width; drag the right edge to change it
 MIN_WIDTH, MAX_WIDTH, MIN_HEIGHT = 200, 700, 120
 EDGE = 5                   # the grab margin of the resizable edges
-BAR = 16                   # the scroll bar's width
+BAR = 10                   # the scroll bar's width
 DRAG_START = 5             # pixels the mouse moves before a press becomes a drag
 
 _open = set()              # areas (as_pointer) showing the manager
@@ -111,16 +111,15 @@ class Layout:
                 if group.show_chains:
                     rows += [("chain", index, root.name, group) for root in group.roots]
         self.dragging_chains = drag is not None and drag.kind == "chains"
-        if self.dragging_chains:
-            rows.append(("newzone", -1, "", None))
+        footer = unit if self.dragging_chains else 0.0
         note = unit if obj is None else unit * 2.5 if not len(obj.swish.groups) else 0.0
         spare = unit * (0.6 if self.dragging_chains else 1.0)      # empty space under the rows, to drop on
         body_top = y
         if height_unscaled is not None:                            # resized: the height is the user's
             bottom = max(top - max(height_unscaled, MIN_HEIGHT) * scale, 0.0)
-            room = max(int((body_top - note - bottom - 0.5 * unit) // unit), 1)
+            room = max(int((body_top - note - bottom - footer - 0.5 * unit) // unit), 1)
         else:                                                      # fits the rows, down to the viewport's foot
-            room = max(int((body_top - note - spare - pad) // unit), 3)
+            room = max(int((body_top - note - footer - spare - pad) // unit), 1 if self.dragging_chains else 3)
         self.total, self.capacity = len(rows), room
         self.first = min(max(scroll, 0), max(len(rows) - room, 0))
         shown = rows[self.first:self.first + room]
@@ -136,10 +135,14 @@ class Layout:
                 bones = chain_links.chain_subtree(obj, root, [bone.name for bone in group.excluded])
                 row = Item("chain", x0, y0, row_right, y, group=index, root=root, text=shown_name(root),
                            count=str(len(bones)))
-            else:
-                row = Item("newzone", x0 + pad, y0, row_right - pad, y, text="Drop here for a new group")
             self.rows.append(row)
             y = y0
+        scroll_bottom = y
+        if self.dragging_chains:
+            zone = Item("newzone", x0 + pad, y - unit, row_right - pad, y,
+                        text="Drop here for a new group")
+            self.rows.append(zone)
+            y -= unit
         y -= note
         if height_unscaled is None:
             bottom = y - spare
@@ -154,7 +157,7 @@ class Layout:
         self.track = self.thumb = None
         self.rows_per_pixel = 0.0
         if self.overflow:
-            track_bottom = self.rows[-1].y0 if self.rows else bottom + edge
+            track_bottom = scroll_bottom
             bar_x0, bar_x1 = x1 - edge - BAR * scale, x1 - edge
             self.track = Item("scroll_track", bar_x0, track_bottom, bar_x1, body_top)
             span = body_top - track_bottom
@@ -412,10 +415,10 @@ def draw(context):
     held = _pressed.get(key)
     if layout.track is not None:                                # the scroll bar
         track, thumb = layout.track, layout.thumb
-        canvas.rect(track.x0, track.y0, track.x1, track.y1, colours["text"][:3] + (0.1,), radius=4 * s)
+        canvas.rect(track.x0, track.y0, track.x1, track.y1, colours["text"][:3] + (0.06,), radius=4 * s)
         lit = held == "scroll_thumb" or (hovered is thumb and drag is None)
         canvas.rect(thumb.x0 + 1 * s, thumb.y0 + 1 * s, thumb.x1 - 1 * s, thumb.y1 - 1 * s,
-                    colours["text"][:3] + (0.7 if held == "scroll_thumb" else 0.55 if lit else 0.38,),
+                    colours["text"][:3] + (0.65 if held == "scroll_thumb" else 0.45 if lit else 0.28,),
                     radius=4 * s)
 
     # The resizable edges show a thin bar under the mouse, brighter while held.

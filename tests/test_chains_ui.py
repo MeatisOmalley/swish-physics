@@ -168,6 +168,8 @@ check("dragged edges set the size", abs(resized.frame.x1 - resized.frame.x0 - 36
       and abs(resized.frame.y1 - resized.frame.y0 - 200) < 1e-6)
 check("... too short for the rows, it shows a scroll bar beside them",
       resized.overflow and resized.thumb is not None and resized.rows[0].x1 <= resized.track.x0)
+check("... the scroll bar stays narrow",
+      resized.track.x1 - resized.track.x0 == manager.BAR and manager.BAR == 10)
 check("... whose thumb, held, scrolls the rows", resized.hit((resized.thumb.x0 + resized.thumb.x1) / 2,
       (resized.thumb.y0 + resized.thumb.y1) / 2).kind == "scroll_thumb" and resized.rows_per_pixel > 0)
 bottom = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), size=(360, 200), scroll=99)
@@ -179,6 +181,14 @@ dragging = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), drag=man
 zone = dragging.rows[-1]
 check("while chains are dragged, a new-group drop zone shows under the rows",
       zone.kind == "newzone" and dragging.drop_target(zone.x0 + 20, (zone.y0 + zone.y1) / 2) == ("new", -1))
+for position in (0, 99):
+    compact = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), scroll=position,
+                             drag=manager.Drag("chains", 0, 2, 0, 0), size=(360, manager.MIN_HEIGHT))
+    zone = compact.rows[-1]
+    check(f"the new-group drop zone remains visible at minimum height, scroll {position}",
+          compact.overflow and zone.kind == "newzone" and zone.y0 > compact.frame.y0
+          and compact.track.y0 == zone.y1
+          and compact.drop_target(zone.x0 + 20, (zone.y0 + zone.y1) / 2) == ("new", -1))
 check("the manager edits one armature: nothing on it names another",
       all(item.group < len(skirt_rig.swish.groups) for item in layout.items))
 
