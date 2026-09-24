@@ -16,7 +16,10 @@ from ..data import links as chain_links
 from . import ops
 
 ROW = 20                   # a row's height, and the unit of the layout, at a UI scale of 1
-WIDTH = 270
+WIDTH = 270                # the default width; drag the right edge to change it
+MIN_WIDTH, MAX_WIDTH, MIN_HEIGHT = 200, 700, 120
+EDGE = 5                   # the grab margin of the resizable edges
+BAR = 16                   # the scroll bar's width
 DRAG_START = 5             # pixels the mouse moves before a press becomes a drag
 
 _open = set()              # areas (as_pointer) showing the manager
@@ -24,6 +27,9 @@ _places = {}               # area -> (left, top) in region pixels, once dragged 
 _scroll = {}               # area -> the first row shown
 _hover = {}                # area -> (x, y), the mouse over the manager
 _drags = {}                # area -> Drag, while one is on
+_sizes = {}                # area -> (width, height) at a UI scale of 1, once resized; height None fits the rows
+_pressed = {}              # area -> the kind of item held down, for its pressed look
+_pan = {}                  # area -> trackpad scrolling not yet a whole row
 
 
 def is_open(area):
@@ -63,9 +69,11 @@ class Item:
 class Layout:
     """Where everything is, top to bottom. Hit-testing and drawing both read this, so they always agree."""
 
-    def __init__(self, obj, region_size, scale, place=None, scroll=0, drag=None):
+    def __init__(self, obj, region_size, scale, place=None, scroll=0, drag=None, size=None):
         self.obj, self.scale = obj, scale
-        unit, width = ROW * scale, WIDTH * scale
+        unit = ROW * scale
+        width_unscaled, height_unscaled = size if size is not None else (WIDTH, None)
+        width = min(max(width_unscaled, MIN_WIDTH), MAX_WIDTH) * scale
         region_w, region_h = region_size
         left, top = place if place is not None else (10 * scale, region_h - 110 * scale)
         left = min(max(left, 0.0), max(region_w - width, 0.0))
@@ -76,14 +84,15 @@ class Layout:
         chosen_groups = {group for group, _root in self.chosen}
         self.chosen_groups = chosen_groups
         x0, x1 = left, left + width
-        pad = 4 * scale
+        pad, edge = 4 * scale, EDGE * scale
 
         title = Item("title", x0, top - unit * 1.2, x1, top,
                      text=f"Chains  ·  {obj.name}" if obj is not None else "Chains")
-        self.items.append(Item("close", x1 - unit, title.y0, x1, title.y1))
+        close = Item("close", x1 - unit, title.y0, x1, title.y1)
         self.title = title
         y = title.y0 - pad
         tools = y - unit
+        buttons = []
         if obj is not None:
             third = (width - 2 * pad - 2 * pad) / 3
             new = Item("new", x0 + pad, tools, x0 + pad + third * 1.25, y, text="New Group",
@@ -91,7 +100,7 @@ class Layout:
             merge = Item("merge", new.x1 + pad, tools, new.x1 + pad + third * 1.1, y, text="Merge",
                          enabled=len(chosen_groups) > 1)
             delete = Item("delete", merge.x1 + pad, tools, x1 - pad, y, text="Delete", enabled=bool(self.chosen))
-            self.items += [new, merge, delete]
+            buttons = [new, merge, delete]
             y = tools - pad
 
         # The rows: every group, and the chains of the open ones.
@@ -104,35 +113,57 @@ class Layout:
         self.dragging_chains = drag is not None and drag.kind == "chains"
         if self.dragging_chains:
             rows.append(("newzone", -1, "", None))
+        note = unit if obj is None else unit * 2.5 if not len(obj.swish.groups) else 0.0
         spare = unit * (0.6 if self.dragging_chains else 1.0)      # empty space under the rows, to drop on
-        room = max(int((y - spare - pad) // unit), 3)
+        body_top = y
+        if height_unscaled is not None:                            # resized: the height is the user's
+            bottom = max(top - max(height_unscaled, MIN_HEIGHT) * scale, 0.0)
+            room = max(int((body_top - note - bottom - 0.5 * unit) // unit), 1)
+        else:                                                      # fits the rows, down to the viewport's foot
+            room = max(int((body_top - note - spare - pad) // unit), 3)
         self.total, self.capacity = len(rows), room
         self.first = min(max(scroll, 0), max(len(rows) - room, 0))
         shown = rows[self.first:self.first + room]
+        self.overflow = len(rows) > room
+        row_right = x1 - edge - BAR * scale - 2 * scale if self.overflow else x1
         for kind, index, root, group in shown:
             y0 = y - unit
             if kind == "group":
+                row = Item("group", x0, y0, row_right, y, group=index, text=group.name,
+                           count=str(len(group.roots)))
                 self.items.append(Item("fold", x0, y0, x0 + pad + unit, y, group=index))
-                row = Item("group", x0, y0, x1, y, group=index, text=group.name, count=str(len(group.roots)))
             elif kind == "chain":
-                self.items.append(Item("trash", x1 - unit - pad, y0, x1, y, group=index, root=root))
                 bones = chain_links.chain_subtree(obj, root, [bone.name for bone in group.excluded])
-                row = Item("chain", x0, y0, x1, y, group=index, root=root, text=shown_name(root),
+                row = Item("chain", x0, y0, row_right, y, group=index, root=root, text=shown_name(root),
                            count=str(len(bones)))
             else:
-                row = Item("newzone", x0 + pad, y0, x1 - pad, y, text="Drop here for a new group")
+                row = Item("newzone", x0 + pad, y0, row_right - pad, y, text="Drop here for a new group")
             self.rows.append(row)
             y = y0
-        if obj is None:
-            y -= unit                                  # room for a note
-        elif not len(obj.swish.groups):
-            y -= unit * 2.5
-        bottom = y - spare
-        self.items += self.rows
+        y -= note
+        if height_unscaled is None:
+            bottom = y - spare
         self.empty = Item("empty", x0, bottom, x1, y)       # below the rows: drop chains here for a new group
-        self.items.append(self.empty)
-        self.items.append(title)
         self.frame = Item("frame", x0, bottom, x1, top)
+
+        # The edges that resize it, and the scroll bar: checked first, they sit over the rows' ends.
+        self.bottom_edge = Item("edge_bottom", x0, bottom, x1, bottom + edge)
+        self.right_edge = Item("edge_right", x1 - edge, bottom, x1, title.y0)
+        corner = Item("corner", x1 - 3 * edge, bottom, x1, bottom + 3 * edge)
+        self.items += [corner, self.bottom_edge, self.right_edge]
+        self.track = self.thumb = None
+        self.rows_per_pixel = 0.0
+        if self.overflow:
+            track_bottom = self.rows[-1].y0 if self.rows else bottom + edge
+            bar_x0, bar_x1 = x1 - edge - BAR * scale, x1 - edge
+            self.track = Item("scroll_track", bar_x0, track_bottom, bar_x1, body_top)
+            span = body_top - track_bottom
+            length = max(span * room / len(rows), unit * 0.75)
+            thumb_top = body_top - (span - length) * self.first / max(len(rows) - room, 1)
+            self.thumb = Item("scroll_thumb", bar_x0, thumb_top - length, bar_x1, thumb_top)
+            self.rows_per_pixel = (len(rows) - room) / max(span - length, 1.0)
+            self.items += [self.thumb, self.track]
+        self.items += [close] + buttons + self.rows + [self.empty, title]
 
     def hit(self, x, y):
         """The item under a point (the most specific one), the frame if nothing else, or None outside."""
@@ -148,9 +179,9 @@ class Layout:
         item = self.hit(x, y)
         if item is None:
             return None
-        if item.kind in ("group", "fold", "chain", "trash"):
+        if item.kind in ("group", "fold", "chain"):
             return ("group", item.group)
-        if item.kind in ("newzone", "empty"):
+        if item.kind in ("newzone", "empty", "edge_bottom", "corner"):
             return ("new", -1)
         return None
 
@@ -181,7 +212,7 @@ def layout_for(context):
         inset = tools.width if tools is not None and context.preferences.system.use_region_overlap else 0
         place = (inset + 10 * scale, region.height - 110 * scale)       # under the view's name
     return Layout(active_armature(context), (region.width, region.height), scale, place,
-                  _scroll.get(key, 0), _drags.get(key))
+                  _scroll.get(key, 0), _drags.get(key), _sizes.get(key))
 
 
 def scroll(context, rows):
@@ -210,6 +241,9 @@ def _palette(context):
         "button": tuple(tool.inner[:3]) + (1.0,),
         "button_off": tuple(tool.inner[:3]) + (0.4,),
         "button_text": tuple(tool.text) + (1.0,),
+        "danger": (0.62, 0.18, 0.18, 1.0),
+        "edge": tuple(item.inner_sel[:3]) + (0.85,),
+        "edge_held": tuple(min(c + 0.2, 1.0) for c in item.inner_sel[:3]) + (1.0,),
     }
 
 
@@ -271,15 +305,6 @@ def _folder(canvas, x, y, s, colour):
     canvas.rect(x, y + 2.5 * s, x + 5.5 * s, y + 5 * s, colour, radius=1 * s)
 
 
-def _trash(canvas, x, y, s, colour):
-    canvas.line([(x - 4.5 * s, y + 4 * s), (x + 4.5 * s, y + 4 * s)], colour)
-    canvas.line([(x - 1.5 * s, y + 5.5 * s), (x + 1.5 * s, y + 5.5 * s)], colour)
-    canvas.line([(x - 3.5 * s, y + 3 * s), (x - 2.8 * s, y - 5 * s), (x + 2.8 * s, y - 5 * s),
-                 (x + 3.5 * s, y + 3 * s)], colour)
-    canvas.line([(x - 1 * s, y + 1.5 * s), (x - 0.8 * s, y - 3.5 * s)], colour)
-    canvas.line([(x + 1 * s, y + 1.5 * s), (x + 0.8 * s, y - 3.5 * s)], colour)
-
-
 def _cross(canvas, x, y, s, colour):
     canvas.line([(x - 4 * s, y - 4 * s), (x + 4 * s, y + 4 * s)], colour)
     canvas.line([(x - 4 * s, y + 4 * s), (x + 4 * s, y - 4 * s)], colour)
@@ -332,6 +357,8 @@ def draw(context):
     for item in layout.items:
         if item.kind in ("new", "merge", "delete"):
             fill = colours["button"] if item.enabled else colours["button_off"]
+            if item.kind == "delete" and item.enabled:
+                fill = colours["danger"]
             if item.enabled and hovered is item:
                 fill = tuple(min(c + 0.06, 1.0) for c in fill[:3]) + (1.0,)
             canvas.rect(item.x0, item.y0, item.x1, item.y1, fill, radius=3 * s)
@@ -379,19 +406,28 @@ def draw(context):
                   room=row.x1 - row.x0 - 80 * s)
             label(row, row.count, count_right, colours["dim"], right=True)
         else:
-            label(row, row.text, row.x0 + 41 * s, text_colour, room=row.x1 - row.x0 - 95 * s)
-            label(row, row.count, count_right - unit, colours["dim"] if not picked else text_colour, right=True)
-            lit = hovered is not None and hovered.kind == "trash" and hovered.root == row.root
-            _trash(canvas, row.x1 - unit / 2 - 4 * s, mid, s,
-                   colours["text"] if lit else (colours["text_sel"] if picked else colours["dim"]))
+            label(row, row.text, row.x0 + 41 * s, text_colour, room=row.x1 - row.x0 - 75 * s)
+            label(row, row.count, count_right, colours["dim"] if not picked else text_colour, right=True)
 
-    if layout.total > layout.capacity:                          # a scroll bar
-        body_top = layout.rows[0].y1 if layout.rows else frame.y1
-        body_bottom = layout.rows[-1].y0 if layout.rows else frame.y0
-        span = body_top - body_bottom
-        top = body_top - span * layout.first / layout.total
-        length = span * layout.capacity / layout.total
-        canvas.rect(frame.x1 - 4 * s, top - length, frame.x1 - 1.5 * s, top, colours["dim"], radius=1.2 * s)
+    held = _pressed.get(key)
+    if layout.track is not None:                                # the scroll bar
+        track, thumb = layout.track, layout.thumb
+        canvas.rect(track.x0, track.y0, track.x1, track.y1, colours["text"][:3] + (0.1,), radius=4 * s)
+        lit = held == "scroll_thumb" or (hovered is thumb and drag is None)
+        canvas.rect(thumb.x0 + 1 * s, thumb.y0 + 1 * s, thumb.x1 - 1 * s, thumb.y1 - 1 * s,
+                    colours["text"][:3] + (0.7 if held == "scroll_thumb" else 0.55 if lit else 0.38,),
+                    radius=4 * s)
+
+    # The resizable edges show a thin bar under the mouse, brighter while held.
+    grabbed = held if held in ("edge_bottom", "edge_right", "corner") else None
+    over = hovered.kind if hovered is not None and drag is None and hovered.kind in (
+        "edge_bottom", "edge_right", "corner") else None
+    for kind in {grabbed or over} - {None}:
+        colour = colours["edge_held"] if grabbed else colours["edge"]
+        if kind in ("edge_bottom", "corner"):
+            canvas.rect(frame.x0 + 5 * s, frame.y0, frame.x1 - 5 * s, frame.y0 + 3 * s, colour, radius=1.5 * s)
+        if kind in ("edge_right", "corner"):
+            canvas.rect(frame.x1 - 3 * s, frame.y0 + 5 * s, frame.x1, title.y0 - 2 * s, colour, radius=1.5 * s)
 
     if drag is not None:                                        # what is being dragged, by the mouse
         text = (f"{drag.count} chain{'' if drag.count == 1 else 's'}" if drag.kind == "chains"
@@ -442,10 +478,17 @@ class SWISH_GT_chain_manager(bpy.types.Gizmo):
         item = layout.hit(x, y)
         self.press, self.item, self.dragging, self.pending = (x, y), item, False, None
         self.origin = (layout.frame.x0, layout.title.y1)
+        self.size = ((layout.frame.x1 - layout.frame.x0) / layout.scale,
+                     (layout.frame.y1 - layout.frame.y0) / layout.scale)
+        self.first = layout.first
         if item is None:
             return {"FINISHED"}
         obj, kind = layout.obj, item.kind
-        if kind == "close":
+        _pressed[context.area.as_pointer()] = kind
+        if kind == "scroll_track":                  # above or below the thumb: a page
+            page = layout.capacity - 1
+            scroll(context, -page if y > layout.thumb.y1 else page)
+        elif kind == "close":
             toggle(context.area)
         elif kind in ("new", "merge", "delete") and item.enabled:
             if kind == "new":
@@ -457,8 +500,6 @@ class SWISH_GT_chain_manager(bpy.types.Gizmo):
         elif kind == "fold":
             group = obj.swish.groups[item.group]
             group.show_chains = not group.show_chains
-        elif kind == "trash":
-            _call("chain_remove", group=item.group, root=item.root)
         elif kind == "chain":
             picked = (item.group, item.root) in layout.chosen
             if event.shift:
@@ -485,9 +526,25 @@ class SWISH_GT_chain_manager(bpy.types.Gizmo):
             return {"RUNNING_MODAL"}
         x, y = event.mouse_region_x, event.mouse_region_y
         dx, dy = x - self.press[0], y - self.press[1]
-        if self.item.kind == "title":
+        kind = self.item.kind
+        if kind == "title":
             _places[key] = (self.origin[0] + dx, self.origin[1] + dy)
             context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+        if kind in ("edge_bottom", "edge_right", "corner"):
+            s = _scale(context)
+            width, height = _sizes.get(key, (self.size[0], None))
+            if kind in ("edge_right", "corner"):
+                width = min(max(self.size[0] + dx / s, MIN_WIDTH), MAX_WIDTH)
+            if kind in ("edge_bottom", "corner"):
+                height = max(self.size[1] - dy / s, MIN_HEIGHT)
+            _sizes[key] = (width, height)
+            context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+        if kind == "scroll_thumb":
+            layout = layout_for(context)
+            _scroll[key] = self.first + round(-dy * layout.rows_per_pixel)
+            scroll(context, 0)                      # clamped
             return {"RUNNING_MODAL"}
         if not self.dragging and self.item.kind in ("chain", "group") \
                 and dx * dx + dy * dy > (DRAG_START * _scale(context)) ** 2:
@@ -508,6 +565,7 @@ class SWISH_GT_chain_manager(bpy.types.Gizmo):
 
     def exit(self, context, cancel):
         key = context.area.as_pointer()
+        _pressed.pop(key, None)
         drag = _drags.pop(key, None)
         if drag is not None and not cancel:
             target = layout_for(context).drop_target(drag.x, drag.y)
@@ -545,6 +603,7 @@ class SWISH_GGT_chain_manager(bpy.types.GizmoGroup):
         items.new("swish.group_rename", "F2", "PRESS")
         items.new("swish.manager_scroll", "WHEELUPMOUSE", "PRESS", any=True).properties.rows = -2
         items.new("swish.manager_scroll", "WHEELDOWNMOUSE", "PRESS", any=True).properties.rows = 2
+        items.new("swish.manager_scroll", "TRACKPADPAN", "ANY", any=True)
         items.new("swish.chains_remove", "X", "PRESS")
         items.new("swish.chains_remove", "DEL", "PRESS")
         items.new("swish.chains_select", "A", "PRESS").properties.action = "ALL"
@@ -583,6 +642,16 @@ class SWISH_OT_manager_scroll(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return is_open(context.area) and context.region is not None and context.region.type == "WINDOW"
+
+    def invoke(self, context, event):
+        if event.type == "TRACKPADPAN":             # a touchpad's two-finger scroll: pixels, not steps
+            key = context.area.as_pointer()
+            moved = _pan.get(key, 0.0) + (event.mouse_y - event.mouse_prev_y) / (ROW * _scale(context))
+            self.rows = int(moved)
+            _pan[key] = moved - self.rows
+            if not self.rows:
+                return {"FINISHED"}
+        return self.execute(context)
 
     def execute(self, context):
         scroll(context, self.rows)
@@ -631,7 +700,7 @@ CLASSES = (SWISH_OT_chain_manager, SWISH_OT_manager_scroll, SWISH_OT_group_renam
 @bpy.app.handlers.persistent
 def _file_loaded(_dummy):
     """A new file brings new areas: the manager starts closed."""
-    for state in (_open, _places, _scroll, _hover, _drags):
+    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan):
         state.clear()
 
 

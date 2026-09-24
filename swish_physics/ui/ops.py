@@ -848,24 +848,6 @@ def _remove_chains(obj, chains):
     return broken
 
 
-class SWISH_OT_chain_remove(bpy.types.Operator):
-    bl_idname = "swish.chain_remove"
-    bl_label = "Remove Chain"
-    bl_description = "Stop simulating this chain (a group left empty is removed)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    group: bpy.props.IntProperty()
-    root: bpy.props.StringProperty()
-
-    def execute(self, context):
-        obj = context.object
-        if obj is None or (self.group, self.root) not in all_chains(obj):
-            return {"CANCELLED"}
-        _remove_chains(obj, [(self.group, self.root)])
-        live.mark_dirty(context.scene)
-        return {"FINISHED"}
-
-
 class SWISH_OT_chains_remove(bpy.types.Operator):
     bl_idname = "swish.chains_remove"
     bl_label = "Remove Selected Chains"
@@ -878,7 +860,19 @@ class SWISH_OT_chains_remove(bpy.types.Operator):
         if not chains:
             self.report({"WARNING"}, "Select chains first: click their rows, or their bones in the viewport")
             return {"CANCELLED"}
+        order = [root for _index, root in all_chains(obj)]
+        gone = {root for _index, root in chains}
+        last = max(order.index(root) for root in gone)
+        after = [root for root in order[last + 1:] if root not in gone]
+        before = [root for root in order[:last] if root not in gone]
+        following = after[0] if after else before[-1] if before else None
         broken = _remove_chains(obj, chains)
+        # As in a file browser, the next chain in line is selected, ready for another Delete.
+        found = [(index, root) for index, root in all_chains(obj) if root == following]
+        _select(context, obj, found)
+        if found:
+            _last_clicked[obj.name] = found[0]
+            obj.swish.active_group = found[0][0]
         live.mark_dirty(context.scene)
         self.report({"INFO"}, f"Removed {len(chains)} chains" + (f" and {broken} links" if broken else ""))
         return {"FINISHED"}
@@ -1119,7 +1113,7 @@ CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_gr
            SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
            SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add, SWISH_OT_chain_click,
            SWISH_OT_chains_select, SWISH_OT_group_click, SWISH_OT_groups_merge, SWISH_OT_chains_remove, SWISH_OT_cache_toggle, SWISH_OT_armature_activate,
-           SWISH_OT_chains_to_group, SWISH_MT_chains_to_group, SWISH_OT_chain_remove, SWISH_OT_group_pick)
+           SWISH_OT_chains_to_group, SWISH_MT_chains_to_group, SWISH_OT_group_pick)
 
 
 def register():

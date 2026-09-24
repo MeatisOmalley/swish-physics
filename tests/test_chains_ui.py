@@ -144,7 +144,8 @@ check("the manager lists each group as a folder, its chains under it",
 row = layout.rows[2]
 mid_y = (row.y0 + row.y1) / 2
 check("a click on a row hits that chain", layout.hit(row.x0 + 60, mid_y).root == "p3_0")
-check("... and on its right end, the chain's trash button", layout.hit(row.x1 - 8, mid_y).kind == "trash")
+check("... and its right end is the edge that widens the manager", layout.hit(row.x1 - 2, mid_y).kind == "edge_right")
+check("its bottom edge makes it taller", layout.hit(row.x0 + 100, layout.frame.y0 + 2).kind == "edge_bottom")
 check("a group's arrow folds it", layout.hit(layout.rows[0].x0 + 8, (layout.rows[0].y0 + layout.rows[0].y1) / 2).kind == "fold")
 check("dropping on a chain row drops into its group", layout.drop_target(row.x0 + 60, mid_y) == ("group", 0))
 check("dropping on the empty space under the rows makes a new group",
@@ -162,6 +163,16 @@ layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
 check("a folded group hides its chains", len(layout.rows) == 6)
 skirt_rig.swish.groups[1].show_chains = True
 small = manager.Layout(skirt_rig, (1200, 180), 1.0, place=(20, 170), scroll=2)
+resized = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), size=(360, 200))
+check("dragged edges set the size", abs(resized.frame.x1 - resized.frame.x0 - 360) < 1e-6
+      and abs(resized.frame.y1 - resized.frame.y0 - 200) < 1e-6)
+check("... too short for the rows, it shows a scroll bar beside them",
+      resized.overflow and resized.thumb is not None and resized.rows[0].x1 <= resized.track.x0)
+check("... whose thumb, held, scrolls the rows", resized.hit((resized.thumb.x0 + resized.thumb.x1) / 2,
+      (resized.thumb.y0 + resized.thumb.y1) / 2).kind == "scroll_thumb" and resized.rows_per_pixel > 0)
+bottom = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), size=(360, 200), scroll=99)
+check("... to the last row, with the thumb at the track's foot",
+      bottom.first == bottom.total - bottom.capacity and abs(bottom.thumb.y0 - bottom.track.y0) < 1e-6)
 check("a short viewport scrolls the rows", small.total == 8 and small.capacity < 8 and small.first == 2
       and small.rows[0].root == "p3_0", (small.total, small.capacity, small.first))
 dragging = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), drag=manager.Drag("chains", 0, 2, 0, 0))
@@ -187,13 +198,16 @@ bpy.ops.swish.group_click(index=0)
 check("clicking a folder selects its chains and makes it the edited group",
       len(chosen()) == 6 and skirt_rig.swish.active_group == 0)
 
-# --- delete: a chain's trash button, and the selected chains
-bpy.ops.swish.chain_remove(group=0, root="p5_0")
-check("a chain's trash button stops simulating it", "p5_0" not in [r.name for r in group.roots]
-      and len(group.roots) == 5)
-bpy.ops.swish.chain_click(group=0, root="p4_0")
+# --- delete: the selected chains go, and the next in line is selected
+order = [r.name for r in group.roots]
+doomed = order[2]
+bpy.ops.swish.chain_click(group=0, root=doomed)
 check("Delete stops simulating the selected chains", bpy.ops.swish.chains_remove() == {"FINISHED"}
-      and "p4_0" not in [r.name for r in group.roots] and len(group.roots) == 4)
+      and doomed not in [r.name for r in group.roots] and len(group.roots) == 5)
+check("... and selects the next chain in line", chosen() == [order[3]], (chosen(), order))
+bpy.ops.swish.chain_click(group=0, root=order[-1])
+bpy.ops.swish.chains_remove()
+check("deleting the last chain selects the one before it", chosen() == [order[-2]], (chosen(), order))
 bpy.ops.object.mode_set(mode="OBJECT")
 
 # --- stiffness 0-10, inertia, gravity: shown the intuitive way round, Kawaii's values stored
