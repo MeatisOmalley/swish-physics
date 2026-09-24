@@ -92,6 +92,8 @@ for pb in bare.pose.bones:
     pb.select = pb.name in ("p0_0", "p1_0")
 check("+ gives it its first group", bpy.ops.waifu_physics.group_new() == {"FINISHED"} and len(bare.waifu_physics.groups) == 1
       and [r.name for r in bare.waifu_physics.groups[0].roots] == ["p0_0", "p1_0"])
+check("... and remembers where its bones are, so a rename can be followed",
+      {item.name for item in bare.waifu_physics.known_bones} == {"p0_0", "p1_0"})
 bpy.ops.object.mode_set(mode="OBJECT")
 bpy.ops.waifu_physics.armature_activate(armature="skirt")
 group = skirt_rig.waifu_physics.groups[0]

@@ -85,6 +85,25 @@ def group_name(obj, roots):
     return name
 
 
+class WAIFU_PHYSICS_OT_bones_clean_up(bpy.types.Operator):
+    bl_idname = "waifu_physics.bones_clean_up"
+    bl_label = "Clean Up"
+    bl_description = ("Remove what the groups hold for bones this armature no longer has: chains, exclusions, "
+                      "links, force filters and sync bones")
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        from ..data import bone_refs
+        count = bone_refs.clean_up(context.object)
+        live.mark_dirty(context.scene)
+        self.report({"INFO"}, f"Removed {count} references to missing bones")
+        return {"FINISHED"}
+
+
 def make_active(context, obj):
     """Make an armature the one the panels edit, keeping Pose Mode if the user was in it."""
     view_layer = context.view_layer
@@ -741,7 +760,7 @@ def _select(context, obj, chains, keep=False, deselect=()):
             pb.select = False
 
 
-_last_clicked = {}                   # armature -> the chain clicked last, for Shift-click ranges
+_last_clicked = {}                   # armature (session_uid) -> the chain clicked last, for Shift-click ranges
 
 
 class WAIFU_PHYSICS_OT_chain_click(bpy.types.Operator):
@@ -770,7 +789,7 @@ class WAIFU_PHYSICS_OT_chain_click(bpy.types.Operator):
         this = (self.group, self.root)
         if this not in chains:
             return {"CANCELLED"}
-        last = _last_clicked.get(obj.name)
+        last = _last_clicked.get(obj.session_uid)
         if self.span and last in chains:
             a, b = sorted((chains.index(last), chains.index(this)))
             _select(context, obj, chains[a:b + 1], keep=True)
@@ -781,7 +800,7 @@ class WAIFU_PHYSICS_OT_chain_click(bpy.types.Operator):
                 _select(context, obj, [this], keep=True)
         else:
             _select(context, obj, [this])
-        _last_clicked[obj.name] = this
+        _last_clicked[obj.session_uid] = this
         obj.waifu_physics.active_group = self.group
         return {"FINISHED"}
 
@@ -830,7 +849,7 @@ class WAIFU_PHYSICS_OT_group_click(bpy.types.Operator):
         else:
             _select(context, obj, mine, keep=self.extend)
         if mine:
-            _last_clicked[obj.name] = mine[-1]
+            _last_clicked[obj.session_uid] = mine[-1]
         obj.waifu_physics.active_group = self.index
         return {"FINISHED"}
 
@@ -871,7 +890,7 @@ class WAIFU_PHYSICS_OT_chains_remove(bpy.types.Operator):
         found = [(index, root) for index, root in all_chains(obj) if root == following]
         _select(context, obj, found)
         if found:
-            _last_clicked[obj.name] = found[0]
+            _last_clicked[obj.session_uid] = found[0]
             obj.waifu_physics.active_group = found[0][0]
         live.mark_dirty(context.scene)
         self.report({"INFO"}, f"Removed {len(chains)} chains" + (f" and {broken} links" if broken else ""))
@@ -1185,7 +1204,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,

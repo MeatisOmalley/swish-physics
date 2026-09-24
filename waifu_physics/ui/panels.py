@@ -114,6 +114,15 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
         layout.prop(settings, "follow_selection")
         if not len(obj.waifu_physics.groups):
             return
+        from ..data import bone_refs
+        lost = bone_refs.missing(obj)
+        if lost:
+            box = layout.box().column(align=True)
+            box.alert = True
+            row = box.split(factor=0.65)
+            row.label(text=f"{len(lost)} missing bone{'' if len(lost) == 1 else 's'}", icon="ERROR")
+            row.operator("waifu_physics.bones_clean_up")
+            box.label(text=", ".join(lost[:3]) + (" ..." if len(lost) > 3 else ""))
         group = obj.waifu_physics.groups[min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1)]
         constrained = chain_links.constrained_bones(obj, group)
         if constrained:

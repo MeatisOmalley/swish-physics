@@ -13,6 +13,7 @@ import bpy
 import numpy as np
 from bpy.app.handlers import persistent
 
+from ..data import bone_refs
 from ..data import colliders as collider_objects
 from ..data import curves as group_curves
 from ..data.props import FORCE_CHANNELS
@@ -381,14 +382,21 @@ class Runtime:
         finally:
             _writing = False
 
+    def alive(self):
+        """Every armature it was built for is still there, with the same bones."""
+        return all(rig.alive() for rig in self.rigs)
+
     def restore(self, frame=None):
         for rig in self.rigs:
-            if rig.obj.name in bpy.data.objects:
+            if rig.alive():
                 rig.restore(frame)
 
     def release(self):
-        """Stop simulating: the chains' keys back to Blender, the chains back to their input."""
+        """Stop simulating: the chains' keys back to Blender, the chains back to their input. A deleted
+        armature is skipped; its keys went with it."""
         for rig in self.rigs:
+            if not rig.alive():
+                continue
             try:
                 rig.keys.unmute()
                 rig.restore()
@@ -513,12 +521,27 @@ def runtime(scene, rebuild=False):
     key = scene.as_pointer()
     current = _runtimes.get(key)
     changed_clock = current is not None and current.cache_key != frame_cache.key(scene)
-    if current is None or rebuild or changed_clock or key in _dirty or "all" in _dirty:
+    stale = current is not None and not current.alive()
+    if current is None or rebuild or changed_clock or stale or key in _dirty or "all" in _dirty:
         if current is not None:
             current.release()
+        for obj in armatures(scene):
+            bone_refs.repair(obj)          # renamed bones followed before the groups are read
         _dirty.discard(key)
         _dirty.discard("all")
         current = _runtimes[key] = Runtime(scene)
+    return current
+
+
+def _drop_if_stale(scene):
+    """A runtime whose armature was deleted or re-boned is dropped before anything touches it; the next
+    frame builds a new one. Returns the runtime still usable, or None."""
+    key = scene.as_pointer()
+    current = _runtimes.get(key)
+    if current is not None and not current.alive():
+        _runtimes.pop(key).release()
+        _dirty.add(key)
+        return None
     return current
 
 
@@ -619,7 +642,7 @@ def _frame_changing(scene, depsgraph=None):
     if not settings.simulate:
         return
     key = scene.as_pointer()
-    current = _runtimes.get(key)
+    current = _drop_if_stale(scene)
     if current is None:
         return
     current.stepped_ahead = None
@@ -693,11 +716,33 @@ def _frame_changed(scene, depsgraph=None):
         rt.last_frame = None
 
 
+def _armature_changes(scene, depsgraph):
+    """Bones renamed, added or removed, and armatures with groups added or deleted: renamed bones are
+    followed (bone_refs), and the runtime is rebuilt when what it was built from changed."""
+    if depsgraph.id_type_updated("ARMATURE"):           # bones renamed, added or removed: follow renames
+        edited = {update.id.original.session_uid for update in depsgraph.updates
+                  if isinstance(update.id, bpy.types.Armature)}
+        for obj in scene.objects:
+            if (obj.type == "ARMATURE" and obj.data is not None and obj.data.session_uid in edited
+                    and obj.mode != "EDIT" and len(obj.waifu_physics.groups) and bone_refs.repair(obj)):
+                mark_dirty(scene)
+    current = _runtimes.get(scene.as_pointer())
+    if current is None:
+        return
+    if not all(rig.same_bones() for rig in current.rigs):
+        mark_dirty(scene)
+    elif depsgraph.id_type_updated("COLLECTION") or depsgraph.id_type_updated("SCENE") \
+            or depsgraph.id_type_updated("OBJECT"):
+        if [obj.session_uid for obj in armatures(scene)] != [rig.uid for rig in current.rigs]:
+            mark_dirty(scene)                  # an armature with groups added, deleted or unlinked
+
+
 @persistent
 def _depsgraph_updated(scene, depsgraph):
     if _building_cache:
         return
-    current = _runtimes.get(scene.as_pointer())
+    _armature_changes(scene, depsgraph)
+    current = _drop_if_stale(scene)
     if current is None:
         return
     if frame_cache.relevant_update(current, depsgraph):
@@ -717,8 +762,12 @@ def _file_loaded(_file):
 
 @persistent
 def _file_ready(_file):
-    """Curves a previous session left muted (it ended while simulating) are unmuted."""
+    """Curves a previous session left muted (it ended while simulating) are unmuted; bones renamed while the
+    add-on was off are followed."""
     chain_keys.recover(bpy.data.objects)
+    for obj in bpy.data.objects:
+        if obj.library is None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups):
+            bone_refs.repair(obj)
 
 
 @persistent
@@ -726,14 +775,16 @@ def _saving(_file):
     """Files are saved with the user's keys unmuted."""
     for current in _runtimes.values():
         for rig in current.rigs:
-            rig.keys.unmute()
+            if rig.alive():
+                rig.keys.unmute()
 
 
 @persistent
 def _saved(_file):
     for current in _runtimes.values():
         for rig in current.rigs:
-            rig.keys.mute()
+            if rig.alive():
+                rig.keys.mute()
 
 
 def register():

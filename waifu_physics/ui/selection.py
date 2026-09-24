@@ -51,8 +51,8 @@ def _follow():
                 and context.scene is not None and context.scene.waifu_physics.follow_selection):
             active = obj.data.bones.active
             name = active.name if active is not None else ""
-            if name and _last_active.get(obj.name) != name:
-                _last_active[obj.name] = name
+            if name and _last_active.get(obj.session_uid) != name:
+                _last_active[obj.session_uid] = name
                 index = group_index_of_bone(obj, name)
                 if index >= 0 and obj.waifu_physics.active_group != index:
                     obj.waifu_physics.active_group = index

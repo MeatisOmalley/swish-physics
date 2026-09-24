@@ -102,6 +102,7 @@ class Rig:
 
     def __init__(self, obj):
         self.obj = obj
+        self.uid, self.data_uid = obj.session_uid, obj.data.session_uid
         bones = obj.pose.bones
         self.count = len(bones)
         self.names = [pb.name for pb in bones]
@@ -121,6 +122,22 @@ class Rig:
         self.keyed = {}
         self.keys = None
         self.constrained = np.zeros(self.count, dtype=bool)
+
+    def alive(self):
+        """The armature is still there with the bones this rig was built for. Its bones are read and written
+        by index, so a deleted object, a swapped armature or bones added or removed make the rig unusable
+        (touching a removed object's pose can crash Blender)."""
+        try:
+            obj = self.obj
+            return (obj.session_uid == self.uid and obj.type == "ARMATURE" and obj.data is not None
+                    and obj.data.session_uid == self.data_uid and obj.pose is not None
+                    and len(obj.pose.bones) == self.count)
+        except ReferenceError:
+            return False
+
+    def same_bones(self):
+        """Bones by the same names in the same order: renames too mean rebuilding."""
+        return self.alive() and [pb.name for pb in self.obj.pose.bones] == self.names
 
     # ------------------------------------------------------------------ setup
     def set_chain(self, bone_indices):

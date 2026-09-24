@@ -69,14 +69,27 @@ def _curve_toggled(name):
     return update
 
 
+def _bone_named(then=None):
+    """The update of every property that names a bone: remember where the bone is (bone_refs), so a later
+    rename is followed whatever set the name (an operator, an import, a script); then the property's own."""
+    def update(self, context):
+        from . import bone_refs
+        obj = self.id_data
+        if obj is not None and obj.type == "ARMATURE" and obj.data is not None:
+            bone_refs.remember(obj)
+        if then is not None:
+            then(self, context)
+    return update
+
+
 class WaifuPhysicsBoneName(PropertyGroup):
-    name: StringProperty()
+    name: StringProperty(update=_bone_named())
 
 
 class WaifuPhysicsLink(PropertyGroup):
     """A distance constraint between two bones of the group (Kawaii's bone constraint)."""
-    bone_a: StringProperty(name="Bone A", update=_structure_changed)
-    bone_b: StringProperty(name="Bone B", update=_structure_changed)
+    bone_a: StringProperty(name="Bone A", update=_bone_named(_structure_changed))
+    bone_b: StringProperty(name="Bone B", update=_bone_named(_structure_changed))
     compliance: EnumProperty(name="Compliance", items=LINK_COMPLIANCE_ITEMS, default="GROUP",
                              update=_structure_changed)
     exclude_from_subdivision: BoolProperty(name="No Bridge Points", update=_structure_changed,
@@ -186,7 +199,7 @@ class WaifuPhysicsForce(PropertyGroup):
 
 
 class WaifuPhysicsSyncTarget(PropertyGroup):
-    bone: StringProperty(name="Bone", update=_result_changed)
+    bone: StringProperty(name="Bone", update=_bone_named(_result_changed))
     include_children: BoolProperty(name="Children", default=True, update=_result_changed,
                                    description="Move the bones under it too")
     curve_key: StringProperty(options={"HIDDEN"})
@@ -197,7 +210,7 @@ class WaifuPhysicsSyncTarget(PropertyGroup):
 class WaifuPhysicsSyncBone(PropertyGroup):
     """Kawaii's SyncBone: a bone outside the chains (a thigh) whose movement carries chain bones' poses."""
     name: StringProperty(name="Name", default="Sync")
-    bone: StringProperty(name="Source Bone", update=_result_changed,
+    bone: StringProperty(name="Source Bone", update=_bone_named(_result_changed),
                          description="The bone whose movement from its rest position the targets follow")
     targets: CollectionProperty(type=WaifuPhysicsSyncTarget)
     active_target: IntProperty()
@@ -439,8 +452,16 @@ def _group_picked(self, context):
             view_layer.objects.active = obj
 
 
+class WaifuPhysicsKnownBone(PropertyGroup):
+    """Where a bone the groups name sits at rest, so a renamed bone can be found again (data/bone_refs.py)."""
+    name: StringProperty()
+    parent: StringProperty()
+    rest: FloatVectorProperty(size=6)          # head and tail, in armature space
+
+
 class WaifuPhysicsArmature(PropertyGroup):
     groups: CollectionProperty(type=WaifuPhysicsGroup)
+    known_bones: CollectionProperty(type=WaifuPhysicsKnownBone, options={"HIDDEN"})
     active_group: IntProperty(update=_group_picked)
     expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's groups")
 
@@ -474,7 +495,7 @@ def _simulate_changed(settings):
 
 
 CLASSES = (WaifuPhysicsBoneName, WaifuPhysicsLink, WaifuPhysicsColliderSet, WaifuPhysicsForce, WaifuPhysicsSyncTarget, WaifuPhysicsSyncBone, WaifuPhysicsGroup,
-           WaifuPhysicsCollider, WaifuPhysicsArmature, WaifuPhysicsScene)
+           WaifuPhysicsCollider, WaifuPhysicsKnownBone, WaifuPhysicsArmature, WaifuPhysicsScene)
 SETTING_NAMES = ("damping", "stiffness", "world_damping_location", "world_damping_rotation", "radius", "limit_angle")
 
 

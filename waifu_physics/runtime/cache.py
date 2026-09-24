@@ -136,7 +136,7 @@ def collider_prints(rt):
         for obj in armature.children:
             if colliders.is_collider(obj):
                 local = obj.matrix_parent_inverse @ obj.matrix_basis
-                prints[obj.name] = (tuple(round(v, 7) for row in local for v in row), obj.parent_bone,
+                prints[obj.session_uid] = (tuple(round(v, 7) for row in local for v in row), obj.parent_bone,
                                     obj.waifu_physics_collider.enabled, repr(colliders.values(obj)))
     return prints
 
@@ -165,8 +165,8 @@ def relevant_update(rt, depsgraph):
     colliders too; armatures by whether the update is our own."""
     import bpy
     from ..data import colliders, curves
-    rig_objects = {rig.obj.name for rig in rt.rigs}
-    rig_data = {rig.obj.data.name for rig in rt.rigs}
+    rig_objects = {rig.uid for rig in rt.rigs}
+    rig_data = {rig.data_uid for rig in rt.rigs}
     own = rt.own_update
     rt.own_update = False
     colliders_touched = False
@@ -176,16 +176,16 @@ def relevant_update(rt, depsgraph):
             # Waifu Physics mutes and unmutes the chains' curves itself (while simulating, around saves);
             # only a change to what the keys say counts.
             printed = action_print(rt, found)
-            if rt.action_prints.get(found.name) != printed:
-                rt.action_prints[found.name] = printed
+            if rt.action_prints.get(found.session_uid) != printed:
+                rt.action_prints[found.session_uid] = printed
                 return True
             continue
         if isinstance(found, bpy.types.NodeTree) and found.name in (curves.HOST, colliders.TREE):
             return True
-        if isinstance(found, bpy.types.Armature) and found.name in rig_data and not own:
+        if isinstance(found, bpy.types.Armature) and found.session_uid in rig_data and not own:
             return True
         if isinstance(found, bpy.types.Object):
-            if found.name in rig_objects and not own:
+            if found.session_uid in rig_objects and not own:
                 return True
             if found.field is not None and found.field.type == "WIND":       # the scene's wind
                 return True

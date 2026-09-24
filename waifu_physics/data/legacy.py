@@ -23,6 +23,8 @@ def migrate():
             if stored is None or old not in stored:
                 continue
             if not stored.get(new):                  # nothing there yet (or only the empty group Blender made)
+                if new in stored:
+                    del stored[new]                  # a group cannot be assigned over, only replaced
                 stored[new] = stored[old].to_dict()
                 moved += 1
             del stored[old]
