@@ -255,8 +255,9 @@ made = colliders.all_of(limb)[0]
 check("... fitted to the skin (Auto), named from the bone",
       colliders.values(made)["Shape"] in ("Capsule", "Tapered Capsule") and made.name.startswith("anchor Collider")
       and abs(colliders.values(made)["Radius"] - 0.1) < 2e-3, (made.name, colliders.values(made)))
-bpy.ops.waifu_physics.colliders_from_bones()
-check("... and a bone with a collider already is skipped", len(colliders.all_of(limb)) == 1)
+bpy.ops.waifu_physics.colliders_from_bones(shape="Sphere")
+check("... and again, it is regenerated: its collider is replaced, not joined by another",
+      len(colliders.all_of(limb)) == 1 and colliders.values(colliders.all_of(limb)[0])["Shape"] == "Sphere")
 bpy.ops.object.mode_set(mode="OBJECT")
 check("VRoid bone names shorten", colliders.short_name("J_Bip_C_Head") == "Head"
       and colliders.short_name("J_Bip_L_UpperArm") == "L_UpperArm")

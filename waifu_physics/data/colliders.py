@@ -29,9 +29,18 @@ TREE = ".Waifu Physics Collider"
 MODIFIER = "Waifu Physics Collider"
 TREE_VERSION = 1
 SHAPES = ("Sphere", "Inner Sphere", "Capsule", "Tapered Capsule", "Box", "Plane")
+SHAPE_ICONS = {"AUTO": "MOD_SHRINKWRAP", "Sphere": "MESH_UVSPHERE", "Inner Sphere": "SPHERE",
+               "Capsule": "MESH_CAPSULE", "Tapered Capsule": "MESH_CONE", "Box": "MESH_CUBE", "Plane": "MESH_PLANE"}
+SHAPE_NOTES = {"Sphere": "A ball the chains stay outside of",
+               "Inner Sphere": "A ball the chains stay inside of",
+               "Capsule": "A cylinder with round ends, along the bone",
+               "Tapered Capsule": "A capsule thicker at one end than the other",
+               "Box": "A box the chains stay outside of",
+               "Plane": "An endless plane the chains stay above: a ground"}
 # What a collider added to a bone may be: fitted to the skin, as one shape or the best fitting.
-SHAPE_CHOICES = [("AUTO", "Auto (Best Fit)", "The shape that fits the skin around the bone best")] + [
-    (s, s, "") for s in SHAPES]
+SHAPE_CHOICES = [("AUTO", "Auto (Best Fit)", "Each bone gets the shape that fits the skin around it best",
+                  SHAPE_ICONS["AUTO"], 0)] + [(s, s, SHAPE_NOTES[s], SHAPE_ICONS[s], n + 1)
+                                              for n, s in enumerate(SHAPES)]
 KINDS = {"Sphere": SPHERE_OUTER, "Inner Sphere": SPHERE_INNER, "Capsule": CAPSULE, "Tapered Capsule": TAPERED,
          "Box": BOX, "Plane": PLANE}
 # Turns a shape running along local Y onto Kawaii's Z: X stays, Z goes to Y.

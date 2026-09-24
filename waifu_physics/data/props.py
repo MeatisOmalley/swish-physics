@@ -530,9 +530,16 @@ class WaifuPhysicsArmature(PropertyGroup):
     known_bones: CollectionProperty(type=WaifuPhysicsKnownBone, options={"HIDDEN"})
     active_group: IntProperty(update=_group_picked)
     expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's groups")
+    colliders_expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's colliders")
 
 
 class WaifuPhysicsScene(PropertyGroup):
+    tab: EnumProperty(
+        name="Tab", default="PHYSICS",
+        items=[("PHYSICS", "Physics", "The chains: their groups and settings", "PHYSICS", 0),
+               ("COLLIDERS", "Colliders", "What the chains collide with: colliders on bones and in the scene",
+                "MESH_CAPSULE", 1)])
+    scene_colliders_expanded: BoolProperty(name="Expanded", default=True, description="Show the scene's colliders")
     simulate: BoolProperty(name="Simulate", default=False, update=lambda self, context: _simulate_changed(self),
                            description="Simulate every Waifu Physics group in the scene while the timeline plays")
     target_framerate: IntProperty(name="Steps per Second", default=60, min=1, max=480, update=_structure_changed,
