@@ -255,11 +255,8 @@ class WAIFU_PHYSICS_PT_advanced(_GroupPanel, bpy.types.Panel):
         settings = context.scene.waifu_physics
         layout.separator()
         layout.label(text="Scene")
-        layout.prop(settings, "fixed_substepping")
-        sub = layout.column()
-        sub.active = settings.fixed_substepping
-        sub.prop(settings, "target_framerate")
-        sub.prop(settings, "max_substeps")
+        layout.prop(settings, "target_framerate")
+        layout.column(heading="Live Playback").prop(settings, "fixed_substepping")
 
 
 class WAIFU_PHYSICS_UL_links(bpy.types.UIList):
@@ -300,14 +297,19 @@ _SHAPE_ICONS = {"Sphere": "MESH_UVSPHERE", "Inner Sphere": "SPHERE", "Capsule": 
                 "Tapered Capsule": "MESH_CONE", "Box": "MESH_CUBE", "Plane": "MESH_PLANE"}
 
 
-class WAIFU_PHYSICS_UL_colliders(bpy.types.UIList):
-    """The colliders of the armature the Colliders panel shows, from bpy.data.objects."""
+class _ColliderList:
+    """A list of colliders from bpy.data.objects (a registered UIList is not subclassed: its subclass would
+    take over its registration)."""
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
         found = colliders.values(item) or {}
         row = layout.row(align=True)
         row.prop(item.waifu_physics_collider, "enabled", text="")
         row.prop(item, "name", text="", emboss=False, icon=_SHAPE_ICONS.get(found.get("Shape"), "MESH_UVSPHERE"))
+
+
+class WAIFU_PHYSICS_UL_colliders(_ColliderList, bpy.types.UIList):
+    """The colliders of the armature the Colliders panel shows."""
 
     def filter_items(self, context, data, propname):
         armature = colliders.armature_of(context)
@@ -317,9 +319,17 @@ class WAIFU_PHYSICS_UL_colliders(bpy.types.UIList):
         return flags, []
 
 
+class WAIFU_PHYSICS_UL_scene_colliders(_ColliderList, bpy.types.UIList):
+    """The scene's colliders (on no armature)."""
+
+    def filter_items(self, context, data, propname):
+        found = set(colliders.scene_colliders(context.scene, enabled_only=False))
+        return [self.bitflag_filter_item if obj in found else 0 for obj in getattr(data, propname)], []
+
+
 class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
     """Colliders belong to the armature they are parented to, which needs no groups: a body can carry the
-    colliders its garments' chains hit."""
+    colliders its garments' chains hit. The scene's colliders, on no armature, are in the Scene subpanel."""
     bl_idname = "WAIFU_PHYSICS_PT_colliders"
     bl_label = "Colliders"
     bl_space_type = "VIEW_3D"
@@ -328,15 +338,21 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
     bl_parent_id = "WAIFU_PHYSICS_PT_main"
     bl_options = {"DEFAULT_CLOSED"}
 
-    @classmethod
-    def poll(cls, context):
-        return colliders.armature_of(context) is not None
+    def draw_header(self, context):
+        settings = context.scene.waifu_physics
+        self.layout.prop(settings, "show_colliders", text="", emboss=False,
+                         icon="HIDE_OFF" if settings.show_colliders else "HIDE_ON")
 
     def draw(self, context):
         from ..runtime import live
         armature = colliders.armature_of(context)
         layout = self.layout
         layout.enabled = not live.is_cached(context.scene)
+        if armature is None:
+            note = layout.row()
+            note.enabled = False
+            note.label(text="Select an armature for its colliders", icon="INFO")
+            return
         adding = context.object == armature and context.mode == "POSE" and context.active_pose_bone is not None
         row = layout.row(align=True)
         row.enabled = adding
@@ -352,10 +368,7 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
             layout.template_list("WAIFU_PHYSICS_UL_colliders", "", bpy.data, "objects", armature.waifu_physics,
                                  "active_collider", rows=min(max(len(found), 2), 6))
             index = armature.waifu_physics.active_collider
-            chosen = bpy.data.objects[index] if 0 <= index < len(bpy.data.objects) else None
-            if chosen not in found:
-                chosen = found[0]
-            self._collider(layout, chosen)
+            self._collider(layout, _chosen(index, found))
         if armature.type == "ARMATURE" and len(armature.waifu_physics.groups) and context.object == armature:
             self._sources(layout, armature)
 
@@ -376,7 +389,12 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
                 col.prop(getattr(md.properties.inputs, ident), "value", text=name)
         note = box.row()
         note.enabled = False
-        note.label(text=f"On {obj.parent_bone}", icon="BONE_DATA")
+        if obj.parent is not None and obj.parent_type == "BONE" and obj.parent_bone:
+            note.label(text=f"On {obj.parent_bone}", icon="BONE_DATA")
+        elif obj.parent is not None:
+            note.label(text=f"On {obj.parent.name}", icon="OBJECT_DATA")
+        else:
+            note.label(text="In the scene", icon="SCENE_DATA")
         row = box.row(align=True)
         row.operator("waifu_physics.collider_select", text="Select", icon="RESTRICT_SELECT_OFF").name = obj.name
         row.operator("waifu_physics.collider_remove", text="Remove", icon="TRASH").name = obj.name
@@ -399,6 +417,37 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
             row.prop(item, "armature", text="")
             row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
         layout.operator("waifu_physics.collider_set_add", text="Add Armature", icon="ADD")
+        layout.prop(group, "use_scene_colliders")
+
+
+def _chosen(index, found):
+    """The listed collider at an index into bpy.data.objects, else the first listed."""
+    chosen = bpy.data.objects[index] if 0 <= index < len(bpy.data.objects) else None
+    return chosen if chosen in found else found[0]
+
+
+class WAIFU_PHYSICS_PT_scene_colliders(bpy.types.Panel):
+    """Colliders on no armature, like a ground: every group collides with them unless it turns Scene Colliders
+    off. Like Kawaii's world collision, but with colliders the user places."""
+    bl_idname = "WAIFU_PHYSICS_PT_scene_colliders"
+    bl_label = "Scene"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Waifu Physics"
+    bl_parent_id = "WAIFU_PHYSICS_PT_colliders"
+
+    def draw(self, context):
+        from ..runtime import live
+        layout = self.layout
+        layout.enabled = not live.is_cached(context.scene)
+        layout.operator_menu_enum("waifu_physics.scene_collider_add", "shape", text="Add Scene Collider",
+                                  icon="ADD")
+        found = colliders.scene_colliders(context.scene, enabled_only=False)
+        if found:
+            settings = context.scene.waifu_physics
+            layout.template_list("WAIFU_PHYSICS_UL_scene_colliders", "", bpy.data, "objects", settings,
+                                 "active_scene_collider", rows=min(max(len(found), 2), 6))
+            WAIFU_PHYSICS_PT_colliders._collider(layout, _chosen(settings.active_scene_collider, found))
 
 
 def _curve_box(layout, owner, setting, label):
@@ -600,8 +649,8 @@ class WAIFU_PHYSICS_PT_sync(_GroupPanel, bpy.types.Panel):
         sub.prop(sync, "max_attenuation")
 
 
-CLASSES = (WAIFU_PHYSICS_UL_colliders, WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
-           WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_colliders, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
+CLASSES = (WAIFU_PHYSICS_UL_colliders, WAIFU_PHYSICS_UL_scene_colliders, WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
+           WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_colliders, WAIFU_PHYSICS_PT_scene_colliders, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
            WAIFU_PHYSICS_PT_advanced)
 
 

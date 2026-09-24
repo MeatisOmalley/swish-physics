@@ -146,6 +146,41 @@ check("... in the group's armature space", np.allclose(rt.system.shape_loc[0], e
       (rt.system.shape_loc[0], tuple(expected)))
 scene.waifu_physics.simulate = False
 
+# --- a scene collider, on no armature, is a ground every group stands on
+ground = colliders.add_to_scene("Plane", location=(0.0, 0.0, 1.9))
+check("a scene collider is on no armature: an upright plane, a ground",
+      colliders.is_scene_collider(ground) and colliders.values(ground)["Shape"] == "Plane"
+      and ground in colliders.scene_colliders(scene))
+scene.frame_set(1)
+scene.waifu_physics.simulate = True
+for frame in range(1, 60):
+    scene.frame_set(frame)
+rt = live.runtime(scene)
+check("the group collides with the scene's colliders as well as its armatures'", len(rt.system.shape_type) == 2,
+      len(rt.system.shape_type))
+lowest = rt.system.loc[rt.system.parent >= 0][:, 2].min()
+check("the chain falls onto the ground and rests a point radius above it", 190.0 + 2.0 - 1e-3 < lowest < 193.0, lowest)
+frame_cache = sys.modules["waifu_physics.runtime.cache"]
+before = frame_cache.collider_prints(rt)
+ground.location.z = 1.8
+check("moving a scene collider is a collider edit (the cache is redone)", frame_cache.collider_prints(rt) != before)
+g.use_scene_colliders = False
+scene.frame_set(60)
+check("a group can leave the scene's colliders out", len(live.runtime(scene).system.shape_type) == 1,
+      len(live.runtime(scene).system.shape_type))
+g.use_scene_colliders = True
+scene.waifu_physics.show_colliders = False
+bpy.context.view_layer.update()
+check("Show Colliders off hides them (their collection's eye) ...", not ground.visible_get()
+      and not scene.waifu_physics.show_colliders)
+scene.frame_set(61)
+check("... and hidden, they still collide", len(live.runtime(scene).system.shape_type) == 2)
+colliders.add_to_scene("Sphere")
+check("a new collider shows the colliders again", scene.waifu_physics.show_colliders and ground.visible_get())
+scene.waifu_physics.simulate = False
+for obj in colliders.scene_colliders(scene, enabled_only=False):
+    bpy.data.objects.remove(obj)
+
 # --- keyframed collider sizes: the solver reads the animated value, and the drawing follows
 md, ident = colliders.input_path(ball, "Radius")
 socket = getattr(md.properties.inputs, ident)

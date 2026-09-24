@@ -2,7 +2,8 @@
 
 A collider belongs to the armature it is parented to; a group collides with
 the colliders of its own armature, or of the armatures listed in its collider
-sets. Its shape and sizes are the inputs of its "Waifu Physics Collider" modifier
+sets. A collider on no armature (a ground; it may hang from any other object)
+is the scene's, and every group collides with those unless told not to. Its shape and sizes are the inputs of its "Waifu Physics Collider" modifier
 (animatable), and its object scale multiplies them:
 
     Sphere, Inner Sphere   radius  x the largest axis scale
@@ -196,6 +197,43 @@ def is_collider(obj):
     return obj is not None and obj.type == "MESH" and obj.waifu_physics_collider.is_collider
 
 
+def is_scene_collider(obj):
+    """A collider on no armature: the scene's."""
+    return is_collider(obj) and (obj.parent is None or obj.parent.type != "ARMATURE")
+
+
+def scene_colliders(scene, enabled_only=True):
+    """The scene's colliders (on no armature), by name; enabled ones only unless asked."""
+    return sorted((obj for obj in scene.objects if is_scene_collider(obj)
+                   and (obj.waifu_physics_collider.enabled or not enabled_only)), key=lambda obj: obj.name)
+
+
+def _layer_collection(view_layer):
+    """The view layer's entry for the colliders' collection, or None."""
+    pending = [view_layer.layer_collection]
+    while pending:
+        found = pending.pop()
+        if found.collection.name == COLLECTION:
+            return found
+        pending += found.children
+    return None
+
+
+def shown(scene):
+    """Are the colliders shown in the scene's view layer: their collection's eye."""
+    view_layer = bpy.context.view_layer if bpy.context.scene == scene else scene.view_layers[0]
+    found = _layer_collection(view_layer)
+    return found is None or not found.hide_viewport
+
+
+def show(scene, value):
+    """Show or hide the colliders. The eye only hides them: they still move with their bones and collide."""
+    view_layer = bpy.context.view_layer if bpy.context.scene == scene else scene.view_layers[0]
+    found = _layer_collection(view_layer)
+    if found is not None:
+        found.hide_viewport = not value
+
+
 def modifier(obj):
     return obj.modifiers.get(MODIFIER)
 
@@ -364,15 +402,15 @@ def from_bones(armature, bone_names, shape="AUTO", context=None):
     return [add(armature, name, shape, context, points) for name in bone_names if not has_collider(armature, name)]
 
 
-def add(armature, bone_name, shape="AUTO", context=None, points=None):
-    """A new collider on a bone, fitted to the skin that belongs to it (AUTO: the shape that fits it best).
-    Where no skin belongs to the bone: centred on it, a capsule along it, a quarter of its length thick."""
+def _new(name, context=None):
+    """A collider object in the colliders' collection, in the scene and shown (a new one should be seen)."""
+    scene = (context or bpy.context).scene
     collection = bpy.data.collections.get(COLLECTION)
     if collection is None:
         collection = bpy.data.collections.new(COLLECTION)
-        (context or bpy.context).scene.collection.children.link(collection)
-    mesh = bpy.data.meshes.new(f"{short_name(bone_name)} Collider")
-    obj = bpy.data.objects.new(f"{short_name(bone_name)} Collider", mesh)
+    if collection not in scene.collection.children_recursive:
+        scene.collection.children.link(collection)
+    obj = bpy.data.objects.new(name, bpy.data.meshes.new(name))
     collection.objects.link(obj)
     obj.waifu_physics_collider.is_collider = True
     obj.display_type = "WIRE"
@@ -380,6 +418,26 @@ def add(armature, bone_name, shape="AUTO", context=None, points=None):
     obj.hide_render = True
     md = obj.modifiers.new(MODIFIER, "NODES")
     md.node_group = node_group()
+    show(scene, True)
+    return obj
+
+
+def add_to_scene(shape="Plane", context=None, location=(0.0, 0.0, 0.0)):
+    """A new scene collider at a location, upright: a Plane faces up, so it is a ground."""
+    obj = _new("Ground Collider" if shape == "Plane" else f"{shape} Collider", context)
+    obj.location = location
+    set_value(obj, "Shape", shape)
+    set_value(obj, "Radius", 1.0 if shape == "Plane" else 0.25)
+    set_value(obj, "Radius 1", 0.25)
+    set_value(obj, "Length", 0.5)
+    set_value(obj, "Extent", (0.25, 0.25, 0.25))
+    return obj
+
+
+def add(armature, bone_name, shape="AUTO", context=None, points=None):
+    """A new collider on a bone, fitted to the skin that belongs to it (AUTO: the shape that fits it best).
+    Where no skin belongs to the bone: centred on it, a capsule along it, a quarter of its length thick."""
+    obj = _new(f"{short_name(bone_name)} Collider", context)
     pose_bone = armature.pose.bones[bone_name]
     obj.parent = armature
     obj.parent_type = "BONE"

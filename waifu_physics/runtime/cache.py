@@ -120,24 +120,27 @@ def key(scene):
     """What a cache is only valid for: frame range and rates."""
     settings = scene.waifu_physics
     return (scene.frame_start, scene.frame_end, scene.render.fps, scene.render.fps_base, settings.target_framerate,
-            settings.max_substeps, settings.fixed_substepping)
+            settings.fixed_substepping)
 
 
 def collider_prints(rt):
-    """What a user edit of a collider changes and its bone's motion does not: its transform
-    relative to its bone, its bone, its shape and whether it is enabled."""
+    """What a user edit of a collider changes and its parent's motion does not: its transform
+    relative to its parent, its parent and bone, its shape and whether it is enabled."""
     from ..data import colliders
     armatures = [rig.obj for rig in rt.rigs]
     for g in range(len(rt.group_props)):
         _rig, props = rt._group(g)
         armatures += colliders.sources(props)
+    found = [obj for armature in armatures for obj in armature.children if colliders.is_collider(obj)]
+    scene = rt.scene()
+    if scene is not None:
+        found += colliders.scene_colliders(scene, enabled_only=False)
     prints = {}
-    for armature in armatures:
-        for obj in armature.children:
-            if colliders.is_collider(obj):
-                local = obj.matrix_parent_inverse @ obj.matrix_basis
-                prints[obj.session_uid] = (tuple(round(v, 7) for row in local for v in row), obj.parent_bone,
-                                    obj.waifu_physics_collider.enabled, repr(colliders.values(obj)))
+    for obj in found:
+        local = obj.matrix_parent_inverse @ obj.matrix_basis
+        prints[obj.session_uid] = (tuple(round(v, 7) for row in local for v in row),
+                                   obj.parent.session_uid if obj.parent is not None else None, obj.parent_bone,
+                                   obj.waifu_physics_collider.enabled, repr(colliders.values(obj)))
     return prints
 
 

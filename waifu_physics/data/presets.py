@@ -35,9 +35,10 @@ def apply(group, key):
 
 # --------------------------------------------------------------------------- the user's own presets
 # Saved as the group's settings and curves (what Copy Settings copies), one JSON file each, in Blender's user
-# presets folder, so every file can use them. The group's on/off switch is not a setting a preset should set.
+# presets folder, so every file can use them. The group's on/off switch and what it collides with are not
+# settings a preset should set.
 FOLDER = "presets/waifu_physics/groups"
-_NOT_PRESET = {"enabled"}
+_NOT_PRESET = {"enabled", "use_scene_colliders"}
 
 
 def folder(create=False):

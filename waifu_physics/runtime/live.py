@@ -111,7 +111,6 @@ class Runtime:
                                      np.concatenate(pose) if pose else np.zeros((0, 3)),
                                      np.concatenate(rotation) if rotation else np.zeros((0, 4))),
                             specs, target_framerate=target_framerate or scene_settings.target_framerate,
-                            max_substeps=scene_settings.max_substeps,
                             fixed_substepping=scene_settings.fixed_substepping)
         s = self.system
         # Stiffness and damping act per step, so the step rate stays the scene's simulation rate
@@ -300,21 +299,27 @@ class Runtime:
             s.frame_move[g] = move
             s.frame_move_rot[g] = move_rot
             s.teleport[g] = teleport
-        s.set_shapes([self._shapes(g) for g in range(len(self.group_props))])
+        s.set_shapes([self._shapes(g, scene) for g in range(len(self.group_props))])
         s.resolve_settings()
 
-    def _shapes(self, g):
-        """This frame's colliders for a group (colliders.sources), in its armature's space (Kawaii's
-        Update*Limits, once a frame)."""
+    def _shapes(self, g, scene):
+        """This frame's colliders for a group (colliders.sources, and the scene's), in its armature's space
+        (Kawaii's Update*Limits, once a frame)."""
         rig, props = self._group(g)
-        sources = collider_objects.sources(props)
+        found = [obj for armature in collider_objects.sources(props)
+                 for obj in collider_objects.colliders_of(armature)]
+        if props.use_scene_colliders:
+            found += collider_objects.scene_colliders(scene)
         shapes = []
-        for armature in sources:
-            for obj in collider_objects.colliders_of(armature):
-                shape = collider_objects.shape_of(obj, rig.obj, self.cm)
-                if shape is not None:
-                    shapes.append(shape)
+        for obj in found:
+            shape = collider_objects.shape_of(obj, rig.obj, self.cm)
+            if shape is not None:
+                shapes.append(shape)
         return shapes
+
+    def scene(self):
+        """The scene this runtime simulates, or None once it is gone."""
+        return next((scene for scene in bpy.data.scenes if scene.as_pointer() == self.scene_pointer), None)
 
     def reset(self, scene):
         """Points back at the pose; warm-up steps if a group asks for them."""
@@ -371,10 +376,10 @@ class Runtime:
         if ahead:
             self.restore(frame_of(scene))
         seconds = frames * scene.render.fps_base / scene.render.fps
-        # A normal 12 fps frame needs five 60 Hz steps. Do not silently discard
-        # its elapsed time merely because the game-oriented default cap is four.
+        # Every step the frame's time holds: Kawaii caps the steps a frame may take (dropping the rest) against
+        # game hitches, but a Blender frame's time is exact, and dropping any would slow the chains.
         needed = math.ceil((float(self.system.accumulator) + seconds) * self.system.target_framerate)
-        self.step_seconds(scene, seconds, max_substeps=max(self.system.max_substeps, needed), ahead=ahead)
+        self.step_seconds(scene, seconds, max_substeps=max(needed, 1), ahead=ahead)
 
     def _write(self):
         """Rotations back onto every chain bone, and heads for bones Kawaii places directly."""

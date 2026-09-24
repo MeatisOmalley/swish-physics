@@ -262,6 +262,23 @@ class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class WAIFU_PHYSICS_OT_scene_collider_add(bpy.types.Operator):
+    bl_idname = "waifu_physics.scene_collider_add"
+    bl_label = "Add Scene Collider"
+    bl_description = ("Add a collider on no armature, at the 3D cursor: every group collides with it. A Plane faces "
+                      "up, a ground")
+    bl_options = {"REGISTER", "UNDO"}
+
+    shape: bpy.props.EnumProperty(name="Shape", items=[(s, "Ground (Plane)" if s == "Plane" else s, "")
+                                                       for s in colliders.SHAPES], default="Plane")
+
+    def execute(self, context):
+        obj = colliders.add_to_scene(self.shape, context, context.scene.cursor.location.copy())
+        context.scene.waifu_physics.active_scene_collider = bpy.data.objects.find(obj.name)
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
 class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
     bl_idname = "waifu_physics.colliders_from_bones"
     bl_label = "Colliders from Bones"
@@ -364,6 +381,7 @@ class WAIFU_PHYSICS_OT_collider_select(bpy.types.Operator):
             bpy.ops.object.mode_set(mode="OBJECT")
         for other in context.selected_objects:
             other.select_set(False)
+        colliders.show(context.scene, True)
         obj.hide_set(False)
         obj.select_set(True)
         context.view_layer.objects.active = obj
@@ -1351,7 +1369,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
 
 
 CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_select, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
-           WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
+           WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_scene_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,
            WAIFU_PHYSICS_OT_setup_export, WAIFU_PHYSICS_OT_setup_import, WAIFU_PHYSICS_OT_force_add, WAIFU_PHYSICS_OT_force_remove,

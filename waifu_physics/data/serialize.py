@@ -21,7 +21,7 @@ FORMAT = "waifu_physics"
 LEGACY_FORMATS = {"swish_physics"}      # setups saved before the add-on was renamed
 VERSION = 1
 KAWAII_COMMIT = "64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21"
-SCENE_SETTINGS = ("target_framerate", "max_substeps", "fixed_substepping")
+SCENE_SETTINGS = ("target_framerate", "fixed_substepping")
 _NOT_SETTINGS = {"rna_type", "name", "curve_key", "active_link", "active_force", "active_sync", "active_target",
                  "show_advanced", "stiffness_level", "damping_level", "world_location_inertia", "world_rotation_inertia",
                  "show_chains", "preset_name", "category"}

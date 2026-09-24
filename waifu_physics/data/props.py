@@ -23,6 +23,11 @@ PLANAR_ITEMS = [("NONE", "None", "No planar constraint"),
                 ("Z", "Z", "Keep each bone in the plane through its parent, normal to the parent's Z axis")]
 
 
+def _colliders():
+    from . import colliders
+    return colliders
+
+
 def _structure_changed(self, context):
     """Something that shapes the chains changed: rebuild the simulation."""
     from ..runtime import live
@@ -340,6 +345,9 @@ class WaifuPhysicsGroup(PropertyGroup):
     excluded: CollectionProperty(type=WaifuPhysicsBoneName)
     links: CollectionProperty(type=WaifuPhysicsLink)
     collider_sets: CollectionProperty(type=WaifuPhysicsColliderSet)
+    use_scene_colliders: BoolProperty(
+        name="Scene Colliders", default=True, update=_structure_changed,
+        description="Collide with the scene's colliders: those on no armature, like a ground")
     active_link: IntProperty()
 
     # FKawaiiPhysicsSettings, animatable. Radius is a length; limit angle an angle.
@@ -514,17 +522,23 @@ class WaifuPhysicsScene(PropertyGroup):
     simulate: BoolProperty(name="Simulate", default=False, update=lambda self, context: _simulate_changed(self),
                            description="Simulate every Waifu Physics group in the scene while the timeline plays")
     target_framerate: IntProperty(name="Steps per Second", default=60, min=1, max=480, update=_structure_changed,
-                                  description="Fixed simulation rate (Kawaii's target framerate)")
-    max_substeps: IntProperty(name="Max Steps per Frame", default=4, min=1, max=32, update=_structure_changed,
-                              description="Most simulation steps one frame may take; the rest of a long frame is dropped")
-    fixed_substepping: BoolProperty(name="Fixed Steps", default=True, update=_structure_changed,
-                                    description="Step at a fixed rate; off steps once per frame (Kawaii's legacy mode)")
+                                  description="Simulation rate (Kawaii's target framerate). Stiffness and damping act "
+                                              "per step, so a chain's feel depends on it")
+    fixed_substepping: BoolProperty(
+        name="Fixed Steps", default=True, update=_structure_changed,
+        description="Live playback steps at Steps per Second, carrying a frame's leftover time to the next; off, it "
+                    "steps once per frame (Kawaii's legacy mode). The cache always steps at Steps per Second")
     edit_selected_groups: BoolProperty(
         name="Edit Selected Groups", default=True,
         description="Changing a setting changes it in every group holding a selected bone")
     use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
                             description="Keep each simulated frame, to scrub and render without re-simulating")
     show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
+    show_colliders: BoolProperty(
+        name="Show Colliders", get=lambda self: _colliders().shown(self.id_data),
+        set=lambda self, value: _colliders().show(self.id_data, value),
+        description="Show the colliders in the viewport (the eye of their collection). Hidden, they still collide")
+    active_scene_collider: IntProperty(options={"HIDDEN"})   # an index into bpy.data.objects: the Scene list
     selected_only: BoolProperty(
         name="Selected Only", default=True,
         description="List the selected armature's groups only; off lists every armature with a group")
