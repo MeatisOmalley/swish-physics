@@ -804,11 +804,38 @@ def _select(context, obj, chains, keep=False, deselect=()):
 _last_clicked = {}                   # armature (session_uid) -> the chain clicked last, for Shift-click ranges
 
 
+class WAIFU_PHYSICS_OT_chains_set(bpy.types.Operator):
+    bl_idname = "waifu_physics.chains_set"
+    bl_label = "Select Chains"
+    bl_description = "Select these chains (the chain manager's box select)"
+    bl_options = {"UNDO", "INTERNAL"}
+
+    chains: bpy.props.StringProperty(description="One chain a line: its group's index, '|', its root bone")
+    extend: bpy.props.BoolProperty(description="Add them to the selection instead of replacing it")
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        obj = context.object
+        known = set(all_chains(obj))
+        wanted = []
+        for line in self.chains.splitlines():
+            index, _bar, root = line.partition("|")
+            if index.isdigit() and (int(index), root) in known:
+                wanted.append((int(index), root))
+        _select(context, obj, wanted, keep=self.extend)
+        if wanted:
+            _last_clicked[obj.session_uid] = wanted[-1]
+        return {"FINISHED"}
+
+
 class WAIFU_PHYSICS_OT_chain_click(bpy.types.Operator):
     bl_idname = "waifu_physics.chain_click"
     bl_label = "Select Chain"
     bl_description = "Select this chain. Shift-click selects a range; Ctrl-click adds or drops one chain"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     group: bpy.props.IntProperty()
     root: bpy.props.StringProperty()
@@ -850,7 +877,7 @@ class WAIFU_PHYSICS_OT_chains_select(bpy.types.Operator):
     bl_idname = "waifu_physics.chains_select"
     bl_label = "Select Chains"
     bl_description = "Select every chain of the armature, or none"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     action: bpy.props.EnumProperty(items=(("ALL", "All", ""), ("NONE", "None", ""), ("TOGGLE", "Toggle", "")),
                                    default="TOGGLE")
@@ -871,7 +898,7 @@ class WAIFU_PHYSICS_OT_group_click(bpy.types.Operator):
     bl_idname = "waifu_physics.group_click"
     bl_label = "Select Group"
     bl_description = "Edit this group and select its chains. Ctrl or Shift adds them to the selection"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     index: bpy.props.IntProperty()
     extend: bpy.props.BoolProperty(options={"SKIP_SAVE"})
@@ -912,7 +939,7 @@ class WAIFU_PHYSICS_OT_chains_remove(bpy.types.Operator):
     bl_idname = "waifu_physics.chains_remove"
     bl_label = "Remove Selected Chains"
     bl_description = "Stop simulating the selected chains"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     def execute(self, context):
         obj = context.object
@@ -957,7 +984,7 @@ class WAIFU_PHYSICS_OT_groups_merge(bpy.types.Operator):
     bl_label = "Merge Groups"
     bl_description = ("Merge the groups of the selected chains into one: the active group if it is among them, "
                       "keeping its settings")
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     source: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
     target: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
@@ -1011,7 +1038,7 @@ class WAIFU_PHYSICS_OT_chains_to_group(bpy.types.Operator):
     bl_idname = "waifu_physics.chains_to_group"
     bl_label = "Move Chains to Group"
     bl_description = "Move the chains holding the selected bones, from whatever groups, into this group"
-    bl_options = {"REGISTER", "UNDO"}
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     index: bpy.props.IntProperty(default=-1, description="The group; -1 makes a new one")
 
@@ -1245,7 +1272,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,

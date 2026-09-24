@@ -29,6 +29,7 @@ _hover = {}                # area -> (x, y), the mouse over the manager
 _drags = {}                # area -> Drag, while one is on
 _sizes = {}                # area -> (width, height) at a UI scale of 1, once resized; height None fits the rows
 _pressed = {}              # area -> the kind of item held down, for its pressed look
+_boxes = {}                # area -> (x0, y0, x1, y1), the box select being dragged
 _pan = {}                  # area -> trackpad scrolling not yet a whole row
 
 
@@ -176,6 +177,19 @@ class Layout:
             if item.contains(x, y):
                 return item
         return self.frame
+
+    def boxed(self, y0, y1):
+        """The chains of the rows a box spanning these heights touches: a chain's row gives the chain, a
+        folder's row every chain of its group (it may be folded)."""
+        low, high = min(y0, y1), max(y0, y1)
+        found = []
+        for row in self.rows:
+            if row.y1 > low and row.y0 < high:
+                if row.kind == "chain":
+                    found.append((row.group, row.root))
+                elif row.kind == "group" and self.obj is not None:
+                    found += [(row.group, root.name) for root in self.obj.waifu_physics.groups[row.group].roots]
+        return list(dict.fromkeys(found))
 
     def drop_target(self, x, y):
         """Where dropped chains would go: ("group", index), ("new", -1), or None."""
@@ -379,6 +393,8 @@ def draw(context):
                       colours["dim"]))
 
     active = obj.waifu_physics.active_group if obj is not None else -1
+    box = _boxes.get(key)
+    boxed = set(layout.boxed(box[1], box[3])) if box is not None else set()
     for row in layout.rows:
         mid = (row.y0 + row.y1) / 2
         if row.kind == "newzone":
@@ -389,7 +405,7 @@ def draw(context):
             width = blf.dimensions(0, row.text)[0]
             label(row, row.text, (row.x0 + row.x1 - width) / 2, colours["text"] if lit else colours["dim"])
             continue
-        picked = row.kind == "chain" and (row.group, row.root) in layout.chosen
+        picked = row.kind == "chain" and ((row.group, row.root) in layout.chosen or (row.group, row.root) in boxed)
         if target == ("group", row.group):
             canvas.rect(row.x0 + 2 * s, row.y0, row.x1 - 2 * s, row.y1, colours["target"])
         if picked:
@@ -431,6 +447,14 @@ def draw(context):
             canvas.rect(frame.x0 + 5 * s, frame.y0, frame.x1 - 5 * s, frame.y0 + 3 * s, colour, radius=1.5 * s)
         if kind in ("edge_right", "corner"):
             canvas.rect(frame.x1 - 3 * s, frame.y0 + 5 * s, frame.x1, title.y0 - 2 * s, colour, radius=1.5 * s)
+
+    if box is not None:                                         # the box select
+        x0, x1 = sorted((box[0], box[2]))
+        y0, y1 = sorted((box[1], box[3]))
+        x0, x1 = max(x0, frame.x0), min(x1, frame.x1)
+        y0, y1 = max(y0, frame.y0), min(y1, frame.y1)
+        canvas.rect(x0, y0, x1, y1, colours["sel"][:3] + (0.15,))
+        canvas.outline(x0, y0, x1, y1, colours["text"][:3] + (0.8,))      # visible over selected rows too
 
     if drag is not None:                                        # what is being dragged, by the mouse
         text = (f"{drag.count} chain{'' if drag.count == 1 else 's'}" if drag.kind == "chains"
@@ -479,7 +503,7 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         x, y = event.mouse_region_x, event.mouse_region_y
         layout = layout_for(context)
         item = layout.hit(x, y)
-        self.press, self.item, self.dragging, self.pending = (x, y), item, False, None
+        self.press, self.item, self.dragging, self.pending, self.box = (x, y), item, False, None, None
         self.origin = (layout.frame.x0, layout.title.y1)
         self.size = ((layout.frame.x1 - layout.frame.x0) / layout.scale,
                      (layout.frame.y1 - layout.frame.y0) / layout.scale)
@@ -515,8 +539,8 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
                 _call("chain_click", group=item.group, root=item.root)
         elif kind == "group":
             _call("group_click", index=item.group, extend=event.ctrl or event.shift)
-        elif kind == "empty" and obj is not None:
-            _call("chains_select", action="NONE")
+        elif kind in ("empty", "frame") and obj is not None:
+            self.box = event.shift or event.ctrl       # a box select, adding with Shift or Ctrl; a click selects none
         context.area.tag_redraw()
         return {"RUNNING_MODAL"}
 
@@ -549,6 +573,11 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
             _scroll[key] = self.first + round(-dy * layout.rows_per_pixel)
             scroll(context, 0)                      # clamped
             return {"RUNNING_MODAL"}
+        if self.box is not None:
+            if key in _boxes or dx * dx + dy * dy > (DRAG_START * _scale(context)) ** 2:
+                _boxes[key] = (self.press[0], self.press[1], x, y)
+                context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
         if not self.dragging and self.item.kind in ("chain", "group") \
                 and dx * dx + dy * dy > (DRAG_START * _scale(context)) ** 2:
             layout = layout_for(context)
@@ -569,6 +598,16 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
     def exit(self, context, cancel):
         key = context.area.as_pointer()
         _pressed.pop(key, None)
+        box = _boxes.pop(key, None)
+        if self.box is not None and not cancel:
+            if box is not None:
+                chains = layout_for(context).boxed(box[1], box[3])
+                _call("chains_set", chains="\n".join(f"{group}|{root}" for group, root in chains), extend=self.box)
+            elif not self.box:
+                _call("chains_select", action="NONE")
+            self.box = None
+            context.area.tag_redraw()
+            return
         drag = _drags.pop(key, None)
         if drag is not None and not cancel:
             target = layout_for(context).drop_target(drag.x, drag.y)
@@ -703,7 +742,7 @@ CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIF
 @bpy.app.handlers.persistent
 def _file_loaded(_dummy):
     """A new file brings new areas: the manager starts closed."""
-    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan):
+    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes):
         state.clear()
 
 

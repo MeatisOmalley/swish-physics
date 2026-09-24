@@ -163,6 +163,19 @@ check("... and a chain from a second group turns Merge on",
 skirt_rig.waifu_physics.groups[1].show_chains = False
 layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
 check("a folded group hides its chains", len(layout.rows) == 6)
+mid = lambda row: (row.y0 + row.y1) / 2
+check("a box over two chain rows covers those two chains",
+      layout.boxed(mid(layout.rows[1]), mid(layout.rows[2])) == [(0, layout.rows[1].root), (0, layout.rows[2].root)])
+folded = layout.rows[-1]
+check("a box over a folded folder covers all of its chains",
+      folded.kind == "group" and len(layout.boxed(mid(folded), mid(folded))) == len(skirt_rig.waifu_physics.groups[1].roots))
+was_selected = {pb.name for pb in skirt_rig.pose.bones if pb.select}
+bpy.ops.waifu_physics.chains_set(chains="\n".join(f"0|{row.root}" for row in layout.rows[1:3]))
+check("Select Chains selects exactly those", chosen() == sorted([layout.rows[1].root, layout.rows[2].root]), chosen())
+bpy.ops.waifu_physics.chains_set(chains=f"0|{layout.rows[3].root}\n9|nope", extend=True)
+check("... adding with extend, ignoring chains that do not exist", len(chosen()) == 3, chosen())
+for pb in skirt_rig.pose.bones:
+    pb.select = pb.name in was_selected                  # as it was, for what follows
 skirt_rig.waifu_physics.groups[1].show_chains = True
 small = manager.Layout(skirt_rig, (1200, 180), 1.0, place=(20, 170), scroll=2)
 resized = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), size=(360, 200))
