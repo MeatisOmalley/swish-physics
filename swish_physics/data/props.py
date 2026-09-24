@@ -336,6 +336,7 @@ class SwishGroup(PropertyGroup):
     warm_up_frames: IntProperty(name="Warm Up Frames", default=0, min=0, max=500, update=_result_changed,
                                 description="Steps simulated before the first frame, so chains start settled")
 
+    active_chain: IntProperty(default=-1)     # kept out of range: the list's highlight is the bones' selection
     forces: CollectionProperty(type=SwishForce)
     active_force: IntProperty()
     sync_bones: CollectionProperty(type=SwishSyncBone)
@@ -381,7 +382,8 @@ class SwishScene(PropertyGroup):
     show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
     stiffness_as_time: BoolProperty(
         name="Stiffness as Settle Time", default=True,
-        description="Show stiffness as the seconds to settle back to the pose; off shows Kawaii's value")
+        description="Show stiffness as the seconds to settle back to the pose; off shows Kawaii's own value, "
+                    "which is what is saved, keyed and exported")
     selected_only: BoolProperty(
         name="Selected Only", default=True,
         description="List the selected armature's groups only; off lists every armature with a group")

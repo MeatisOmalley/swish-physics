@@ -8,19 +8,24 @@ from ..solver import native
 
 
 def _tree_armatures(context):
-    """The armatures the group tree lists: the selected ones with the toggle on, else every armature
-    in the scene with a group."""
+    """The armatures the group tree lists: with Selected Only, the selected ones that have groups
+    (and the active one even without); otherwise every armature in the scene with a group."""
+    active = context.object if context.object is not None and context.object.type == "ARMATURE" else None
     if context.scene.swish.selected_only:
-        found = [o for o in context.selected_objects if o.type == "ARMATURE"]
-        active = context.object
-        if active is not None and active.type == "ARMATURE" and active not in found:
+        found = [o for o in context.selected_objects if o.type == "ARMATURE" and len(o.swish.groups)]
+        if active is not None and active not in found:
             found.insert(0, active)
         return found
     return [o for o in context.scene.objects if o.type == "ARMATURE" and len(o.swish.groups)]
 
 
+def _plural(count, noun):
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
 def _draw_tree(layout, context):
     """Groups under their armatures, each armature folding open and closed."""
+    settings = context.scene.swish
     armatures = _tree_armatures(context)
     active_obj = context.object
     moving = False
@@ -29,10 +34,16 @@ def _draw_tree(layout, context):
         current = active_obj.swish.groups[min(active_obj.swish.active_group, len(active_obj.swish.groups) - 1)]
         moving = bool(selected_chains(active_obj, current))
     box = layout.box()
+    header = box.row(align=True)
+    header.prop(settings, "selected_only", text="", icon="RESTRICT_SELECT_OFF")
+    header.label(text="Groups")
+    header.operator("swish.group_new", text="", icon="ADD")
+    header.operator("swish.group_remove", text="", icon="REMOVE")
+    header.menu("SWISH_MT_options", text="", icon="DOWNARROW_HLT")
     column = box.column(align=True)
     if not armatures:
-        column.label(text="Select an armature" if context.scene.swish.selected_only
-                     else "No armature has a group yet", icon="ARMATURE_DATA")
+        column.label(text="Select an armature" if settings.selected_only else "No armature has a group yet",
+                     icon="INFO")
         return
     for obj in armatures:
         swish = obj.swish
@@ -40,26 +51,39 @@ def _draw_tree(layout, context):
         row.prop(swish, "expanded", text="", emboss=False,
                  icon="DOWNARROW_HLT" if swish.expanded else "RIGHTARROW")
         row.label(text=obj.name, icon="ARMATURE_DATA")
-        row.label(text=f"{len(swish.groups)}")
         if not swish.expanded:
             continue
         if not len(swish.groups):
-            sub = column.row()
-            sub.separator(factor=2.0)
-            sub.label(text="Select bones in Pose Mode, then New Group", icon="INFO")
+            row = column.row()
+            row.separator(factor=3.0)
+            row.label(text="Pose Mode: select chains, then +")
             continue
         for index, group in enumerate(swish.groups):
             row = column.row(align=True)
-            row.separator(factor=2.0)
-            row.prop(group, "enabled", text="")
+            row.separator(factor=3.0)
+            row.prop(group, "enabled", text="", emboss=False, icon="HIDE_OFF" if group.enabled else "HIDE_ON")
             active = obj == context.object and index == swish.active_group
-            op = row.operator("swish.group_activate", text=group.name, depress=active,
-                              icon="BONE_DATA", emboss=active)
+            op = row.operator("swish.group_activate", text=group.name, depress=active, emboss=active)
             op.armature, op.index = obj.name, index
-            row.label(text=f"{len(group.roots)}")
+            count = row.row()
+            count.alignment = "RIGHT"
+            count.enabled = False
+            count.label(text=_plural(len(group.roots), "chain"))
             if moving and obj == context.object and not active:
                 drop = row.operator("swish.chains_move_here", text="", icon="IMPORT")
                 drop.armature, drop.index = obj.name, index
+
+
+class SWISH_MT_options(bpy.types.Menu):
+    bl_idname = "SWISH_MT_options"
+    bl_label = "Swish"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene.swish, "follow_selection")
+        layout.separator()
+        layout.operator("swish.setup_import", icon="IMPORT")
+        layout.operator("swish.setup_export", icon="EXPORT")
 
 
 class SWISH_PT_main(bpy.types.Panel):
@@ -84,41 +108,30 @@ class SWISH_PT_main(bpy.types.Panel):
             from ..runtime import live
             current = live._runtimes.get(context.scene.as_pointer())
             span = current.cached_range() if current is not None else None
-            layout.label(text=f"Cached frames {span[0]}-{span[1]}" if span else
-                         f"Nothing cached: play from frame {context.scene.frame_start}, or Cache All", icon="INFO")
+            note = layout.row()
+            note.enabled = False
+            note.label(text=f"Frames {span[0]}-{span[1]} cached" if span else
+                       f"Nothing cached yet: play from frame {context.scene.frame_start}, or Cache All")
         if native.backend() is native.step_numpy:
             layout.label(text=f"Using the slower numpy step: {native.reason()}", icon="INFO")
-        obj = context.object
-        row = layout.row(align=True)
-        row.prop(settings, "selected_only", text="", icon="RESTRICT_SELECT_OFF")
-        row.operator("swish.group_new", text="New Group", icon="ADD")
-        row.operator("swish.group_remove", text="", icon="REMOVE")
         _draw_tree(layout, context)
-        row = layout.row(align=True)
-        row.operator("swish.group_add", icon="PLUS")
-        row.operator("swish.exclude", icon="X")
-        layout.prop(settings, "follow_selection")
+        obj = context.object
         if obj is None or obj.type != "ARMATURE":
             return
-        swish = obj.swish
-        if len(swish.groups):
-            group = swish.groups[min(swish.active_group, len(swish.groups) - 1)]
+        if context.mode == "POSE" and len(obj.swish.groups):
+            row = layout.row(align=True)
+            row.operator("swish.group_add", text="Add Chains", icon="ADD")
+            row.operator("swish.exclude", text="Exclude", icon="X")
+        if len(obj.swish.groups):
+            group = obj.swish.groups[min(obj.swish.active_group, len(obj.swish.groups) - 1)]
             constrained = chain_links.constrained_bones(obj, group)
             if constrained:
                 box = layout.box().column(align=True)
                 box.alert = True
-                box.label(text=f"{len(constrained)} constrained bone{'s' if len(constrained) != 1 else ''}",
-                          icon="ERROR")
-                box.label(text="Physics can't move them.")
-                box.label(text="Start the group below them.")
-                box.label(text=", ".join(constrained[:4]) + (" ..." if len(constrained) > 4 else ""))
-            row = layout.row(align=True)
-            row.operator_menu_enum("swish.preset_apply", "preset", text="Preset", icon="PRESET")
-            row.operator("swish.group_copy", text="", icon="COPYDOWN")
-            row.operator("swish.group_paste", text="", icon="PASTEDOWN")
-        row = layout.row(align=True)
-        row.operator("swish.setup_import", icon="IMPORT")
-        row.operator("swish.setup_export", icon="EXPORT")
+                box.label(text=f"{_plural(len(constrained), 'constrained bone')} in this group: "
+                               "physics can't move them", icon="ERROR")
+                box.label(text="Start the group below them: " + ", ".join(constrained[:3])
+                               + (" ..." if len(constrained) > 3 else ""))
 
 
 class _GroupPanel:
@@ -142,10 +155,16 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
     bl_idname = "SWISH_PT_settings"
     bl_label = "Physics"
 
+    def draw_header_preset(self, context):
+        row = self.layout.row(align=True)
+        row.prop(context.scene.swish, "edit_selected_groups", text="", icon="LINKED")
+        row.operator_menu_enum("swish.preset_apply", "preset", text="", icon="PRESET")
+        row.operator("swish.group_copy", text="", icon="COPYDOWN")
+        row.operator("swish.group_paste", text="", icon="PASTEDOWN")
+
     def draw(self, context):
         group = self.group(context)
         layout = self.layout
-        layout.prop(context.scene.swish, "edit_selected_groups")
         for name in curves.CURVED:
             row = layout.row(align=True)
             as_time = name == "stiffness" and context.scene.swish.stiffness_as_time
@@ -153,10 +172,6 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
             if name == "stiffness":
                 row.prop(context.scene.swish, "stiffness_as_time", text="", icon="TIME")
             row.prop(group, f"use_{name}_curve", text="", icon="FCURVE")
-            if as_time:
-                note = layout.row()
-                note.scale_y = 0.7
-                note.label(text=f"     Kawaii stiffness {group.stiffness:.4f}")
             if getattr(group, f"use_{name}_curve"):
                 node = curves.node(group, name, create=False)
                 if node is not None:
@@ -182,18 +197,17 @@ class SWISH_PT_chains(_GroupPanel, bpy.types.Panel):
         excluded = [bone.name for bone in group.excluded]
         from .ops import selected_chains
         chosen = set(selected_chains(obj, group))
+        _chain_rows.clear()
+        _chain_rows.update({root.name: (root.name in chosen,
+                                        len(chain_links.chain_subtree(obj, root.name, excluded)))
+                            for root in group.roots})
+        layout.template_list("SWISH_UL_chains", "", group, "roots", group, "active_chain", rows=8)
+        row = layout.row()
+        row.enabled = False
+        row.label(text=f"{len(chosen)} of {len(group.roots)} selected" if chosen
+                  else "Click, Shift-click, Ctrl-click, or pick bones")
         row = layout.row(align=True)
-        row.operator("swish.chains_show", text="Select All", icon="RESTRICT_SELECT_OFF")
-        box = layout.box().column(align=True)
-        for root in group.roots:
-            count = len(chain_links.chain_subtree(obj, root.name, excluded))
-            picked = root.name in chosen
-            op = box.operator("swish.chain_click", text=f"{root.name}  ({count})", depress=picked,
-                              emboss=picked, icon="BONE_DATA")
-            op.root = root.name
-        box.label(text=f"{len(chosen)} selected: click the arrow on a group above to move them there"
-                  if chosen else "Click, Shift-click, Ctrl-click, or select bones in the viewport")
-        row = layout.row(align=True)
+        row.operator("swish.chains_show", text="", icon="RESTRICT_SELECT_OFF")
         row.operator("swish.chains_split", text="Split", icon="SPLIT_HORIZONTAL")
         row.operator_menu_enum("swish.chains_move", "target", text="Move to", icon="FORWARD")
         row.operator("swish.chains_remove", text="", icon="TRASH")
@@ -233,6 +247,24 @@ class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
         sub.active = settings.fixed_substepping
         sub.prop(settings, "target_framerate")
         sub.prop(settings, "max_substeps")
+
+
+_chain_rows = {}          # root -> (selected, bone count), filled by the Chains panel before its list draws
+
+
+class SWISH_UL_chains(bpy.types.UIList):
+    """A group's chains; clicking a row selects its bones (Shift adds, Ctrl selects a range)."""
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
+        picked, count = _chain_rows.get(item.name, (False, 0))
+        row = layout.row(align=True)
+        op = row.operator("swish.chain_click", text=item.name, depress=picked, emboss=picked,
+                          icon="BONE_DATA")
+        op.root = item.name
+        sub = row.row()
+        sub.alignment = "RIGHT"
+        sub.enabled = False
+        sub.label(text=str(count))
 
 
 class SWISH_UL_links(bpy.types.UIList):
@@ -493,7 +525,7 @@ class SWISH_PT_sync(_GroupPanel, bpy.types.Panel):
         sub.prop(sync, "max_attenuation")
 
 
-CLASSES = (SWISH_UL_links, SWISH_UL_forces, SWISH_UL_sync, SWISH_UL_sync_targets, SWISH_PT_main,
+CLASSES = (SWISH_MT_options, SWISH_UL_chains, SWISH_UL_links, SWISH_UL_forces, SWISH_UL_sync, SWISH_UL_sync_targets, SWISH_PT_main,
            SWISH_PT_settings, SWISH_PT_chains, SWISH_PT_links, SWISH_PT_colliders, SWISH_PT_forces, SWISH_PT_sync,
            SWISH_PT_advanced)
 

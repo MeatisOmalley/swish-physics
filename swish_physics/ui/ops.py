@@ -40,15 +40,26 @@ def _descends(obj, name, ancestor):
 
 
 def _claim(obj, roots, keep=None):
-    """Take these chains out of every other group, so no bone is simulated twice."""
+    """Take these chains out of every other group, so no bone is simulated twice. A group left
+    with no chains is removed."""
+    emptied = []
     for group in obj.swish.groups:
         if group is keep:
             continue
+        before = len(group.roots)
         for k in reversed(range(len(group.roots))):
             existing = group.roots[k].name
             if any(existing == root or _descends(obj, existing, root) or _descends(obj, root, existing)
                    for root in roots):
                 group.roots.remove(k)
+        if before and not len(group.roots):
+            emptied.append(group.name)
+    for name in emptied:
+        index = [g.name for g in obj.swish.groups].index(name)
+        group_curves.remove_owned(obj.swish.groups[index])
+        obj.swish.groups.remove(index)
+    if emptied:
+        obj.swish.active_group = max(0, min(obj.swish.active_group, len(obj.swish.groups) - 1))
 
 
 class _PoseBonesOperator:
@@ -57,6 +68,21 @@ class _PoseBonesOperator:
         obj = context.object
         return obj is not None and obj.type == "ARMATURE" and context.mode == "POSE" \
             and bool(context.selected_pose_bones)
+
+
+def group_name(obj, roots):
+    """A readable name for a new group: what its chains' names share, VRoid's J_Sec_ prefix and the
+    numbering dropped ("J_Sec_Hair1_01" .. "J_Sec_Hair24_01" -> "Hair"), made unique on the armature."""
+    import os
+    import re
+    stripped = [re.sub(r"^J_(Sec|Bip|Adj)_", "", name) for name in roots]
+    shared = re.sub(r"[\d_.\s-]+$", "", os.path.commonprefix(stripped))
+    if len(shared) < 2:
+        shared = re.sub(r"[\d_.\s-]+$", "", stripped[0]) or "Group"
+    name, taken, number = shared, {g.name for g in obj.swish.groups}, 2
+    while name in taken:
+        name, number = f"{shared} {number}", number + 1
+    return name
 
 
 class SWISH_OT_group_new(_PoseBonesOperator, bpy.types.Operator):
@@ -70,7 +96,7 @@ class SWISH_OT_group_new(_PoseBonesOperator, bpy.types.Operator):
         roots = _selected_roots(context)
         _claim(obj, roots)
         group = obj.swish.groups.add()
-        group.name = roots[0] if len(roots) == 1 else f"{roots[0]} +{len(roots) - 1}"
+        group.name = group_name(obj, roots)
         for name in roots:
             group.roots.add().name = name
         obj.swish.active_group = len(obj.swish.groups) - 1
@@ -707,6 +733,7 @@ class SWISH_OT_chain_click(_ChainsOperator, bpy.types.Operator):
         else:
             _select_chains(context, obj, group, [self.root])
         _last_clicked[key] = self.root
+        group.active_chain = -1                      # the list highlights selection, not an active row
         return {"FINISHED"}
 
 
