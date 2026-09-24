@@ -8,14 +8,16 @@ from ..solver import native
 
 
 def _tree_armatures(context):
-    """The armatures the group tree lists: with Selected Only, the selected ones that have groups
-    (and the active one even without); otherwise every armature in the scene with a group."""
+    """The armatures the Groups box lists. Selected Only: every selected armature, groups or not.
+    Otherwise: every armature with a group, plus the active one, so it can be given its first."""
     active = context.object if context.object is not None and context.object.type == "ARMATURE" else None
     if context.scene.swish.selected_only:
-        found = [o for o in context.selected_objects if o.type == "ARMATURE" and len(o.swish.groups)]
-    else:
-        found = [o for o in context.scene.objects if o.type == "ARMATURE" and len(o.swish.groups)]
-    # The active armature is always listed, groups or not, so it can be given its first group.
+        found = [o for o in context.selected_objects if o.type == "ARMATURE"]
+        if active is not None and active in found:          # the active one first
+            found.remove(active)
+            found.insert(0, active)
+        return found
+    found = [o for o in context.scene.objects if o.type == "ARMATURE" and len(o.swish.groups)]
     if active is not None and active not in found:
         found.insert(0, active)
     return found
@@ -100,9 +102,10 @@ class SWISH_PT_main(bpy.types.Panel):
             if not rig.swish.expanded:
                 continue
             if not len(rig.swish.groups):
-                hint = box.row()
-                hint.enabled = False
-                hint.label(text="Select bones in Pose Mode, then +")
+                if rig == obj:                       # one hint, for the armature being edited
+                    hint = box.row()
+                    hint.enabled = False
+                    hint.label(text="Select bones in Pose Mode, then +")
                 continue
             lists = box.row()
             lists.active = rig == obj                # other armatures' lists are dimmed: not being edited

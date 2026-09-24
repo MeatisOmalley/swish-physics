@@ -53,6 +53,16 @@ bpy.context.view_layer.objects.active = skirt_rig
 skirt_rig.select_set(True)
 scene.swish.selected_only = True
 check("with Selected Only, the tree lists the selected armature", panels._tree_armatures(bpy.context) == [skirt_rig])
+for obj in scene.objects:
+    obj.select_set(True)                                  # Select All
+check("... every selected armature, with or without groups",
+      set(panels._tree_armatures(bpy.context)) == {skirt_rig, bare, other}
+      and panels._tree_armatures(bpy.context)[0] == skirt_rig)
+for obj in scene.objects:
+    obj.select_set(False)                                 # click off: the active object stays active
+check("... and none once nothing is selected, though one is still the active object",
+      panels._tree_armatures(bpy.context) == [] and bpy.context.view_layer.objects.active == skirt_rig)
+skirt_rig.select_set(True)
 scene.swish.selected_only = False
 listed = panels._tree_armatures(bpy.context)
 check("without it, every armature with a group, and not one without",
