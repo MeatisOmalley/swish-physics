@@ -11,6 +11,7 @@ Everything is in the 3D Viewport sidebar, on the **Swish** tab.
 1. Select an armature, enter Pose Mode, select the first bone of each chain and click **New Group**. A group is one Kawaii Physics node: one set of settings for all of its chains.
 2. Pick a **Preset** (Hair or Skirt) as a starting point, then press **Simulate** and play the timeline.
 3. Tune in the **Physics** panel. Every setting can be keyframed. The curve button next to a setting varies it from root to tip. With **Edit Selected Groups** on, a change reaches every group that holds a selected bone.
+The group list is a tree of armatures and their groups; the cursor toggle beside **New Group** limits it to the selected armature, and off it lists every armature with a group. Clicking a group edits it. In **Chains**, tick chains (or select their bones) to **Split** them into a new group with the same settings, **Move to** another group (moving all of them merges the two), remove them, or select them in the viewport.
 4. For skirts and capes, select the panels' chains and click **Link as Loop** or **Link as Strip** in **Links**. Linked chains keep their spacing.
 5. Add colliders in **Colliders**. A collider is a real object parented to a bone. Move, rotate and scale it like any object, and set its shape on its modifier.
 6. Push chains around in **Forces and Wind**. There are Kawaii's five external forces: Basic, Gravity, Curve, Wind and Procedural Wind. There is also a simple constant force, and scene wind that gusts. Blender's Wind force fields are the scene's wind.

@@ -13,6 +13,19 @@ import math
 import numpy as np
 
 
+def chain_subtree(obj, root, excluded=()):
+    """Every bone of the chain under root, root first: what Swish simulates for it."""
+    excluded = set(excluded)
+    found, stack = [], [obj.pose.bones.get(root)]
+    while stack:
+        bone = stack.pop()
+        if bone is None or bone.name in excluded:
+            continue
+        found.append(bone.name)
+        stack.extend(reversed(bone.children))
+    return found
+
+
 def constrained_bones(obj, group):
     """Bones in a group's chains with an active constraint: Blender applies it after the
     simulation's output, so the simulation cannot move them."""

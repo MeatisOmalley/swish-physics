@@ -71,6 +71,7 @@ def _curve_toggled(name):
 
 class SwishBoneName(PropertyGroup):
     name: StringProperty()
+    select: BoolProperty(name="Select", description="Pick this chain for the Chains tab's actions")
 
 
 class SwishLink(PropertyGroup):
@@ -330,6 +331,7 @@ class SwishCollider(PropertyGroup):
 class SwishArmature(PropertyGroup):
     groups: CollectionProperty(type=SwishGroup)
     active_group: IntProperty()
+    expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's groups")
 
 
 class SwishScene(PropertyGroup):
@@ -347,6 +349,9 @@ class SwishScene(PropertyGroup):
     use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
                             description="Keep each simulated frame, to scrub and render without re-simulating")
     show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
+    selected_only: BoolProperty(
+        name="Selected Only", default=True,
+        description="List the selected armature's groups only; off lists every armature with a group")
     follow_selection: BoolProperty(
         name="Follow Selection", default=True,
         description="Clicking a bone in Pose Mode shows its group")
