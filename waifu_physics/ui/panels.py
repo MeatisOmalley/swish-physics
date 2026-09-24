@@ -182,6 +182,8 @@ class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
             if name == "world_damping_location":
                 heading = column.split(factor=0.5)
                 heading.label(text="Inertia")
+            elif name == "radius":                       # the same gap after the Inertia pair, one row
+                column.split(factor=0.5).label(text="")
             split = column.split(factor=0.5, align=True)
             label = split.row()
             label.alignment = "RIGHT"
@@ -189,8 +191,6 @@ class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
             row = split.row(align=True)
             row.prop(group, shown, text="")
             row.prop(group, f"use_{name}_curve", text="", icon="FCURVE")
-            if name == "world_damping_rotation":
-                column.separator(factor=0.6)             # the Inertia pair ends here
             if getattr(group, f"use_{name}_curve"):
                 node = curves.node(group, name, create=False)
                 if node is not None:
