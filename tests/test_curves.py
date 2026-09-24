@@ -9,12 +9,12 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
-from swish_physics.solver.curves import LinearCurve
-from swish_physics.data import curves
-live = sys.modules["swish_physics.runtime.live"]
-selection = sys.modules["swish_physics.ui.selection"]
+addon = fresh_import()
+addon.register()
+from waifu_physics.solver.curves import LinearCurve
+from waifu_physics.data import curves
+live = sys.modules["waifu_physics.runtime.live"]
+selection = sys.modules["waifu_physics.ui.selection"]
 scene = bpy.context.scene
 F32 = np.float32
 
@@ -78,7 +78,7 @@ for chain in range(2):
 bpy.ops.object.mode_set(mode="OBJECT")
 groups = []
 for chain in range(2):
-    g = obj.swish.groups.add()
+    g = obj.waifu_physics.groups.add()
     g.roots.add().name = f"c{chain}_0"
     g.dummy_bone_length = 0.1
     groups.append(g)
@@ -99,7 +99,7 @@ check("the curve samples as drawn: 1 at the root, 0.25 at the tip",
       abs(sampled(0.0) - 1.0) < 1e-6 and abs(sampled(1.0) - 0.25) < 1e-6 and abs(sampled(0.5) - 0.625) < 1e-3,
       (sampled(0.0), sampled(0.5), sampled(1.0)))
 
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rt = live.runtime(scene)
 s = rt.system
 rows = np.flatnonzero(s.group == 0)
@@ -108,7 +108,7 @@ radius = s.radius[rows][order]
 check("per-point radius follows the curve along the chain", radius[0] > radius[-1] and
       abs(radius[0] - 3.0) < 1e-4 and abs(radius[-1] - 0.75) < 1e-3, radius)
 check("... while a group without a curve is uniform", np.ptp(s.radius[s.group == 1]) == 0.0)
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
 # --- Follow Selection and Edit Selected Groups
 bpy.ops.object.mode_set(mode="POSE")
@@ -116,10 +116,10 @@ for pb in obj.pose.bones:
     pb.select = False
 data.bones.active = data.bones["c1_2"]
 selection._follow()
-check("clicking a bone shows its group (Follow Selection)", obj.swish.active_group == 1, obj.swish.active_group)
+check("clicking a bone shows its group (Follow Selection)", obj.waifu_physics.active_group == 1, obj.waifu_physics.active_group)
 data.bones.active = data.bones["c0_1"]
 selection._follow()
-check("... and another bone's group when it becomes active", obj.swish.active_group == 0, obj.swish.active_group)
+check("... and another bone's group when it becomes active", obj.waifu_physics.active_group == 0, obj.waifu_physics.active_group)
 
 for name in ("c0_1", "c1_1"):
     obj.pose.bones[name].select = True
@@ -130,6 +130,6 @@ check("a change reaches every selected bone's group",
       abs(groups[1].damping - 0.37) < 1e-6, groups[1].damping)
 
 bpy.ops.object.mode_set(mode="OBJECT")
-swish.unregister()
+addon.unregister()
 check("unregistering stops the Follow Selection timer", not bpy.app.timers.is_registered(selection._follow))
 finish()

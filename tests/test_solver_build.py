@@ -22,8 +22,8 @@ from _harness import check, finish, REPO
 
 sys.path.insert(0, REPO)
 import numpy as np
-from swish_physics.solver.build import Skeleton, GroupSpec, build, ComponentMotion
-from swish_physics.solver.system import Group, KIND_BONE, KIND_TIP, KIND_INTER, KIND_BRIDGE
+from waifu_physics.solver.build import Skeleton, GroupSpec, build, ComponentMotion
+from waifu_physics.solver.system import Group, KIND_BONE, KIND_TIP, KIND_INTER, KIND_BRIDGE
 
 F32 = np.float32
 names = ["R", "A", "A1", "B", "B1"]

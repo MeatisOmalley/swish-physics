@@ -11,17 +11,17 @@ import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
-live = sys.modules["swish_physics.runtime.live"]
-from swish_physics.data import colliders
+addon = fresh_import()
+addon.register()
+live = sys.modules["waifu_physics.runtime.live"]
+from waifu_physics.data import colliders
 scene = bpy.context.scene
 
 
 def build():
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj)
-    scene.swish.simulate = False
+    scene.waifu_physics.simulate = False
     scene.frame_start, scene.frame_end = 1, 40
     data = bpy.data.armatures.new("rig")
     rig = bpy.data.objects.new("rig", data)
@@ -37,7 +37,7 @@ def build():
         bone.parent = parent
         parent, head = bone, bone.tail.copy()
     bpy.ops.object.mode_set(mode="OBJECT")
-    group = rig.swish.groups.add()
+    group = rig.waifu_physics.groups.add()
     group.roots.add().name = "c0"
     group.dummy_bone_length = 0.1
     group.damping = 0.05
@@ -54,8 +54,8 @@ def play(frames):
 
 rig, group = build()
 scene.frame_set(1)
-scene.swish.simulate = True
-check("Cache bakes the whole frame range", bpy.ops.swish.cache_toggle() == {"FINISHED"}
+scene.waifu_physics.simulate = True
+check("Cache bakes the whole frame range", bpy.ops.waifu_physics.cache_toggle() == {"FINISHED"}
       and live.is_cached(scene) and live.runtime(scene).cached_range() == (1, 40), live.runtime(scene).cached_range())
 played = play(range(1, 41))
 bpy.context.view_layer.update()
@@ -64,23 +64,23 @@ replayed = {f: (scene.frame_set(f), tip(rig))[1] for f in (25, 7, 33, 40)}
 check("scrubbing replays the bake exactly",
       all(np.array_equal(replayed[f], played[f]) for f in replayed), {f: replayed[f] - played[f] for f in replayed})
 check("clicking Cache again clears the bake and plays live",
-      bpy.ops.swish.cache_toggle() == {"FINISHED"} and not live.is_cached(scene) and not scene.swish.use_cache)
+      bpy.ops.waifu_physics.cache_toggle() == {"FINISHED"} and not live.is_cached(scene) and not scene.waifu_physics.use_cache)
 play(range(1, 11))
 check("... simulating each frame as it plays", not live.runtime(scene).cache and live.runtime(scene).last_frame == 10)
 
 rig, group = build()
 scene.frame_end = 20
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rest = tip(rig)
-bpy.ops.swish.cache_toggle()
+bpy.ops.waifu_physics.cache_toggle()
 scene.frame_set(35)
 check("a frame past the baked range shows the unsimulated pose", np.allclose(tip(rig), rest, atol=1e-6),
       (tip(rig), rest))
 check("the bake holds frames 1-20", live.runtime(scene).cached_range() == (1, 20), live.runtime(scene).cached_range())
 group.damping = 0.3
 check("changing a setting drops the bake: back to live", not live.is_cached(scene))
-bpy.ops.swish.cache_toggle()
+bpy.ops.waifu_physics.cache_toggle()
 pb = rig.pose.bones["anchor"]
 pb.keyframe_insert("rotation_quaternion", frame=1)
 bpy.context.view_layer.update()
@@ -92,18 +92,18 @@ bag = rig.animation_data.action.layers[0].strips[0].channelbag(rig.animation_dat
 chain_curves = [c for c in bag.fcurves if c.data_path.startswith('pose.bones["c1"]')]
 check("a newly keyed chain bone's curves are taken over (muted), so no post-frame replay is needed",
       chain_curves and all(c.mute for c in chain_curves) and not rt.needs_post_replay())
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 check("... and handed back when simulation stops", all(not c.mute for c in chain_curves))
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 ball = colliders.add(rig, "anchor", "Sphere")
-bpy.ops.swish.cache_toggle()
+bpy.ops.waifu_physics.cache_toggle()
 ball.location.x += 0.1
 bpy.context.view_layer.update()
 check("moving a collider clears the cache", len(live.runtime(scene).cache) == 0, len(live.runtime(scene).cache))
 bpy.data.objects.remove(ball)
 
 scene.frame_end = 30
-bpy.ops.swish.cache_all()
+bpy.ops.waifu_physics.cache_all()
 check("Cache All fills the frame range", live.runtime(scene).cached_range() == (1, 30),
       live.runtime(scene).cached_range())
 
@@ -127,10 +127,10 @@ scene.render.resolution_x, scene.render.resolution_y = 320, 240
 scene.render.resolution_percentage = 100
 scene.world = scene.world or bpy.data.worlds.new("world")
 scene.world.color = (0.0, 0.0, 0.0)
-bpy.ops.swish.cache_all()
+bpy.ops.waifu_physics.cache_all()
 scene.frame_set(30)
 expected = world_to_camera_view(scene, camera, marker.matrix_world.translation)
-path = os.path.join(tempfile.gettempdir(), "swish_cache_render.png")
+path = os.path.join(tempfile.gettempdir(), "waifu_physics_cache_render.png")
 scene.render.filepath = path
 bpy.ops.render.render(write_still=True)
 image = bpy.data.images.load(path)
@@ -142,6 +142,6 @@ check("a render of a cached frame shows the cached pose",
       found is not None and abs(found[0] - expected.x) < 0.03 and abs(found[1] - expected.y) < 0.03,
       (found, tuple(expected)[:2]))
 
-scene.swish.simulate = False
-swish.unregister()
+scene.waifu_physics.simulate = False
+addon.unregister()
 finish()

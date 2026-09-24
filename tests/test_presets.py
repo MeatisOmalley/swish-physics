@@ -9,11 +9,11 @@ from _harness import check, finish, fresh_import
 
 import bpy
 
-swish = fresh_import()
-swish.register()
-presets = sys.modules["swish_physics.data.presets"]
-curves = sys.modules["swish_physics.data.curves"]
-props = sys.modules["swish_physics.data.props"]
+addon = fresh_import()
+addon.register()
+presets = sys.modules["waifu_physics.data.presets"]
+curves = sys.modules["waifu_physics.data.curves"]
+props = sys.modules["waifu_physics.data.props"]
 scene = bpy.context.scene
 
 temp = tempfile.mkdtemp()
@@ -22,7 +22,7 @@ presets.folder = lambda create=False: temp               # the user's presets, k
 data = bpy.data.armatures.new("rig")
 obj = bpy.data.objects.new("rig", data)
 scene.collection.objects.link(obj)
-group = obj.swish.groups.add()
+group = obj.waifu_physics.groups.add()
 
 # --- the damping scale
 check("stiffness comes before damping", curves.CURVED[:2] == ("stiffness", "damping"))
@@ -43,7 +43,7 @@ check("a damping under the floor (an old file, an import) shows as 0", group.dam
 
 # --- built-in presets: the name shows until a setting deviates
 bpy.context.view_layer.objects.active = obj
-obj.swish.active_group = 0
+obj.waifu_physics.active_group = 0
 check("a fresh group matches no preset", presets.matching(group) is None, presets.matching(group))
 presets.apply(group, "HAIR")
 check("applying Hair names the group's preset Hair", presets.matching(group) == "Hair")
@@ -80,16 +80,16 @@ check("Delete removes it", presets.delete_user(name) and presets.user_presets() 
 check("... and the group no longer matches it", presets.matching(group) is None)
 
 # --- the operators and the menu
-check("the preset menu is registered", hasattr(bpy.types, "SWISH_MT_presets"))
-check("Apply Preset takes a built-in's key", bpy.ops.swish.preset_apply(preset="HAIR") == {"FINISHED"}
+check("the preset menu is registered", hasattr(bpy.types, "WAIFU_PHYSICS_MT_presets"))
+check("Apply Preset takes a built-in's key", bpy.ops.waifu_physics.preset_apply(preset="HAIR") == {"FINISHED"}
       and presets.matching(group) == "Hair")
-check("... and refuses an unknown one", bpy.ops.swish.preset_apply(preset="NOPE") == {"CANCELLED"})
+check("... and refuses an unknown one", bpy.ops.waifu_physics.preset_apply(preset="NOPE") == {"CANCELLED"})
 check("Save Preset refuses a built-in's name",
-      bpy.ops.swish.preset_save("EXEC_DEFAULT", name="Hair") == {"CANCELLED"} and presets.user_presets() == {})
+      bpy.ops.waifu_physics.preset_save("EXEC_DEFAULT", name="Hair") == {"CANCELLED"} and presets.user_presets() == {})
 check("Save Preset saves the active group's settings",
-      bpy.ops.swish.preset_save("EXEC_DEFAULT", name="Mine") == {"FINISHED"} and "Mine" in presets.user_presets())
-check("Delete Preset deletes it", bpy.ops.swish.preset_delete("EXEC_DEFAULT", name="Mine") == {"FINISHED"}
+      bpy.ops.waifu_physics.preset_save("EXEC_DEFAULT", name="Mine") == {"FINISHED"} and "Mine" in presets.user_presets())
+check("Delete Preset deletes it", bpy.ops.waifu_physics.preset_delete("EXEC_DEFAULT", name="Mine") == {"FINISHED"}
       and presets.user_presets() == {})
 
-swish.unregister()
+addon.unregister()
 finish()

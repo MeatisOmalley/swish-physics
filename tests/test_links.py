@@ -10,10 +10,10 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
-live = sys.modules["swish_physics.runtime.live"]
-draw = sys.modules["swish_physics.ui.draw"]
+addon = fresh_import()
+addon.register()
+live = sys.modules["waifu_physics.runtime.live"]
+draw = sys.modules["waifu_physics.ui.draw"]
 scene = bpy.context.scene
 PANELS = 6
 
@@ -37,7 +37,7 @@ def skirt(name):
             bone.parent = parent
             parent, head = bone, bone.tail.copy()
     bpy.ops.object.mode_set(mode="OBJECT")
-    group = obj.swish.groups.add()
+    group = obj.waifu_physics.groups.add()
     for k in range(PANELS):
         group.roots.add().name = f"panel{k}_0"
     group.dummy_bone_length = 0.05
@@ -51,7 +51,7 @@ def link(obj, mode, selection_order):
         pb.select = False
     for k in selection_order:
         obj.pose.bones[f"panel{k}_2"].select = True        # any bone of a chain selects the chain
-    result = bpy.ops.swish.link_chains(mode=mode)
+    result = bpy.ops.waifu_physics.link_chains(mode=mode)
     bpy.ops.object.mode_set(mode="OBJECT")
     return result
 
@@ -85,7 +85,7 @@ for linked in (False, True):
     group.stiffness = 0.02
     group.compliance = "CONCRETE"
     scene.frame_set(1)
-    scene.swish.simulate = True
+    scene.waifu_physics.simulate = True
     rest = np.array([obj.pose.bones[f"panel{k}_3"].head for k in range(PANELS)])
     for frame in range(1, 60):
         scene.frame_set(frame)
@@ -96,19 +96,19 @@ for linked in (False, True):
         rt = live.runtime(scene)
         user_links = len(group.links)
         solver_links = len(rt.system.link_a)
-    scene.swish.simulate = False
+    scene.waifu_physics.simulate = False
 check("linked panels keep their spacing far better than unlinked ones", spread[True] < spread[False] * 0.25, spread)
 check("the solver gets the links plus automatic links between the panels' tips",
       solver_links == user_links + PANELS, (user_links, solver_links))
 
 group.bridge_count = 1
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 scene.frame_set(2)
 bridges = int((live.runtime(scene).system.kind == 3).sum())
 check("bridge points appear along the links", bridges == solver_links, (bridges, solver_links))
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
 check("the link overlay is drawing", draw._handle is not None)
-swish.unregister()
+addon.unregister()
 check("... and stops when unregistered", draw._handle is None)
 finish()

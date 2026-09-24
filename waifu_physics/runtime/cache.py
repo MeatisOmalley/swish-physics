@@ -118,7 +118,7 @@ def _axis_angle_from_quat(values):
 
 def key(scene):
     """What a cache is only valid for: frame range and rates."""
-    settings = scene.swish
+    settings = scene.waifu_physics
     return (scene.frame_start, scene.frame_end, scene.render.fps, scene.render.fps_base, settings.target_framerate,
             settings.max_substeps, settings.fixed_substepping)
 
@@ -137,12 +137,12 @@ def collider_prints(rt):
             if colliders.is_collider(obj):
                 local = obj.matrix_parent_inverse @ obj.matrix_basis
                 prints[obj.name] = (tuple(round(v, 7) for row in local for v in row), obj.parent_bone,
-                                    obj.swish_collider.enabled, repr(colliders.values(obj)))
+                                    obj.waifu_physics_collider.enabled, repr(colliders.values(obj)))
     return prints
 
 
 def action_print(rt, action):
-    """What an action's curves say: keys and mute flags, but not the flags of curves Swish owns."""
+    """What an action's curves say: keys and mute flags, but not the flags of curves Waifu Physics owns."""
     owned = {(c.data_path, c.array_index) for rig in rt.rigs if rig.keys is not None and rig.keys.muted
              for c, *_ in rig.keys.curves}
     parts = []
@@ -173,7 +173,7 @@ def relevant_update(rt, depsgraph):
     for update in depsgraph.updates:
         found = update.id
         if isinstance(found, bpy.types.Action):
-            # Swish mutes and unmutes the chains' curves itself (while simulating, around saves);
+            # Waifu Physics mutes and unmutes the chains' curves itself (while simulating, around saves);
             # only a change to what the keys say counts.
             printed = action_print(rt, found)
             if rt.action_prints.get(found.name) != printed:

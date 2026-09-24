@@ -8,8 +8,8 @@ from _harness import check, finish, REPO
 
 sys.path.insert(0, REPO)
 import numpy as np
-from swish_physics.solver import native, uemath as ue
-from swish_physics.solver.system import (System, Group, Shape, SPHERE_OUTER, SPHERE_INNER, CAPSULE, TAPERED,
+from waifu_physics.solver import native, uemath as ue
+from waifu_physics.solver.system import (System, Group, Shape, SPHERE_OUTER, SPHERE_INNER, CAPSULE, TAPERED,
                                          BOX, PLANE, PLANAR_X, COMPLIANCE_TYPES)
 
 F32 = np.float32

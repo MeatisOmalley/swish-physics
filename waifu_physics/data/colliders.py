@@ -2,7 +2,7 @@
 
 A collider belongs to the armature it is parented to; a group collides with
 the colliders of its own armature, or of the armatures listed in its collider
-sets. Its shape and sizes are the inputs of its "Swish Collider" modifier
+sets. Its shape and sizes are the inputs of its "Waifu Physics Collider" modifier
 (animatable), and its object scale multiplies them:
 
     Sphere, Inner Sphere   radius  x the largest axis scale
@@ -23,27 +23,27 @@ from mathutils import Matrix, Quaternion, Vector
 
 from ..solver.system import Shape, SPHERE_OUTER, SPHERE_INNER, CAPSULE, TAPERED, BOX, PLANE
 
-TREE = ".Swish Collider"
-MODIFIER = "Swish Collider"
+TREE = ".Waifu Physics Collider"
+MODIFIER = "Waifu Physics Collider"
 TREE_VERSION = 1
 SHAPES = ("Sphere", "Inner Sphere", "Capsule", "Tapered Capsule", "Box", "Plane")
 KINDS = {"Sphere": SPHERE_OUTER, "Inner Sphere": SPHERE_INNER, "Capsule": CAPSULE, "Tapered Capsule": TAPERED,
          "Box": BOX, "Plane": PLANE}
 # Turns a shape running along local Y onto Kawaii's Z: X stays, Z goes to Y.
 Y_TO_Z = Quaternion((1.0, 0.0, 0.0), -math.pi / 2)
-COLLECTION = "Swish Colliders"
+COLLECTION = "Waifu Physics Colliders"
 
 
 def node_group():
     """The collider node group, built once (and rebuilt if an older version is found)."""
     tree = bpy.data.node_groups.get(TREE)
-    if tree is not None and tree.get("swish_version") == TREE_VERSION:
+    if tree is not None and tree.get("waifu_physics_version") == TREE_VERSION:
         return tree
     if tree is None:
         tree = bpy.data.node_groups.new(TREE, "GeometryNodeTree")
     tree.nodes.clear()
     tree.interface.clear()
-    tree["swish_version"] = TREE_VERSION
+    tree["waifu_physics_version"] = TREE_VERSION
     iface = tree.interface
     iface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
     iface.new_socket("Shape", in_out="INPUT", socket_type="NodeSocketMenu")
@@ -192,7 +192,7 @@ def node_group():
 
 
 def is_collider(obj):
-    return obj is not None and obj.type == "MESH" and obj.swish_collider.is_collider
+    return obj is not None and obj.type == "MESH" and obj.waifu_physics_collider.is_collider
 
 
 def modifier(obj):
@@ -228,7 +228,7 @@ def input_path(obj, name):
 
 def colliders_of(armature):
     """Enabled colliders parented to this armature."""
-    return [obj for obj in armature.children if is_collider(obj) and obj.swish_collider.enabled]
+    return [obj for obj in armature.children if is_collider(obj) and obj.waifu_physics_collider.enabled]
 
 
 def shape_of(obj, armature, cm):
@@ -261,7 +261,7 @@ def add(armature, bone_name, shape="Capsule", context=None):
     mesh = bpy.data.meshes.new(f"Collider {bone_name}")
     obj = bpy.data.objects.new(f"Collider {bone_name}", mesh)
     collection.objects.link(obj)
-    obj.swish_collider.is_collider = True
+    obj.waifu_physics_collider.is_collider = True
     obj.display_type = "WIRE"
     obj.show_in_front = True
     obj.hide_render = True

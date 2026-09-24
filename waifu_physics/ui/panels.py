@@ -1,4 +1,4 @@
-"""The Swish sidebar tab in the 3D viewport."""
+"""The Waifu Physics sidebar tab in the 3D viewport."""
 import bpy
 
 from ..data import colliders, curves
@@ -11,13 +11,13 @@ def _tree_armatures(context):
     """The armatures the Groups box lists. Selected Only: every selected armature, groups or not.
     Otherwise: every armature with a group, plus the active one, so it can be given its first."""
     active = context.object if context.object is not None and context.object.type == "ARMATURE" else None
-    if context.scene.swish.selected_only:
+    if context.scene.waifu_physics.selected_only:
         found = [o for o in context.selected_objects if o.type == "ARMATURE"]
         if active is not None and active in found:          # the active one first
             found.remove(active)
             found.insert(0, active)
         return found
-    found = [o for o in context.scene.objects if o.type == "ARMATURE" and len(o.swish.groups)]
+    found = [o for o in context.scene.objects if o.type == "ARMATURE" and len(o.waifu_physics.groups)]
     if active is not None and active not in found:
         found.insert(0, active)
     return found
@@ -27,7 +27,7 @@ def _plural(count, noun):
     return f"{count} {noun}{'' if count == 1 else 's'}"
 
 
-class SWISH_UL_groups(bpy.types.UIList):
+class WAIFU_PHYSICS_UL_groups(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
         row = layout.row(align=True)
         row.prop(item, "enabled", text="")
@@ -38,24 +38,24 @@ class SWISH_UL_groups(bpy.types.UIList):
         count.label(text=_plural(len(item.roots), "chain"))
 
 
-class SWISH_PT_main(bpy.types.Panel):
-    bl_idname = "SWISH_PT_main"
-    bl_label = "Swish Physics"
+class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
+    bl_idname = "WAIFU_PHYSICS_PT_main"
+    bl_label = "Waifu Physics"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Swish"
+    bl_category = "Waifu Physics"
 
     def draw(self, context):
         from ..runtime import live
         layout = self.layout
-        scene, settings = context.scene, context.scene.swish
+        scene, settings = context.scene, context.scene.waifu_physics
         row = layout.row(align=True)
         row.scale_y = 1.3
         row.prop(settings, "simulate", toggle=True, icon="PHYSICS")
-        row.operator("swish.reset", text="", icon="FILE_REFRESH")
+        row.operator("waifu_physics.reset", text="", icon="FILE_REFRESH")
         current = live._runtimes.get(scene.as_pointer())
         span = current.cached_range() if live.is_cached(scene) else None
-        layout.operator("swish.cache_toggle", text=f"Cached  {span[0]}-{span[1]}" if span else "Cache",
+        layout.operator("waifu_physics.cache_toggle", text=f"Cached  {span[0]}-{span[1]}" if span else "Cache",
                         icon="DISK_DRIVE", depress=span is not None)
         if native.backend() is native.step_numpy:
             layout.label(text=f"Using the slower numpy step: {native.reason()}", icon="INFO")
@@ -69,8 +69,8 @@ class SWISH_PT_main(bpy.types.Panel):
         editing = obj is not None and obj.type == "ARMATURE"
         buttons = header.row(align=True)
         buttons.enabled = editing
-        buttons.operator("swish.group_new", text="", icon="ADD")
-        buttons.operator("swish.group_remove", text="", icon="REMOVE")
+        buttons.operator("waifu_physics.group_new", text="", icon="ADD")
+        buttons.operator("waifu_physics.group_remove", text="", icon="REMOVE")
         if not armatures:
             box.label(text="Select an armature" if settings.selected_only else "No armature has a group yet",
                       icon="INFO")
@@ -79,16 +79,16 @@ class SWISH_PT_main(bpy.types.Panel):
             if number:
                 box.separator(factor=0.8)            # a little space between armatures
             row = box.row(align=True)
-            row.prop(rig.swish, "expanded", text="", emboss=False,
-                     icon="DOWNARROW_HLT" if rig.swish.expanded else "RIGHTARROW")
+            row.prop(rig.waifu_physics, "expanded", text="", emboss=False,
+                     icon="DOWNARROW_HLT" if rig.waifu_physics.expanded else "RIGHTARROW")
             left = row.row(align=True)
             left.alignment = "LEFT"
-            name = left.operator("swish.armature_activate", text=rig.name, icon="ARMATURE_DATA",
+            name = left.operator("waifu_physics.armature_activate", text=rig.name, icon="ARMATURE_DATA",
                                  emboss=rig == obj, depress=rig == obj)
             name.armature = rig.name
-            if not rig.swish.expanded:
+            if not rig.waifu_physics.expanded:
                 continue
-            if not len(rig.swish.groups):
+            if not len(rig.waifu_physics.groups):
                 if rig == obj:                       # one hint, for the armature being edited
                     hint = box.row()
                     hint.enabled = False
@@ -96,25 +96,25 @@ class SWISH_PT_main(bpy.types.Panel):
                 continue
             lists = box.row()
             lists.active = rig == obj                # other armatures' lists are dimmed: not being edited
-            lists.template_list("SWISH_UL_groups", rig.name, rig.swish, "groups", rig.swish, "active_group",
-                                rows=len(rig.swish.groups), maxrows=len(rig.swish.groups))
+            lists.template_list("WAIFU_PHYSICS_UL_groups", rig.name, rig.waifu_physics, "groups", rig.waifu_physics, "active_group",
+                                rows=len(rig.waifu_physics.groups), maxrows=len(rig.waifu_physics.groups))
         if obj is None or obj.type != "ARMATURE":
             return
         from . import manager
         showing = manager.is_open(context.area)
-        layout.operator("swish.chain_manager", icon="OUTLINER", depress=showing,
+        layout.operator("waifu_physics.chain_manager", icon="OUTLINER", depress=showing,
                         text="Hide Chain Manager" if showing else "Chain Manager")
         if showing and not context.space_data.show_gizmo:
             note = layout.row()
             note.alert = True
             note.label(text="Turn on Gizmos in the header to see it", icon="ERROR")
         row = layout.row(align=True)
-        row.operator("swish.group_add", icon="PLUS")
-        row.operator("swish.exclude", icon="X")
+        row.operator("waifu_physics.group_add", icon="PLUS")
+        row.operator("waifu_physics.exclude", icon="X")
         layout.prop(settings, "follow_selection")
-        if not len(obj.swish.groups):
+        if not len(obj.waifu_physics.groups):
             return
-        group = obj.swish.groups[min(obj.swish.active_group, len(obj.swish.groups) - 1)]
+        group = obj.waifu_physics.groups[min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1)]
         constrained = chain_links.constrained_bones(obj, group)
         if constrained:
             box = layout.box().column(align=True)
@@ -125,27 +125,27 @@ class SWISH_PT_main(bpy.types.Panel):
                            + (" ..." if len(constrained) > 3 else ""))
         row = layout.row(align=True)
         from ..data import presets
-        row.menu("SWISH_MT_presets", text=presets.matching(group) or "Preset", icon="PRESET")
-        row.operator("swish.preset_save", text="", icon="ADD")
-        row.operator("swish.group_copy", text="", icon="COPYDOWN")
-        row.operator("swish.group_paste", text="", icon="PASTEDOWN")
+        row.menu("WAIFU_PHYSICS_MT_presets", text=presets.matching(group) or "Preset", icon="PRESET")
+        row.operator("waifu_physics.preset_save", text="", icon="ADD")
+        row.operator("waifu_physics.group_copy", text="", icon="COPYDOWN")
+        row.operator("waifu_physics.group_paste", text="", icon="PASTEDOWN")
 
 
 class _GroupPanel:
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
-    bl_category = "Swish"
-    bl_parent_id = "SWISH_PT_main"
+    bl_category = "Waifu Physics"
+    bl_parent_id = "WAIFU_PHYSICS_PT_main"
 
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0
+        return obj is not None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups) > 0
 
     @staticmethod
     def group(context):
-        swish = context.object.swish
-        return swish.groups[min(swish.active_group, len(swish.groups) - 1)]
+        found = context.object.waifu_physics
+        return found.groups[min(found.active_group, len(found.groups) - 1)]
 
 
 # Settings shown the intuitive way round (display only: Kawaii's values are stored and exported).
@@ -154,8 +154,8 @@ _SHOWN = {"stiffness": "stiffness_level", "damping": "damping_level", "world_dam
 _SHORT_LABELS = {"world_damping_location": "Movement", "world_damping_rotation": "Turning"}
 
 
-class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
-    bl_idname = "SWISH_PT_settings"
+class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
+    bl_idname = "WAIFU_PHYSICS_PT_settings"
     bl_label = "Physics"
 
     def draw(self, context):
@@ -201,8 +201,8 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
             column.prop(group, "use_world_space_gravity")
 
 
-class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
-    bl_idname = "SWISH_PT_advanced"
+class WAIFU_PHYSICS_PT_advanced(_GroupPanel, bpy.types.Panel):
+    bl_idname = "WAIFU_PHYSICS_PT_advanced"
     bl_label = "Advanced"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -230,7 +230,7 @@ class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
         layout.prop(group, "teleport_distance")
         layout.prop(group, "teleport_rotation")
         layout.prop(group, "warm_up_frames")
-        settings = context.scene.swish
+        settings = context.scene.waifu_physics
         layout.separator()
         layout.label(text="Scene")
         layout.prop(settings, "fixed_substepping")
@@ -240,16 +240,16 @@ class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
         sub.prop(settings, "max_substeps")
 
 
-class SWISH_UL_links(bpy.types.UIList):
+class WAIFU_PHYSICS_UL_links(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
         row = layout.row(align=True)
         row.label(text=f"{item.bone_a}  –  {item.bone_b}", icon="CONSTRAINT_BONE")
         row.prop(item, "compliance", text="")
-        row.operator("swish.link_remove", text="", icon="X", emboss=False).index = index
+        row.operator("waifu_physics.link_remove", text="", icon="X", emboss=False).index = index
 
 
-class SWISH_PT_links(_GroupPanel, bpy.types.Panel):
-    bl_idname = "SWISH_PT_links"
+class WAIFU_PHYSICS_PT_links(_GroupPanel, bpy.types.Panel):
+    bl_idname = "WAIFU_PHYSICS_PT_links"
     bl_label = "Links"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -257,12 +257,12 @@ class SWISH_PT_links(_GroupPanel, bpy.types.Panel):
         group = self.group(context)
         layout = self.layout
         row = layout.row(align=True)
-        row.operator("swish.link_chains", text="Link as Loop", icon="MESH_CIRCLE").mode = "LOOP"
-        row.operator("swish.link_chains", text="Link as Strip", icon="IPO_LINEAR").mode = "STRIP"
-        layout.template_list("SWISH_UL_links", "", group, "links", group, "active_link", rows=3)
+        row.operator("waifu_physics.link_chains", text="Link as Loop", icon="MESH_CIRCLE").mode = "LOOP"
+        row.operator("waifu_physics.link_chains", text="Link as Strip", icon="IPO_LINEAR").mode = "STRIP"
+        layout.template_list("WAIFU_PHYSICS_UL_links", "", group, "links", group, "active_link", rows=3)
         row = layout.row(align=True)
-        row.prop(context.scene.swish, "show_links")
-        row.operator("swish.links_clear", icon="TRASH")
+        row.prop(context.scene.waifu_physics, "show_links")
+        row.operator("waifu_physics.links_clear", icon="TRASH")
         layout.use_property_split = True
         layout.prop(group, "compliance")
         layout.prop(group, "iterations_before_collision", text="Before Collision")
@@ -274,15 +274,15 @@ class SWISH_PT_links(_GroupPanel, bpy.types.Panel):
         sub.prop(group, "bridge_feedback")
 
 
-class SWISH_PT_colliders(_GroupPanel, bpy.types.Panel):
-    bl_idname = "SWISH_PT_colliders"
+class WAIFU_PHYSICS_PT_colliders(_GroupPanel, bpy.types.Panel):
+    bl_idname = "WAIFU_PHYSICS_PT_colliders"
     bl_label = "Colliders"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
         group = self.group(context)
         layout = self.layout
-        layout.operator_menu_enum("swish.collider_add", "shape", icon="MESH_UVSPHERE")
+        layout.operator_menu_enum("waifu_physics.collider_add", "shape", icon="MESH_UVSPHERE")
         box = layout.box()
         box.label(text="Collides with the colliders of:")
         if not len(group.collider_sets):
@@ -290,8 +290,8 @@ class SWISH_PT_colliders(_GroupPanel, bpy.types.Panel):
         for index, item in enumerate(group.collider_sets):
             row = box.row(align=True)
             row.prop(item, "armature", text="")
-            row.operator("swish.collider_set_remove", text="", icon="X").index = index
-        box.operator("swish.collider_set_add", icon="ADD")
+            row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
+        box.operator("waifu_physics.collider_set_add", icon="ADD")
         sources = [item.armature for item in group.collider_sets if item.armature] or [context.object]
         for armature in sources:
             for obj in armature.children:
@@ -300,7 +300,7 @@ class SWISH_PT_colliders(_GroupPanel, bpy.types.Panel):
                 found = colliders.values(obj)
                 col = layout.box().column(align=True)
                 row = col.row(align=True)
-                row.prop(obj.swish_collider, "enabled", text="")
+                row.prop(obj.waifu_physics_collider, "enabled", text="")
                 row.label(text=f"{obj.name}  ({obj.parent_bone})", icon="MESH_UVSPHERE")
                 if found is None:
                     continue
@@ -330,13 +330,13 @@ def _filter_row(layout, force, collection, label, target):
     else:
         shown = "every bone" if collection == "apply_bones" else "none"
     row.label(text=f"{label}: {shown}")
-    op = row.operator("swish.force_filter", text="", icon="RESTRICT_SELECT_OFF")
+    op = row.operator("waifu_physics.force_filter", text="", icon="RESTRICT_SELECT_OFF")
     op.target, op.clear = target, False
-    op = row.operator("swish.force_filter", text="", icon="X")
+    op = row.operator("waifu_physics.force_filter", text="", icon="X")
     op.target, op.clear = target, True
 
 
-class SWISH_UL_forces(bpy.types.UIList):
+class WAIFU_PHYSICS_UL_forces(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
         row = layout.row(align=True)
         row.prop(item, "enabled", text="")
@@ -344,8 +344,8 @@ class SWISH_UL_forces(bpy.types.UIList):
         row.prop(item, "name", text="", emboss=False, icon=kind_icon)
 
 
-class SWISH_PT_forces(_GroupPanel, bpy.types.Panel):
-    bl_idname = "SWISH_PT_forces"
+class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
+    bl_idname = "WAIFU_PHYSICS_PT_forces"
     bl_label = "Forces and Wind"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -365,12 +365,12 @@ class SWISH_PT_forces(_GroupPanel, bpy.types.Panel):
         if group.enable_wind and not has_field:
             row = col.row()
             row.label(text="No Wind force field in the scene", icon="INFO")
-            row.operator("swish.wind_field_add", text="", icon="FORCE_WIND")
+            row.operator("waifu_physics.wind_field_add", text="", icon="FORCE_WIND")
         row = layout.row()
-        row.template_list("SWISH_UL_forces", "", group, "forces", group, "active_force", rows=3)
+        row.template_list("WAIFU_PHYSICS_UL_forces", "", group, "forces", group, "active_force", rows=3)
         column = row.column(align=True)
-        column.operator_menu_enum("swish.force_add", "kind", text="", icon="ADD")
-        column.operator("swish.force_remove", text="", icon="REMOVE")
+        column.operator_menu_enum("waifu_physics.force_add", "kind", text="", icon="ADD")
+        column.operator("waifu_physics.force_remove", text="", icon="REMOVE")
         if not len(group.forces):
             return
         force = group.forces[min(group.active_force, len(group.forces) - 1)]
@@ -403,10 +403,10 @@ class SWISH_PT_forces(_GroupPanel, bpy.types.Panel):
                 row = col.row()
                 row.alert = True
                 row.label(text="Blows only with a Wind force field", icon="ERROR")
-                row.operator("swish.wind_field_add", text="Add", icon="FORCE_WIND")
+                row.operator("waifu_physics.wind_field_add", text="Add", icon="FORCE_WIND")
             col.prop(force, "noise_angle")
         else:
-            col.operator_menu_enum("swish.wind_preset", "preset", text="Kawaii Preset", icon="PRESET")
+            col.operator_menu_enum("waifu_physics.wind_preset", "preset", text="Kawaii Preset", icon="PRESET")
             col.prop(force, "direction")
             col.prop(force, "constant")
             col.prop(force, "sway")
@@ -435,14 +435,14 @@ class SWISH_PT_forces(_GroupPanel, bpy.types.Panel):
         _filter_row(box, force, "ignore_bones", "Ignore", "IGNORE")
 
 
-class SWISH_UL_sync(bpy.types.UIList):
+class WAIFU_PHYSICS_UL_sync(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
         row = layout.row(align=True)
         row.prop(item, "name", text="", emboss=False, icon="CON_TRACKTO")
         row.label(text=f"{len(item.targets)} target{'s' if len(item.targets) != 1 else ''}")
 
 
-class SWISH_UL_sync_targets(bpy.types.UIList):
+class WAIFU_PHYSICS_UL_sync_targets(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
         row = layout.row(align=True)
         row.label(text=item.bone, icon="BONE_DATA")
@@ -450,8 +450,8 @@ class SWISH_UL_sync_targets(bpy.types.UIList):
         row.prop(item, "use_rate_curve", text="", icon="FCURVE")
 
 
-class SWISH_PT_sync(_GroupPanel, bpy.types.Panel):
-    bl_idname = "SWISH_PT_sync"
+class WAIFU_PHYSICS_PT_sync(_GroupPanel, bpy.types.Panel):
+    bl_idname = "WAIFU_PHYSICS_PT_sync"
     bl_label = "Sync Bones"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -460,10 +460,10 @@ class SWISH_PT_sync(_GroupPanel, bpy.types.Panel):
         layout = self.layout
         layout.label(text="Chains follow a bone, as a skirt a thigh", icon="INFO")
         row = layout.row()
-        row.template_list("SWISH_UL_sync", "", group, "sync_bones", group, "active_sync", rows=2)
+        row.template_list("WAIFU_PHYSICS_UL_sync", "", group, "sync_bones", group, "active_sync", rows=2)
         column = row.column(align=True)
-        column.operator("swish.sync_add", text="", icon="ADD")
-        column.operator("swish.sync_remove", text="", icon="REMOVE")
+        column.operator("waifu_physics.sync_add", text="", icon="ADD")
+        column.operator("waifu_physics.sync_remove", text="", icon="REMOVE")
         if not len(group.sync_bones):
             return
         sync = group.sync_bones[min(group.active_sync, len(group.sync_bones) - 1)]
@@ -471,10 +471,10 @@ class SWISH_PT_sync(_GroupPanel, bpy.types.Panel):
         box.prop_search(sync, "bone", context.object.data, "bones", icon="BONE_DATA")
         box.label(text="Targets (bones of this group):")
         row = box.row()
-        row.template_list("SWISH_UL_sync_targets", "", sync, "targets", sync, "active_target", rows=2)
+        row.template_list("WAIFU_PHYSICS_UL_sync_targets", "", sync, "targets", sync, "active_target", rows=2)
         column = row.column(align=True)
-        column.operator("swish.sync_target_add", text="", icon="ADD")
-        column.operator("swish.sync_target_remove", text="", icon="REMOVE")
+        column.operator("waifu_physics.sync_target_add", text="", icon="ADD")
+        column.operator("waifu_physics.sync_target_remove", text="", icon="REMOVE")
         if len(sync.targets):
             target = sync.targets[min(sync.active_target, len(sync.targets) - 1)]
             if target.use_rate_curve:
@@ -498,9 +498,9 @@ class SWISH_PT_sync(_GroupPanel, bpy.types.Panel):
         sub.prop(sync, "max_attenuation")
 
 
-CLASSES = (SWISH_UL_groups, SWISH_UL_links, SWISH_UL_forces, SWISH_UL_sync, SWISH_UL_sync_targets, SWISH_PT_main,
-           SWISH_PT_settings, SWISH_PT_links, SWISH_PT_colliders, SWISH_PT_forces, SWISH_PT_sync,
-           SWISH_PT_advanced)
+CLASSES = (WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
+           WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_colliders, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
+           WAIFU_PHYSICS_PT_advanced)
 
 
 def register():

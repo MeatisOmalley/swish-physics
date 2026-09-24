@@ -10,9 +10,9 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
-live = sys.modules["swish_physics.runtime.live"]
+addon = fresh_import()
+addon.register()
+live = sys.modules["waifu_physics.runtime.live"]
 scene = bpy.context.scene
 
 
@@ -38,7 +38,7 @@ def armature(name, direction=(1.0, 0.0, 0.0), count=3, length=0.2):
 
 
 def group(obj, **values):
-    g = obj.swish.groups.add()
+    g = obj.waifu_physics.groups.add()
     g.roots.add().name = "c0"
     g.dummy_bone_length = 0.1
     for key, value in values.items():
@@ -56,7 +56,7 @@ def play(start, end):
 
 
 def reset_scene():
-    scene.swish.simulate = False
+    scene.waifu_physics.simulate = False
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj)
     scene.frame_start = 1
@@ -67,7 +67,7 @@ def reset_scene():
 reset_scene()
 rig = armature("fall")
 group(rig, damping=0.05, stiffness=0.0)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 start = heads(rig)
 play(1, 40)
 now = heads(rig)
@@ -85,7 +85,7 @@ check("the rotations were written as the bones' own mode (quaternion)",
       all(rig.pose.bones[f"c{i}"].rotation_mode == "QUATERNION" for i in range(3)))
 
 # --- turning simulation off puts unkeyed chain bones back at rest
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 bpy.context.view_layer.update()
 check("turning Simulate off restores the rest pose", np.allclose(heads(rig), start, atol=1e-6), heads(rig))
 
@@ -93,7 +93,7 @@ check("turning Simulate off restores the rest pose", np.allclose(heads(rig), sta
 reset_scene()
 rig = armature("held")
 group(rig, stiffness=1.0)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rest = heads(rig)
 play(1, 20)
 check("stiffness 1 holds an unkeyed chain at its rest against gravity", np.allclose(heads(rig), rest, atol=1e-5),
@@ -111,7 +111,7 @@ pb.keyframe_insert("rotation_euler", frame=20)
 scene.frame_set(20)
 animated = heads(rig)              # the animated pose, before any simulation
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 play(1, 20)
 check("a keyed chain bone is read as input: stiffness 1 follows the animation",
       np.allclose(heads(rig), animated, atol=1e-4), (heads(rig), animated))
@@ -125,11 +125,11 @@ for modes in (("QUATERNION", "QUATERNION", "QUATERNION"), ("XYZ", "AXIS_ANGLE", 
     group(rig, damping=0.1)
     for i, mode in enumerate(modes):
         rig.pose.bones[f"c{i}"].rotation_mode = mode
-    scene.swish.simulate = True
+    scene.waifu_physics.simulate = True
     play(1, 25)
     tails[modes] = heads(rig)[-1].copy()
     check(f"rotation modes {modes} are kept", tuple(rig.pose.bones[f"c{i}"].rotation_mode for i in range(3)) == modes)
-    scene.swish.simulate = False
+    scene.waifu_physics.simulate = False
 quat, mixed = tails.values()
 check("... and the chain moves the same in any mode", np.allclose(quat, mixed, atol=1e-5), (quat, mixed))
 
@@ -141,10 +141,10 @@ for keyed in (False, True):
     g = group(rig, damping=0.0)
     if keyed:
         g.damping = 0.0
-        rig.keyframe_insert('swish.groups[0].damping', frame=1)
+        rig.keyframe_insert('waifu_physics.groups[0].damping', frame=1)
         g.damping = 0.9
-        rig.keyframe_insert('swish.groups[0].damping', frame=15)
-    scene.swish.simulate = True
+        rig.keyframe_insert('waifu_physics.groups[0].damping', frame=15)
+    scene.waifu_physics.simulate = True
     play(1, 40)
     runs[keyed] = heads(rig)[-1].copy()
 check("keyframed damping changes the motion as it plays", not np.allclose(runs[False], runs[True], atol=1e-3), runs)
@@ -153,7 +153,7 @@ check("keyframed damping changes the motion as it plays", not np.allclose(runs[F
 reset_scene()
 rig = armature("moving", direction=(0.0, 0.0, -1.0))
 group(rig, stiffness=0.0, world_damping_location=0.0, world_damping_rotation=0.0, damping=0.2)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 play(1, 5)
 for frame in range(6, 12):
     rig.location.x += 0.05
@@ -170,13 +170,13 @@ check("a 20 m jump is a teleport: the chain keeps its shape", abs(after[0] - bef
 reset_scene()
 rig = armature("jump")
 group(rig)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rest = heads(rig)
 play(1, 30)
 scene.frame_set(10)
 check("jumping backwards starts over from the pose", np.allclose(heads(rig), rest, atol=1e-6), heads(rig))
 
-scene.swish.simulate = False
-swish.unregister()
+scene.waifu_physics.simulate = False
+addon.unregister()
 check("unregistering removes the frame handler", live._frame_changed not in bpy.app.handlers.frame_change_post)
 finish()

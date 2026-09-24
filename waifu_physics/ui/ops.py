@@ -43,7 +43,7 @@ def _claim(obj, roots, keep=None):
     """Take these chains out of every other group, so no bone is simulated twice. A group left
     with no chains is removed."""
     emptied = []
-    for group in obj.swish.groups:
+    for group in obj.waifu_physics.groups:
         if group is keep:
             continue
         before = len(group.roots)
@@ -55,11 +55,11 @@ def _claim(obj, roots, keep=None):
         if before and not len(group.roots):
             emptied.append(group.name)
     for name in emptied:
-        index = [g.name for g in obj.swish.groups].index(name)
-        group_curves.remove_owned(obj.swish.groups[index])
-        obj.swish.groups.remove(index)
+        index = [g.name for g in obj.waifu_physics.groups].index(name)
+        group_curves.remove_owned(obj.waifu_physics.groups[index])
+        obj.waifu_physics.groups.remove(index)
     if emptied:
-        obj.swish.active_group = max(0, min(obj.swish.active_group, len(obj.swish.groups) - 1))
+        obj.waifu_physics.active_group = max(0, min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1))
 
 
 class _PoseBonesOperator:
@@ -79,7 +79,7 @@ def group_name(obj, roots):
     shared = re.sub(r"[\d_.\s-]+$", "", os.path.commonprefix(stripped))
     if len(shared) < 2:
         shared = re.sub(r"[\d_.\s-]+$", "", stripped[0]) or "Group"
-    name, taken, number = shared, {g.name for g in obj.swish.groups}, 2
+    name, taken, number = shared, {g.name for g in obj.waifu_physics.groups}, 2
     while name in taken:
         name, number = f"{shared} {number}", number + 1
     return name
@@ -99,8 +99,8 @@ def make_active(context, obj):
         bpy.ops.object.mode_set(mode="POSE")
 
 
-class SWISH_OT_armature_activate(bpy.types.Operator):
-    bl_idname = "swish.armature_activate"
+class WAIFU_PHYSICS_OT_armature_activate(bpy.types.Operator):
+    bl_idname = "waifu_physics.armature_activate"
     bl_label = "Edit Armature"
     bl_description = "Make this armature the one the panels edit (and add groups to)"
     bl_options = {"REGISTER", "UNDO"}
@@ -115,8 +115,8 @@ class SWISH_OT_armature_activate(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_group_new(bpy.types.Operator):
-    bl_idname = "swish.group_new"
+class WAIFU_PHYSICS_OT_group_new(bpy.types.Operator):
+    bl_idname = "waifu_physics.group_new"
     bl_label = "New Group"
     bl_description = "Make a group of the chains under the bones selected in Pose Mode"
     bl_options = {"REGISTER", "UNDO"}
@@ -134,29 +134,29 @@ class SWISH_OT_group_new(bpy.types.Operator):
             return {"CANCELLED"}
         roots = _selected_roots(context)
         _claim(obj, roots)
-        group = obj.swish.groups.add()
+        group = obj.waifu_physics.groups.add()
         group.name = group_name(obj, roots)
         for name in roots:
             group.roots.add().name = name
-        obj.swish.active_group = len(obj.swish.groups) - 1
+        obj.waifu_physics.active_group = len(obj.waifu_physics.groups) - 1
         live.mark_dirty(context.scene)
         self.report({"INFO"}, f"New group with {len(roots)} chain{'s' if len(roots) != 1 else ''}")
         return {"FINISHED"}
 
 
-class SWISH_OT_group_add(_PoseBonesOperator, bpy.types.Operator):
-    bl_idname = "swish.group_add"
+class WAIFU_PHYSICS_OT_group_add(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.group_add"
     bl_label = "Add to Group"
     bl_description = "Add the chains under the selected bones to the active group"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        return super().poll(context) and len(context.object.swish.groups) > 0
+        return super().poll(context) and len(context.object.waifu_physics.groups) > 0
 
     def execute(self, context):
         obj = context.object
-        group = obj.swish.groups[obj.swish.active_group]
+        group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
         roots = [r for r in _selected_roots(context) if r not in {root.name for root in group.roots}]
         _claim(obj, roots, keep=group)
         for name in roots:
@@ -165,19 +165,19 @@ class SWISH_OT_group_add(_PoseBonesOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_exclude(_PoseBonesOperator, bpy.types.Operator):
-    bl_idname = "swish.exclude"
+class WAIFU_PHYSICS_OT_exclude(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.exclude"
     bl_label = "Exclude Bones"
     bl_description = "Leave the selected bones, and everything under them, out of the active group"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
     def poll(cls, context):
-        return super().poll(context) and len(context.object.swish.groups) > 0
+        return super().poll(context) and len(context.object.waifu_physics.groups) > 0
 
     def execute(self, context):
         obj = context.object
-        group = obj.swish.groups[obj.swish.active_group]
+        group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
         names = {bone.name for bone in group.excluded}
         for name in _selected_roots(context):
             if name not in names:
@@ -186,8 +186,8 @@ class SWISH_OT_exclude(_PoseBonesOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_group_remove(bpy.types.Operator):
-    bl_idname = "swish.group_remove"
+class WAIFU_PHYSICS_OT_group_remove(bpy.types.Operator):
+    bl_idname = "waifu_physics.group_remove"
     bl_label = "Remove Group"
     bl_description = "Remove the active group; its bones go back to their animation"
     bl_options = {"REGISTER", "UNDO"}
@@ -195,32 +195,32 @@ class SWISH_OT_group_remove(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0
+        return obj is not None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups) > 0
 
     def execute(self, context):
         obj = context.object
         live.set_simulating(context.scene, False)
-        group_curves.remove_owned(obj.swish.groups[obj.swish.active_group])
-        obj.swish.groups.remove(obj.swish.active_group)
-        obj.swish.active_group = max(0, obj.swish.active_group - 1)
-        if context.scene.swish.simulate:
+        group_curves.remove_owned(obj.waifu_physics.groups[obj.waifu_physics.active_group])
+        obj.waifu_physics.groups.remove(obj.waifu_physics.active_group)
+        obj.waifu_physics.active_group = max(0, obj.waifu_physics.active_group - 1)
+        if context.scene.waifu_physics.simulate:
             live.set_simulating(context.scene, True)
         return {"FINISHED"}
 
 
-class SWISH_OT_reset(bpy.types.Operator):
-    bl_idname = "swish.reset"
+class WAIFU_PHYSICS_OT_reset(bpy.types.Operator):
+    bl_idname = "waifu_physics.reset"
     bl_label = "Reset"
     bl_description = "Start the simulation over from the current pose"
 
     def execute(self, context):
-        if context.scene.swish.simulate:
+        if context.scene.waifu_physics.simulate:
             live.set_simulating(context.scene, True)
         return {"FINISHED"}
 
 
-class SWISH_OT_collider_add(bpy.types.Operator):
-    bl_idname = "swish.collider_add"
+class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
+    bl_idname = "waifu_physics.collider_add"
     bl_label = "Add Collider"
     bl_description = "Add a collider on the active bone: centred on it and, as a capsule, along it"
     bl_options = {"REGISTER", "UNDO"}
@@ -238,8 +238,8 @@ class SWISH_OT_collider_add(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_collider_set_add(bpy.types.Operator):
-    bl_idname = "swish.collider_set_add"
+class WAIFU_PHYSICS_OT_collider_set_add(bpy.types.Operator):
+    bl_idname = "waifu_physics.collider_set_add"
     bl_label = "Add Collider Set"
     bl_description = "Collide the active group with another armature's colliders (a character's body)"
     bl_options = {"REGISTER", "UNDO"}
@@ -247,19 +247,19 @@ class SWISH_OT_collider_set_add(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0
+        return obj is not None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups) > 0
 
     def execute(self, context):
         obj = context.object
-        group = obj.swish.groups[obj.swish.active_group]
+        group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
         if not len(group.collider_sets):
             group.collider_sets.add().armature = obj      # its own colliders stay in
         group.collider_sets.add()
         return {"FINISHED"}
 
 
-class SWISH_OT_collider_set_remove(bpy.types.Operator):
-    bl_idname = "swish.collider_set_remove"
+class WAIFU_PHYSICS_OT_collider_set_remove(bpy.types.Operator):
+    bl_idname = "waifu_physics.collider_set_remove"
     bl_label = "Remove Collider Set"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -267,7 +267,7 @@ class SWISH_OT_collider_set_remove(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.object
-        group = obj.swish.groups[obj.swish.active_group]
+        group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
         group.collider_sets.remove(self.index)
         live.mark_dirty(context.scene)
         return {"FINISHED"}
@@ -284,8 +284,8 @@ def _chain_root(obj, group, name):
     return None
 
 
-class SWISH_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
-    bl_idname = "swish.link_chains"
+class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.link_chains"
     bl_label = "Link Chains"
     bl_description = ("Link the selected chains of the active group to their neighbours, bone by bone: "
                       "a loop for a skirt, a strip for a cape")
@@ -297,11 +297,11 @@ class SWISH_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return super().poll(context) and len(context.object.swish.groups) > 0
+        return super().poll(context) and len(context.object.waifu_physics.groups) > 0
 
     def execute(self, context):
         obj = context.object
-        group = obj.swish.groups[obj.swish.active_group]
+        group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
         roots = []
         for pose_bone in context.selected_pose_bones:
             root = _chain_root(obj, group, pose_bone.name)
@@ -324,8 +324,8 @@ class SWISH_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_links_clear(bpy.types.Operator):
-    bl_idname = "swish.links_clear"
+class WAIFU_PHYSICS_OT_links_clear(bpy.types.Operator):
+    bl_idname = "waifu_physics.links_clear"
     bl_label = "Clear Links"
     bl_description = "Remove every link of the active group"
     bl_options = {"REGISTER", "UNDO"}
@@ -333,18 +333,18 @@ class SWISH_OT_links_clear(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return (obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0
-                and len(obj.swish.groups[obj.swish.active_group].links) > 0)
+        return (obj is not None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups) > 0
+                and len(obj.waifu_physics.groups[obj.waifu_physics.active_group].links) > 0)
 
     def execute(self, context):
         obj = context.object
-        obj.swish.groups[obj.swish.active_group].links.clear()
+        obj.waifu_physics.groups[obj.waifu_physics.active_group].links.clear()
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
 
-class SWISH_OT_link_remove(bpy.types.Operator):
-    bl_idname = "swish.link_remove"
+class WAIFU_PHYSICS_OT_link_remove(bpy.types.Operator):
+    bl_idname = "waifu_physics.link_remove"
     bl_label = "Remove Link"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -352,23 +352,23 @@ class SWISH_OT_link_remove(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.object
-        obj.swish.groups[obj.swish.active_group].links.remove(self.index)
+        obj.waifu_physics.groups[obj.waifu_physics.active_group].links.remove(self.index)
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
 
-class SWISH_OT_cache_all(bpy.types.Operator):
-    bl_idname = "swish.cache_all"
+class WAIFU_PHYSICS_OT_cache_all(bpy.types.Operator):
+    bl_idname = "waifu_physics.cache_all"
     bl_label = "Cache All"
     bl_description = "Simulate the whole frame range into the cache, to scrub and render"
 
     @classmethod
     def poll(cls, context):
-        return context.scene.swish.simulate
+        return context.scene.waifu_physics.simulate
 
     def execute(self, context):
         scene = context.scene
-        scene.swish.use_cache = True
+        scene.waifu_physics.use_cache = True
         wm = context.window_manager
         wm.progress_begin(scene.frame_start, scene.frame_end)
         try:
@@ -378,8 +378,8 @@ class SWISH_OT_cache_all(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_cache_toggle(bpy.types.Operator):
-    bl_idname = "swish.cache_toggle"
+class WAIFU_PHYSICS_OT_cache_toggle(bpy.types.Operator):
+    bl_idname = "waifu_physics.cache_toggle"
     bl_label = "Cache"
     bl_description = ("Bake the whole frame range, to scrub and render; click again to clear it and play "
                       "live. A change to the setup clears the bake too")
@@ -387,12 +387,12 @@ class SWISH_OT_cache_toggle(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         if live.is_cached(scene):
-            scene.swish.use_cache = False
+            scene.waifu_physics.use_cache = False
             live.invalidate(scene)
             return {"FINISHED"}
-        if not scene.swish.simulate:
-            scene.swish.simulate = True
-        scene.swish.use_cache = True
+        if not scene.waifu_physics.simulate:
+            scene.waifu_physics.simulate = True
+        scene.waifu_physics.use_cache = True
         wm = context.window_manager
         wm.progress_begin(scene.frame_start, scene.frame_end)
         try:
@@ -402,8 +402,8 @@ class SWISH_OT_cache_toggle(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_cache_clear(bpy.types.Operator):
-    bl_idname = "swish.cache_clear"
+class WAIFU_PHYSICS_OT_cache_clear(bpy.types.Operator):
+    bl_idname = "waifu_physics.cache_clear"
     bl_label = "Clear Cache"
     bl_description = "Forget every cached frame"
 
@@ -414,16 +414,16 @@ class SWISH_OT_cache_clear(bpy.types.Operator):
 
 def _active_group(context):
     obj = context.object
-    if obj is None or obj.type != "ARMATURE" or not len(obj.swish.groups):
+    if obj is None or obj.type != "ARMATURE" or not len(obj.waifu_physics.groups):
         return None
-    return obj.swish.groups[min(obj.swish.active_group, len(obj.swish.groups) - 1)]
+    return obj.waifu_physics.groups[min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1)]
 
 
 def _target_groups(context):
     """The active group, plus every group holding a selected bone when Edit Selected Groups is on."""
     from .selection import groups_of_selected
     targets = [_active_group(context)]
-    if context.scene.swish.edit_selected_groups:
+    if context.scene.waifu_physics.edit_selected_groups:
         targets += [g for g in groups_of_selected(context) if all(g != t for t in targets)]
     return targets
 
@@ -442,8 +442,8 @@ def _active_item(collection, index):
     return collection[min(index, len(collection) - 1)] if len(collection) else None
 
 
-class SWISH_OT_force_add(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.force_add"
+class WAIFU_PHYSICS_OT_force_add(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.force_add"
     bl_label = "Add Force"
     bl_description = "Add an external force to the active group"
     bl_options = {"REGISTER", "UNDO"}
@@ -468,8 +468,8 @@ class SWISH_OT_force_add(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_wind_preset(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.wind_preset"
+class WAIFU_PHYSICS_OT_wind_preset(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.wind_preset"
     bl_label = "Wind Preset"
     bl_description = "Set the Procedural Wind force to one of Kawaii's presets"
     bl_options = {"REGISTER", "UNDO"}
@@ -486,8 +486,8 @@ class SWISH_OT_wind_preset(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_wind_field_add(bpy.types.Operator):
-    bl_idname = "swish.wind_field_add"
+class WAIFU_PHYSICS_OT_wind_field_add(bpy.types.Operator):
+    bl_idname = "waifu_physics.wind_field_add"
     bl_label = "Add Wind Field"
     bl_description = "Add a Wind force field: it blows along its Z axis at its Strength"
     bl_options = {"REGISTER", "UNDO"}
@@ -512,8 +512,8 @@ class SWISH_OT_wind_field_add(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_force_remove(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.force_remove"
+class WAIFU_PHYSICS_OT_force_remove(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.force_remove"
     bl_label = "Remove Force"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -532,8 +532,8 @@ class SWISH_OT_force_remove(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_force_filter(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.force_filter"
+class WAIFU_PHYSICS_OT_force_filter(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.force_filter"
     bl_label = "Set Bone Filter"
     bl_description = "Set the force's bone filter to the selected bones, or clear it"
     bl_options = {"REGISTER", "UNDO"}
@@ -559,8 +559,8 @@ class SWISH_OT_force_filter(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_sync_add(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.sync_add"
+class WAIFU_PHYSICS_OT_sync_add(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.sync_add"
     bl_label = "Add Sync Bone"
     bl_description = ("Add a sync bone to the active group, following the active bone; selected bones of the "
                       "group become its targets")
@@ -574,7 +574,7 @@ class SWISH_OT_sync_add(_GroupOperator, bpy.types.Operator):
             sync.bone = active.name
             sync.name = active.name
         from .selection import group_index_of_bone
-        index = list(obj.swish.groups).index(group) if group in list(obj.swish.groups) else -1
+        index = list(obj.waifu_physics.groups).index(group) if group in list(obj.waifu_physics.groups) else -1
         for name in _selected_names(context):
             if active is not None and name == active.name:
                 continue
@@ -585,8 +585,8 @@ class SWISH_OT_sync_add(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_sync_remove(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.sync_remove"
+class WAIFU_PHYSICS_OT_sync_remove(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.sync_remove"
     bl_label = "Remove Sync Bone"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -608,8 +608,8 @@ class SWISH_OT_sync_remove(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_sync_target_add(_PoseBonesOperator, bpy.types.Operator):
-    bl_idname = "swish.sync_target_add"
+class WAIFU_PHYSICS_OT_sync_target_add(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.sync_target_add"
     bl_label = "Add Sync Targets"
     bl_description = "Add the selected bones as targets of the active sync bone"
     bl_options = {"REGISTER", "UNDO"}
@@ -630,8 +630,8 @@ class SWISH_OT_sync_target_add(_PoseBonesOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_sync_target_remove(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.sync_target_remove"
+class WAIFU_PHYSICS_OT_sync_target_remove(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.sync_target_remove"
     bl_label = "Remove Sync Target"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -701,22 +701,22 @@ def _drop_if_empty(obj, group):
     """A group whose last chain left is removed with it."""
     if len(group.roots):
         return False
-    index = list(obj.swish.groups).index(group)
+    index = list(obj.waifu_physics.groups).index(group)
     group_curves.remove_owned(group)
-    obj.swish.groups.remove(index)
-    obj.swish.active_group = max(0, min(obj.swish.active_group, len(obj.swish.groups) - 1))
+    obj.waifu_physics.groups.remove(index)
+    obj.waifu_physics.active_group = max(0, min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1))
     return True
 
 
 def all_chains(obj):
     """Every chain of the armature as (group index, root), in the Chains list's order."""
-    return [(index, root.name) for index, group in enumerate(obj.swish.groups) for root in group.roots]
+    return [(index, root.name) for index, group in enumerate(obj.waifu_physics.groups) for root in group.roots]
 
 
 def _bones_of(obj, chains):
     found = set()
     for index, root in chains:
-        found |= set(_chain_bones(obj, obj.swish.groups[index], root))
+        found |= set(_chain_bones(obj, obj.waifu_physics.groups[index], root))
     return found
 
 
@@ -726,7 +726,7 @@ def selected_chain_keys(obj):
     if not selected:
         return set()
     return {(index, root) for index, root in all_chains(obj)
-            if selected & set(_chain_bones(obj, obj.swish.groups[index], root))}
+            if selected & set(_chain_bones(obj, obj.waifu_physics.groups[index], root))}
 
 
 def _select(context, obj, chains, keep=False, deselect=()):
@@ -744,8 +744,8 @@ def _select(context, obj, chains, keep=False, deselect=()):
 _last_clicked = {}                   # armature -> the chain clicked last, for Shift-click ranges
 
 
-class SWISH_OT_chain_click(bpy.types.Operator):
-    bl_idname = "swish.chain_click"
+class WAIFU_PHYSICS_OT_chain_click(bpy.types.Operator):
+    bl_idname = "waifu_physics.chain_click"
     bl_label = "Select Chain"
     bl_description = "Select this chain. Shift-click selects a range; Ctrl-click adds or drops one chain"
     bl_options = {"REGISTER", "UNDO"}
@@ -782,12 +782,12 @@ class SWISH_OT_chain_click(bpy.types.Operator):
         else:
             _select(context, obj, [this])
         _last_clicked[obj.name] = this
-        obj.swish.active_group = self.group
+        obj.waifu_physics.active_group = self.group
         return {"FINISHED"}
 
 
-class SWISH_OT_chains_select(bpy.types.Operator):
-    bl_idname = "swish.chains_select"
+class WAIFU_PHYSICS_OT_chains_select(bpy.types.Operator):
+    bl_idname = "waifu_physics.chains_select"
     bl_label = "Select Chains"
     bl_description = "Select every chain of the armature, or none"
     bl_options = {"REGISTER", "UNDO"}
@@ -807,8 +807,8 @@ class SWISH_OT_chains_select(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_group_click(bpy.types.Operator):
-    bl_idname = "swish.group_click"
+class WAIFU_PHYSICS_OT_group_click(bpy.types.Operator):
+    bl_idname = "waifu_physics.group_click"
     bl_label = "Select Group"
     bl_description = "Edit this group and select its chains. Ctrl or Shift adds them to the selection"
     bl_options = {"REGISTER", "UNDO"}
@@ -822,34 +822,34 @@ class SWISH_OT_group_click(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.object
-        if not 0 <= self.index < len(obj.swish.groups):
+        if not 0 <= self.index < len(obj.waifu_physics.groups):
             return {"CANCELLED"}
-        mine = [(self.index, root.name) for root in obj.swish.groups[self.index].roots]
+        mine = [(self.index, root.name) for root in obj.waifu_physics.groups[self.index].roots]
         if self.extend and mine and set(mine) <= selected_chain_keys(obj):
             _select(context, obj, [], keep=True, deselect=mine)        # all selected already: drop them
         else:
             _select(context, obj, mine, keep=self.extend)
         if mine:
             _last_clicked[obj.name] = mine[-1]
-        obj.swish.active_group = self.index
+        obj.waifu_physics.active_group = self.index
         return {"FINISHED"}
 
 
 def _remove_chains(obj, chains):
     """Stop simulating chains, dropping groups they empty. Returns the links removed."""
-    broken, names = 0, [g.name for g in obj.swish.groups]
+    broken, names = 0, [g.name for g in obj.waifu_physics.groups]
     by_group = {}
     for index, root in chains:
         by_group.setdefault(names[index], []).append(root)
     for name, roots in by_group.items():
-        group = obj.swish.groups[[g.name for g in obj.swish.groups].index(name)]
+        group = obj.waifu_physics.groups[[g.name for g in obj.waifu_physics.groups].index(name)]
         broken += _move_chains(obj, group, roots, None)
         _drop_if_empty(obj, group)
     return broken
 
 
-class SWISH_OT_chains_remove(bpy.types.Operator):
-    bl_idname = "swish.chains_remove"
+class WAIFU_PHYSICS_OT_chains_remove(bpy.types.Operator):
+    bl_idname = "waifu_physics.chains_remove"
     bl_label = "Remove Selected Chains"
     bl_description = "Stop simulating the selected chains"
     bl_options = {"REGISTER", "UNDO"}
@@ -872,7 +872,7 @@ class SWISH_OT_chains_remove(bpy.types.Operator):
         _select(context, obj, found)
         if found:
             _last_clicked[obj.name] = found[0]
-            obj.swish.active_group = found[0][0]
+            obj.waifu_physics.active_group = found[0][0]
         live.mark_dirty(context.scene)
         self.report({"INFO"}, f"Removed {len(chains)} chains" + (f" and {broken} links" if broken else ""))
         return {"FINISHED"}
@@ -887,13 +887,13 @@ def merge_groups(obj, sources, target):
             continue
         _move_chains(obj, source, [root.name for root in source.roots], target)
         _drop_if_empty(obj, source)
-    index = [g.name for g in obj.swish.groups].index(name)
-    obj.swish.active_group = index
+    index = [g.name for g in obj.waifu_physics.groups].index(name)
+    obj.waifu_physics.active_group = index
     return index
 
 
-class SWISH_OT_groups_merge(bpy.types.Operator):
-    bl_idname = "swish.groups_merge"
+class WAIFU_PHYSICS_OT_groups_merge(bpy.types.Operator):
+    bl_idname = "waifu_physics.groups_merge"
     bl_label = "Merge Groups"
     bl_description = ("Merge the groups of the selected chains into one: the active group if it is among them, "
                       "keeping its settings")
@@ -908,7 +908,7 @@ class SWISH_OT_groups_merge(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.object
-        groups = obj.swish.groups
+        groups = obj.waifu_physics.groups
         if self.source >= 0 and self.target >= 0:
             if self.source == self.target or max(self.source, self.target) >= len(groups):
                 return {"CANCELLED"}
@@ -919,7 +919,7 @@ class SWISH_OT_groups_merge(bpy.types.Operator):
                 self.report({"WARNING"}, "Select chains from two or more groups")
                 return {"CANCELLED"}
             chosen = [groups[i] for i in indices]
-            target = groups[obj.swish.active_group] if obj.swish.active_group in indices else chosen[0]
+            target = groups[obj.waifu_physics.active_group] if obj.waifu_physics.active_group in indices else chosen[0]
         names = [g.name for g in chosen if g != target]
         merge_groups(obj, [g for g in chosen if g != target], target)
         live.mark_dirty(context.scene)
@@ -927,8 +927,8 @@ class SWISH_OT_groups_merge(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_group_pick(bpy.types.Operator):
-    bl_idname = "swish.group_pick"
+class WAIFU_PHYSICS_OT_group_pick(bpy.types.Operator):
+    bl_idname = "waifu_physics.group_pick"
     bl_label = "Edit Group"
     bl_description = "Edit this group's settings"
 
@@ -936,19 +936,19 @@ class SWISH_OT_group_pick(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.object
-        if obj is None or not 0 <= self.index < len(obj.swish.groups):
+        if obj is None or not 0 <= self.index < len(obj.waifu_physics.groups):
             return {"CANCELLED"}
-        obj.swish.active_group = self.index
+        obj.waifu_physics.active_group = self.index
         return {"FINISHED"}
 
 
 def _chains_everywhere(obj):
     """(group, [roots]) for every group of the armature with chains holding selected bones."""
-    return [(group, roots) for group in obj.swish.groups for roots in [selected_chains(obj, group)] if roots]
+    return [(group, roots) for group in obj.waifu_physics.groups for roots in [selected_chains(obj, group)] if roots]
 
 
-class SWISH_OT_chains_to_group(bpy.types.Operator):
-    bl_idname = "swish.chains_to_group"
+class WAIFU_PHYSICS_OT_chains_to_group(bpy.types.Operator):
+    bl_idname = "waifu_physics.chains_to_group"
     bl_label = "Move Chains to Group"
     bl_description = "Move the chains holding the selected bones, from whatever groups, into this group"
     bl_options = {"REGISTER", "UNDO"}
@@ -967,11 +967,11 @@ class SWISH_OT_chains_to_group(bpy.types.Operator):
             self.report({"WARNING"}, "Select bones of the chains to move")
             return {"CANCELLED"}
         if self.index < 0:
-            target = obj.swish.groups.add()
+            target = obj.waifu_physics.groups.add()
             target.name = group_name(obj, [root for _group, roots in found for root in roots])
             serialize.paste(target, serialize.settings_text(found[0][0]))
         else:
-            target = obj.swish.groups[self.index]
+            target = obj.waifu_physics.groups[self.index]
         name, moved, broken = target.name, 0, 0
         for group, roots in found:
             if group == target:
@@ -979,36 +979,36 @@ class SWISH_OT_chains_to_group(bpy.types.Operator):
             broken += _move_chains(obj, group, roots, target)
             moved += len(roots)
         for group, _roots in found:
-            if group != target and group.name in [g.name for g in obj.swish.groups]:
+            if group != target and group.name in [g.name for g in obj.waifu_physics.groups]:
                 _drop_if_empty(obj, group)
-        obj.swish.active_group = [g.name for g in obj.swish.groups].index(name)
+        obj.waifu_physics.active_group = [g.name for g in obj.waifu_physics.groups].index(name)
         live.mark_dirty(context.scene)
         self.report({"INFO"}, f"{moved} chains to '{name}'" + (f"; {broken} links removed" if broken else ""))
         return {"FINISHED"}
 
 
-class SWISH_MT_chains_to_group(bpy.types.Menu):
-    bl_idname = "SWISH_MT_chains_to_group"
+class WAIFU_PHYSICS_MT_chains_to_group(bpy.types.Menu):
+    bl_idname = "WAIFU_PHYSICS_MT_chains_to_group"
     bl_label = "Move Chains to Group"
 
     def draw(self, context):
         layout = self.layout
         obj = context.object
-        for index, group in enumerate(obj.swish.groups if obj is not None and obj.type == "ARMATURE" else ()):
-            layout.operator("swish.chains_to_group", text=group.name, icon="BONE_DATA").index = index
+        for index, group in enumerate(obj.waifu_physics.groups if obj is not None and obj.type == "ARMATURE" else ()):
+            layout.operator("waifu_physics.chains_to_group", text=group.name, icon="BONE_DATA").index = index
         layout.separator()
-        layout.operator("swish.chains_to_group", text="New Group", icon="ADD").index = -1
+        layout.operator("waifu_physics.chains_to_group", text="New Group", icon="ADD").index = -1
 
 
 def _pose_menu(self, context):
     obj = context.object
-    if obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups):
+    if obj is not None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups):
         self.layout.separator()
-        self.layout.menu("SWISH_MT_chains_to_group", icon="PHYSICS")
+        self.layout.menu("WAIFU_PHYSICS_MT_chains_to_group", icon="PHYSICS")
 
 
-class SWISH_OT_preset_apply(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.preset_apply"
+class WAIFU_PHYSICS_OT_preset_apply(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.preset_apply"
     bl_label = "Apply Preset"
     bl_description = "Set the group's physics to this preset"
     bl_options = {"REGISTER", "UNDO"}
@@ -1038,8 +1038,8 @@ class SWISH_OT_preset_apply(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_preset_save(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.preset_save"
+class WAIFU_PHYSICS_OT_preset_save(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.preset_save"
     bl_label = "Save Preset"
     bl_description = "Save the active group's settings and curves as a preset of your own, for any file"
 
@@ -1064,8 +1064,8 @@ class SWISH_OT_preset_save(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_preset_delete(bpy.types.Operator):
-    bl_idname = "swish.preset_delete"
+class WAIFU_PHYSICS_OT_preset_delete(bpy.types.Operator):
+    bl_idname = "waifu_physics.preset_delete"
     bl_label = "Delete Preset"
     bl_description = "Delete this saved preset"
 
@@ -1082,28 +1082,28 @@ class SWISH_OT_preset_delete(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_MT_presets(bpy.types.Menu):
-    bl_idname = "SWISH_MT_presets"
+class WAIFU_PHYSICS_MT_presets(bpy.types.Menu):
+    bl_idname = "WAIFU_PHYSICS_MT_presets"
     bl_label = "Presets"
 
     def draw(self, context):
         layout = self.layout
         for key, (label, _description, _values) in presets.PRESETS.items():
-            layout.operator("swish.preset_apply", text=label).preset = key
+            layout.operator("waifu_physics.preset_apply", text=label).preset = key
         saved = presets.user_presets()
         if saved:
             layout.separator()
             for name in saved:
                 row = layout.row(align=True)
-                apply = row.operator("swish.preset_apply", text=name)
+                apply = row.operator("waifu_physics.preset_apply", text=name)
                 apply.preset, apply.user = name, True
-                row.operator("swish.preset_delete", text="", icon="X", emboss=False).name = name
+                row.operator("waifu_physics.preset_delete", text="", icon="X", emboss=False).name = name
         layout.separator()
-        layout.operator("swish.preset_save", text="Save Current as Preset...", icon="ADD")
+        layout.operator("waifu_physics.preset_save", text="Save Current as Preset...", icon="ADD")
 
 
-class SWISH_OT_group_copy(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.group_copy"
+class WAIFU_PHYSICS_OT_group_copy(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.group_copy"
     bl_label = "Copy Settings"
     bl_description = "Copy the active group's physics settings and curves (not its chains) to the clipboard"
 
@@ -1112,8 +1112,8 @@ class SWISH_OT_group_copy(_GroupOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_group_paste(_GroupOperator, bpy.types.Operator):
-    bl_idname = "swish.group_paste"
+class WAIFU_PHYSICS_OT_group_paste(_GroupOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.group_paste"
     bl_label = "Paste Settings"
     bl_description = ("Paste copied physics settings and curves onto the active group "
                       "(and the groups of selected bones, with Edit Selected Groups)")
@@ -1128,14 +1128,14 @@ class SWISH_OT_group_paste(_GroupOperator, bpy.types.Operator):
             for group in _target_groups(context):
                 serialize.paste(group, text)
         except ValueError as error:
-            self.report({"ERROR"}, f"The clipboard holds no Swish settings ({error})")
+            self.report({"ERROR"}, f"The clipboard holds no Waifu Physics settings ({error})")
             return {"CANCELLED"}
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
 
-class SWISH_OT_setup_export(ExportHelper, bpy.types.Operator):
-    bl_idname = "swish.setup_export"
+class WAIFU_PHYSICS_OT_setup_export(ExportHelper, bpy.types.Operator):
+    bl_idname = "waifu_physics.setup_export"
     bl_label = "Export Setup"
     bl_description = "Save the armature's groups, links, curves and colliders to a JSON file"
     filename_ext = ".json"
@@ -1153,8 +1153,8 @@ class SWISH_OT_setup_export(ExportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_setup_import(ImportHelper, bpy.types.Operator):
-    bl_idname = "swish.setup_import"
+class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
+    bl_idname = "waifu_physics.setup_import"
     bl_label = "Import Setup"
     bl_description = "Replace the armature's groups and colliders with a saved setup"
     bl_options = {"REGISTER", "UNDO"}
@@ -1185,15 +1185,15 @@ class SWISH_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_group_remove, SWISH_OT_reset,
-           SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove,
-           SWISH_OT_link_chains, SWISH_OT_links_clear, SWISH_OT_link_remove, SWISH_OT_cache_all,
-           SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_preset_save, SWISH_OT_preset_delete, SWISH_MT_presets, SWISH_OT_group_copy, SWISH_OT_group_paste,
-           SWISH_OT_setup_export, SWISH_OT_setup_import, SWISH_OT_force_add, SWISH_OT_force_remove,
-           SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
-           SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add, SWISH_OT_chain_click,
-           SWISH_OT_chains_select, SWISH_OT_group_click, SWISH_OT_groups_merge, SWISH_OT_chains_remove, SWISH_OT_cache_toggle, SWISH_OT_armature_activate,
-           SWISH_OT_chains_to_group, SWISH_MT_chains_to_group, SWISH_OT_group_pick)
+CLASSES = (WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+           WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
+           WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
+           WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,
+           WAIFU_PHYSICS_OT_setup_export, WAIFU_PHYSICS_OT_setup_import, WAIFU_PHYSICS_OT_force_add, WAIFU_PHYSICS_OT_force_remove,
+           WAIFU_PHYSICS_OT_force_filter, WAIFU_PHYSICS_OT_sync_add, WAIFU_PHYSICS_OT_sync_remove, WAIFU_PHYSICS_OT_sync_target_add,
+           WAIFU_PHYSICS_OT_sync_target_remove, WAIFU_PHYSICS_OT_wind_preset, WAIFU_PHYSICS_OT_wind_field_add, WAIFU_PHYSICS_OT_chain_click,
+           WAIFU_PHYSICS_OT_chains_select, WAIFU_PHYSICS_OT_group_click, WAIFU_PHYSICS_OT_groups_merge, WAIFU_PHYSICS_OT_chains_remove, WAIFU_PHYSICS_OT_cache_toggle, WAIFU_PHYSICS_OT_armature_activate,
+           WAIFU_PHYSICS_OT_chains_to_group, WAIFU_PHYSICS_MT_chains_to_group, WAIFU_PHYSICS_OT_group_pick)
 
 
 def register():

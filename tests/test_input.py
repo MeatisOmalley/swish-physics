@@ -10,10 +10,10 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
-live = sys.modules["swish_physics.runtime.live"]
-from swish_physics.data import links
+addon = fresh_import()
+addon.register()
+live = sys.modules["waifu_physics.runtime.live"]
+from waifu_physics.data import links
 
 scene = bpy.context.scene
 
@@ -42,8 +42,8 @@ def armature(name, hair):
 
 def scene_with(roots, walk=True):
     """A VRoid-style pair: `vroid` copies `base` bone for bone; base walks 0.3 m over frames 1-10."""
-    scene.swish.simulate = False
-    scene.swish.use_cache = False
+    scene.waifu_physics.simulate = False
+    scene.waifu_physics.use_cache = False
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj)
     scene.frame_start, scene.frame_end = 1, 30
@@ -56,7 +56,7 @@ def scene_with(roots, walk=True):
         for frame, y in ((1, 0.0), (10, 0.3), (30, 0.3)):
             pb.location = (0.0, y, 0.0)                  # Root's local Y is world Z: up, then hold
             pb.keyframe_insert("location", frame=frame)
-    group = vroid.swish.groups.add()
+    group = vroid.waifu_physics.groups.add()
     for name in roots:
         group.roots.add().name = name
     group.dummy_bone_length = 0.05
@@ -70,7 +70,7 @@ def point_head(rt, name):
 # --- a constrained root reaches the solver (Ctrl+A made Root the group's root)
 base, vroid, group = scene_with(["Root"])
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 shown = {}
 for f in range(2, 11):
     scene.frame_set(f)
@@ -85,7 +85,7 @@ check("... and the warning names the constrained bones in the group",
 base, vroid, group = scene_with(["hair0"])
 check("a group started below the constrained bones has no warning", links.constrained_bones(vroid, group) == [])
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rt = live.runtime(scene)
 rest_offset = np.array(vroid.pose.bones["hair3"].tail) - np.array(vroid.pose.bones["hair0"].head)
 lag = []
@@ -101,7 +101,7 @@ check("... and the hair trails it while it rises", min(lag) < -0.005, min(lag))
 base, vroid, group = scene_with(["hair0"], walk=False)
 group.gravity = (3.0, 0.0, -1.0)
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rt = live.runtime(scene)
 first = rt.system.frame_pose.copy()
 for f in range(2, 31):
@@ -121,7 +121,7 @@ pb.keyframe_insert("rotation_euler", frame=1)
 pb.rotation_euler = (0.0, 0.0, 1.2)
 pb.keyframe_insert("rotation_euler", frame=20)
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rt = live.runtime(scene)
 for f in range(2, 21):
     scene.frame_set(f)
@@ -137,9 +137,9 @@ check("a keyed rotation reaches the solver as its keyed value, not the simulated
 base, vroid, group = scene_with(["hair0"], walk=False)
 group.gravity = (3.0, 0.0, -1.0)
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 first = live.runtime(scene).system.frame_pose.copy()
-check("Cache All runs", bpy.ops.swish.cache_all() == {"FINISHED"})
+check("Cache All runs", bpy.ops.waifu_physics.cache_all() == {"FINISHED"})
 rt = live.runtime(scene)
 check("Cache All fills the range", rt.cached_range() == (1, 30), rt.cached_range())
 check("... from the rest input at every step", np.allclose(rt.system.frame_pose, first, atol=1e-6),
@@ -149,6 +149,6 @@ baked = np.array(vroid.pose.bones["hair3"].tail)
 swing = float(np.abs(baked - (np.array(vroid.pose.bones["hair0"].head) + rest_offset)).max())
 check("... and plays back swung", swing > 0.02, (swing, live.runtime(scene).cached_range()))
 
-scene.swish.simulate = False
-swish.unregister()
+scene.waifu_physics.simulate = False
+addon.unregister()
 finish()

@@ -1,4 +1,4 @@
-/* One Kawaii Physics substep, in C: the fast path of Swish Physics.
+/* One Kawaii Physics substep, in C: the fast path of Waifu Physics.
  *
  * A port of SimulateOnce (AnimNode_KawaiiPhysicsSimulation.cpp:799) from
  * Kawaii Physics by pafuhana1213, MIT licence, commit 64cbc77. It does the
@@ -13,7 +13,7 @@
 #include <string.h>
 
 #define EXPORT __declspec(dllexport)
-#define SWISH_VERSION 2
+#define WAIFU_PHYSICS_VERSION 2
 
 #define KIND_BRIDGE 3
 #define KIND_INTER 2
@@ -28,7 +28,7 @@ static const float KINDA_SMALL = 1.0e-4f;
 static const double SMALL_D = (double)1.0e-8f;
 static const float UE_PI_F = 3.1415926535897932f;
 
-typedef struct SwishSystem {
+typedef struct WaifuPhysicsSystem {
     int n, n_groups, n_links, n_shapes;
     /* points */
     const int *parent, *group, *real_parent, *real_child;
@@ -59,7 +59,7 @@ typedef struct SwishSystem {
     int n_vforce, n_pforce;
     /* this substep */
     float step_dt, dt_old;
-} SwishSystem;
+} WaifuPhysicsSystem;
 
 /* --- Unreal's vector helpers (Engine/Source/Runtime/Core, UE 5.8) --------------------- */
 
@@ -155,7 +155,7 @@ static void push_out(double *x, const double *closest, float limit, const double
 
 /* --- the step's parts ------------------------------------------------------------------ */
 
-static void links(SwishSystem *s, const int *iterations)
+static void links(WaifuPhysicsSystem *s, const int *iterations)
 {
     if (s->n_links == 0)
         return;
@@ -191,7 +191,7 @@ static void links(SwishSystem *s, const int *iterations)
     }
 }
 
-static void collide_sphere(SwishSystem *s, double *x, float radius, int k, int outer)
+static void collide_sphere(WaifuPhysicsSystem *s, double *x, float radius, int k, int outer)
 {
     const double *c = s->shape_loc + 3 * k;
     double delta[3] = {x[0] - c[0], x[1] - c[1], x[2] - c[2]};
@@ -224,7 +224,7 @@ static void collide_sphere(SwishSystem *s, double *x, float radius, int k, int o
     }
 }
 
-static void collide_capsule(SwishSystem *s, double *x, float radius, int k)
+static void collide_capsule(WaifuPhysicsSystem *s, double *x, float radius, int k)
 {
     double closest[3];
     closest_on_segment(x, s->shape_start_point + 3 * k, s->shape_end_point + 3 * k, closest);
@@ -235,7 +235,7 @@ static void collide_capsule(SwishSystem *s, double *x, float radius, int k)
         push_out(x, closest, limit, s->shape_fallback_dir + 3 * k);
 }
 
-static void collide_tapered(SwishSystem *s, double *x, float radius, int k)
+static void collide_tapered(WaifuPhysicsSystem *s, double *x, float radius, int k)
 {
     double closest[3];
     float tapered_radius = s->shape_fallback_radius[k];
@@ -261,7 +261,7 @@ static void collide_tapered(SwishSystem *s, double *x, float radius, int k)
         push_out(x, closest, limit, s->shape_fallback_dir + 3 * k);
 }
 
-static void collide_box(SwishSystem *s, double *x, float radius, int k)
+static void collide_box(WaifuPhysicsSystem *s, double *x, float radius, int k)
 {
     const double *rot = s->shape_rot + 4 * k, *centre = s->shape_loc + 3 * k, *extent = s->shape_extent + 3 * k;
     double rel[3] = {x[0] - centre[0], x[1] - centre[1], x[2] - centre[2]};
@@ -308,7 +308,7 @@ static void collide_box(SwishSystem *s, double *x, float radius, int k)
         x[j] = turned[j] + centre[j];
 }
 
-static void collide_plane(SwishSystem *s, double *x, const double *previous, float radius, int k)
+static void collide_plane(WaifuPhysicsSystem *s, double *x, const double *previous, float radius, int k)
 {
     const double *n = s->shape_normal + 3 * k;
     double w = s->shape_plane_w[k];
@@ -324,7 +324,7 @@ static void collide_plane(SwishSystem *s, double *x, const double *previous, flo
             x[j] = on_plane[j] + n[j] * (double)radius;
 }
 
-static void collide(SwishSystem *s)
+static void collide(WaifuPhysicsSystem *s)
 {
     for (int i = 0; i < s->n; ++i) {
         if (s->parent[i] < 0 && s->kind[i] != KIND_BRIDGE)
@@ -345,7 +345,7 @@ static void collide(SwishSystem *s)
     }
 }
 
-static void bridge_feedback(SwishSystem *s)
+static void bridge_feedback(WaifuPhysicsSystem *s)
 {
     int any = 0;
     for (int i = 0; i < s->n && !any; ++i)
@@ -382,7 +382,7 @@ static void bridge_feedback(SwishSystem *s)
     }
 }
 
-static void limits(SwishSystem *s)
+static void limits(WaifuPhysicsSystem *s)
 {
     for (int i = 0; i < s->n; ++i) {
         int p = s->parent[i];
@@ -432,16 +432,16 @@ static void limits(SwishSystem *s)
 
 /* --- entry points ------------------------------------------------------------------------ */
 
-EXPORT int swish_version(void) { return SWISH_VERSION; }
+EXPORT int waifu_physics_version(void) { return WAIFU_PHYSICS_VERSION; }
 
 /* 1 - (1 - Stiffness) ^ Exponent per point, as ApplyStiffnessPull computes it. */
-EXPORT void swish_pull(int n, const float *stiffness, float exponent, float *out)
+EXPORT void waifu_physics_pull(int n, const float *stiffness, float exponent, float *out)
 {
     for (int i = 0; i < n; ++i)
         out[i] = 1.0f - powf(1.0f - stiffness[i], exponent);
 }
 
-EXPORT void swish_simulate_once(SwishSystem *s)
+EXPORT void waifu_physics_simulate_once(WaifuPhysicsSystem *s)
 {
     for (int i = 0; i < s->n; ++i) {
         if (s->parent[i] < 0 && s->kind[i] != KIND_BRIDGE) {

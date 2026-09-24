@@ -19,7 +19,7 @@ def group_index_of_bone(obj, name):
     while bone is not None:
         path.append(bone.name)
         bone = bone.parent
-    for index, group in enumerate(obj.swish.groups):
+    for index, group in enumerate(obj.waifu_physics.groups):
         excluded = {b.name for b in group.excluded}
         roots = {r.name for r in group.roots}
         for depth, bone_name in enumerate(path):
@@ -37,7 +37,7 @@ def groups_of_selected(context):
         obj = pose_bone.id_data
         index = group_index_of_bone(obj, pose_bone.name)
         if index >= 0:
-            group = obj.swish.groups[index]
+            group = obj.waifu_physics.groups[index]
             if all(group != g for g in found):
                 found.append(group)
     return found
@@ -48,14 +48,14 @@ def _follow():
         context = bpy.context
         obj = context.object
         if (obj is not None and obj.type == "ARMATURE" and obj.mode == "POSE"
-                and context.scene is not None and context.scene.swish.follow_selection):
+                and context.scene is not None and context.scene.waifu_physics.follow_selection):
             active = obj.data.bones.active
             name = active.name if active is not None else ""
             if name and _last_active.get(obj.name) != name:
                 _last_active[obj.name] = name
                 index = group_index_of_bone(obj, name)
-                if index >= 0 and obj.swish.active_group != index:
-                    obj.swish.active_group = index
+                if index >= 0 and obj.waifu_physics.active_group != index:
+                    obj.waifu_physics.active_group = index
     except (AttributeError, ReferenceError):
         pass
     return 0.25

@@ -9,10 +9,10 @@ from _harness import check, finish, REPO
 
 sys.path.insert(0, REPO)
 import numpy as np
-from swish_physics.solver import forces as fx, native, step_numpy, uemath as ue
-from swish_physics.solver.build import Skeleton, GroupSpec, build
-from swish_physics.solver.curves import LinearCurve
-from swish_physics.solver.system import Group
+from waifu_physics.solver import forces as fx, native, step_numpy, uemath as ue
+from waifu_physics.solver.build import Skeleton, GroupSpec, build
+from waifu_physics.solver.curves import LinearCurve
+from waifu_physics.solver.system import Group
 
 F32 = np.float32
 

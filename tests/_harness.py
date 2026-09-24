@@ -11,7 +11,7 @@ import os
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PACKAGE = "swish_physics"
+PACKAGE = "waifu_physics"
 failures = []
 
 
@@ -29,8 +29,8 @@ def fresh_import():
         sys.path.insert(0, REPO)
     for name in [m for m in sys.modules if m.split(".")[0] == PACKAGE]:
         del sys.modules[name]
-    import swish_physics
-    return swish_physics
+    import waifu_physics
+    return waifu_physics
 
 
 def finish():

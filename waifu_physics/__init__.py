@@ -1,4 +1,4 @@
-"""Swish Physics: bone-chain physics for Blender, ported from Kawaii Physics."""
+"""Waifu Physics: bone-chain physics for Blender, ported from Kawaii Physics."""
 
 # Reload Scripts re-runs this file with its old globals still in place; reload
 # the submodules too (dependencies first), so an edit takes effect without a restart.
@@ -8,17 +8,17 @@ if "bpy" in locals():
         importlib.reload(_module)
 else:
     from .solver import uemath, system, curves as solver_curves, step_numpy, native, build
-    from .data import props, curves, colliders, links, serialize, presets
+    from .data import props, curves, colliders, links, serialize, presets, legacy
     from .runtime import keys, io, cache, live
     from .ui import selection, ops, manager, panels, draw
 
 import bpy  # noqa: E402,F401  (its presence marks a reload, above)
 
 _RELOAD_ORDER = (uemath, system, solver_curves, step_numpy, native, build, props, curves, colliders, links, serialize,
-                 presets, keys, io, cache, live, selection, ops, manager, panels, draw)
+                 presets, legacy, keys, io, cache, live, selection, ops, manager, panels, draw)
 
 # Registered in this order, unregistered in reverse.
-MODULES = (props, live, selection, ops, manager, panels, draw)
+MODULES = (props, legacy, live, selection, ops, manager, panels, draw)   # legacy first: it migrates old files
 
 
 def register():

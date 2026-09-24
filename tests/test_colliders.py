@@ -10,11 +10,11 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Quaternion, Vector
 
-swish = fresh_import()
-swish.register()
-from swish_physics.data import colliders
-from swish_physics.solver import uemath as ue
-live = sys.modules["swish_physics.runtime.live"]
+addon = fresh_import()
+addon.register()
+from waifu_physics.data import colliders
+from waifu_physics.solver import uemath as ue
+live = sys.modules["waifu_physics.runtime.live"]
 scene = bpy.context.scene
 CM = 100.0
 
@@ -52,7 +52,7 @@ rig = armature("rig")
 col = colliders.add(rig, "anchor", "Sphere")
 check("a collider is a wire mesh parented to its bone, never rendered",
       col.parent == rig and col.parent_type == "BONE" and col.parent_bone == "anchor" and col.hide_render
-      and col.display_type == "WIRE" and col.swish_collider.is_collider)
+      and col.display_type == "WIRE" and col.waifu_physics_collider.is_collider)
 col.scale = (1.5, 0.8, 1.2)
 col.rotation_euler = (0.3, -0.2, 0.5)
 for shape in colliders.SHAPES:
@@ -98,7 +98,7 @@ check("a capsule lies along its bone: Kawaii's capsule axis is the bone's Y", np
 
 # --- a falling chain rests on a capsule under it
 bpy.data.objects.remove(col)
-g = rig.swish.groups.add()
+g = rig.waifu_physics.groups.add()
 g.roots.add().name = "c0"
 g.dummy_bone_length = 0.1
 g.radius = 0.02
@@ -108,7 +108,7 @@ floor.matrix_world = Matrix.Translation((0.35, 0.0, 1.8)) @ Matrix.Rotation(math
 colliders.set_value(floor, "Radius", 0.06)
 colliders.set_value(floor, "Length", 0.8)
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 for frame in range(1, 60):
     scene.frame_set(frame)
 rt = live.runtime(scene)
@@ -124,10 +124,10 @@ check("every chain point stays a point radius clear of the capsule", gaps.min() 
 check("... after resting on it (the chain fell onto it)", (rt.system.loc[:, 2] < 200.0 - 1.0).any())
 
 # --- disabled colliders are ignored
-floor.swish_collider.enabled = False
+floor.waifu_physics_collider.enabled = False
 scene.frame_set(60)
 check("a disabled collider is left out", len(rt.system.shape_type) == 0, len(rt.system.shape_type))
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
 # --- a group can use another armature's colliders, placed in its own armature's space
 body = armature("body", chain=False)
@@ -135,7 +135,7 @@ ball = colliders.add(body, "anchor", "Sphere")
 body.location = (1.0, 2.0, 0.0)
 rig.rotation_euler = (0.0, 0.0, 0.7)
 g.collider_sets.add().armature = body
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 scene.frame_set(2)
 rt = live.runtime(scene)
 shapes = rt.system.shape_type
@@ -144,7 +144,7 @@ expected = (rig.matrix_world.inverted() @ ball.matrix_world).translation * CM
 check("another armature's collider joins the group through a collider set", len(shapes) == 1, len(shapes))
 check("... in the group's armature space", np.allclose(rt.system.shape_loc[0], expected, atol=1e-4),
       (rt.system.shape_loc[0], tuple(expected)))
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
 # --- keyframed collider sizes: the solver reads the animated value, and the drawing follows
 md, ident = colliders.input_path(ball, "Radius")
@@ -160,5 +160,5 @@ drawn_radius = np.linalg.norm(drawn - np.array(ball.matrix_world.translation), a
 check("a keyframed collider radius reaches the solver", abs(radius_at_10 - 20.0) < 1e-3, radius_at_10)
 check("... and the drawing follows it", abs(drawn_radius - 0.2) < 1e-4, drawn_radius)
 
-swish.unregister()
+addon.unregister()
 finish()

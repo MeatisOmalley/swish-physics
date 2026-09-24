@@ -2,10 +2,10 @@
 
     python tools/release.py
 
-Writes dist/swish_physics-<version>.zip. The C step is compiled with the
-Visual C++ build tools into swish_physics/bin/swish_step.dll when its source
+Writes dist/waifu_physics-<version>.zip. The C step is compiled with the
+Visual C++ build tools into waifu_physics/bin/waifu_physics_step.dll when its source
 exists; on other platforms, or without the build tools, the package ships
-without it and the numpy step is used. SWISH_BLENDER and SWISH_VCVARS
+without it and the numpy step is used. WAIFU_PHYSICS_BLENDER and WAIFU_PHYSICS_VCVARS
 override the default Blender and vcvars64.bat locations.
 """
 import os
@@ -13,13 +13,13 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PACKAGE = os.path.join(REPO, "swish_physics")
-BLENDER = os.environ.get("SWISH_BLENDER",
+PACKAGE = os.path.join(REPO, "waifu_physics")
+BLENDER = os.environ.get("WAIFU_PHYSICS_BLENDER",
                          r"C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe")
-VCVARS = os.environ.get("SWISH_VCVARS", r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+VCVARS = os.environ.get("WAIFU_PHYSICS_VCVARS", r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
                                         r"\VC\Auxiliary\Build\vcvars64.bat")
 SOURCE = os.path.join(PACKAGE, "solver", "step.c")
-DLL = os.path.join(PACKAGE, "bin", "swish_step.dll")
+DLL = os.path.join(PACKAGE, "bin", "waifu_physics_step.dll")
 
 
 def build_dll():
@@ -35,7 +35,7 @@ def build_dll():
     # /fp:precise and no /arch: SSE2 arithmetic without FMA contraction, so floats round
     # as Kawaii's C++ does and the C step agrees with step_numpy to the bit.
     command = (f'"{VCVARS}" >nul && cl /nologo /O2 /fp:precise /LD "{SOURCE}" '
-               f'/Fo"{build_dir}\\\\" /Fe"{DLL}" /link /IMPLIB:"{build_dir}\\swish_step.lib"')
+               f'/Fo"{build_dir}\\\\" /Fe"{DLL}" /link /IMPLIB:"{build_dir}\\waifu_physics_step.lib"')
     proc = subprocess.run(f'cmd /s /c "{command}"', shell=True, capture_output=True, text=True)
     print(proc.stdout.strip())
     if proc.returncode != 0 or not os.path.exists(DLL):

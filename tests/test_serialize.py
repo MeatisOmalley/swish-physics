@@ -12,9 +12,9 @@ import bpy
 import numpy as np
 from mathutils import Euler, Matrix, Vector
 
-swish = fresh_import()
-swish.register()
-from swish_physics.data import colliders, curves, presets, serialize
+addon = fresh_import()
+addon.register()
+from waifu_physics.data import colliders, curves, presets, serialize
 
 scene = bpy.context.scene
 
@@ -45,7 +45,7 @@ def tips(obj):
 
 source = armature("source")
 body = armature("body")                 # a second armature whose colliders the skirt also meets
-group = source.swish.groups.add()
+group = source.waifu_physics.groups.add()
 group.name = "Skirt"
 for k in range(4):
     group.roots.add().name = f"p{k}_0"
@@ -115,7 +115,7 @@ check("a collider comes back on its bone at the same place",
                                                       atol=1e-6))
 check("... with its shape", colliders.values(restored) == colliders.values(ball),
       (colliders.values(restored), colliders.values(ball)))
-check("a curve comes back point for point", curves.curve(target.swish.groups[0], "stiffness").keys() == sampled.keys())
+check("a curve comes back point for point", curves.curve(target.waifu_physics.groups[0], "stiffness").keys() == sampled.keys())
 
 # --- the same setup moves the same: posed and animated identically, bit for bit
 for obj in (source, target):
@@ -130,12 +130,12 @@ for obj in (source, target):
     pb.rotation_euler = (0.0, 0.0, 0.8)
     pb.keyframe_insert("rotation_euler", frame=12)
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 motion = {}
 for frame in range(1, 25):
     scene.frame_set(frame)
     motion[frame] = (tips(source), tips(target))
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 check("the loaded setup simulates exactly as the original",
       all(np.array_equal(a, b) for a, b in motion.values()),
       max(float(np.abs(a - b).max()) for a, b in motion.values()))
@@ -154,7 +154,7 @@ except ValueError:
     check("anything else is refused", True)
 
 # --- presets
-hair = source.swish.groups.add()
+hair = source.waifu_physics.groups.add()
 hair.use_radius_curve = True
 hair.damping = 0.9
 presets.apply(hair, "HAIR")
@@ -169,28 +169,28 @@ check("the skirt preset adds bridge points", hair.bridge_count == 1 and math.isc
 
 # --- the operators: export, import, paste
 bpy.context.view_layer.objects.active = source
-path = os.path.join(tempfile.gettempdir(), "swish_setup.json")
-check("Export Setup writes a file", bpy.ops.swish.setup_export(filepath=path) == {"FINISHED"}
+path = os.path.join(tempfile.gettempdir(), "waifu_physics_setup.json")
+check("Export Setup writes a file", bpy.ops.waifu_physics.setup_export(filepath=path) == {"FINISHED"}
       and json.load(open(path, encoding="utf-8"))["groups"][0]["name"] == "Skirt")
 fresh = armature("fresh")
 bpy.context.view_layer.objects.active = fresh
-check("Import Setup loads it", bpy.ops.swish.setup_import(filepath=path) == {"FINISHED"}
-      and [g.name for g in fresh.swish.groups] == ["Skirt", "Group"])
-fresh.swish.active_group = 1
+check("Import Setup loads it", bpy.ops.waifu_physics.setup_import(filepath=path) == {"FINISHED"}
+      and [g.name for g in fresh.waifu_physics.groups] == ["Skirt", "Group"])
+fresh.waifu_physics.active_group = 1
 bpy.ops.object.mode_set(mode="POSE")
 for pb in fresh.pose.bones:
     pb.select = False
-result = bpy.ops.swish.group_paste(text=serialize.settings_text(group))
-pasted = fresh.swish.groups[1]
+result = bpy.ops.waifu_physics.group_paste(text=serialize.settings_text(group))
+pasted = fresh.waifu_physics.groups[1]
 check("Paste Settings copies settings and curves but not chains",
       result == {"FINISHED"} and math.isclose(pasted.damping, 0.23, rel_tol=1e-6) and pasted.use_stiffness_curve
       and curves.curve(pasted, "stiffness").keys() == sampled.keys() and len(pasted.roots) == 0)
 try:
-    refused = bpy.ops.swish.group_paste(text="hello") == {"CANCELLED"}
+    refused = bpy.ops.waifu_physics.group_paste(text="hello") == {"CANCELLED"}
 except RuntimeError as error:                   # an operator's error report raises when run from a script
-    refused = "no Swish settings" in str(error)
+    refused = "no Waifu Physics settings" in str(error)
 check("... and refuses anything else", refused and math.isclose(pasted.damping, 0.23, rel_tol=1e-6))
 bpy.ops.object.mode_set(mode="OBJECT")
 
-swish.unregister()
+addon.unregister()
 finish()

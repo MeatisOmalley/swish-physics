@@ -14,7 +14,7 @@ import numpy as np
 
 
 def chain_subtree(obj, root, excluded=()):
-    """Every bone of the chain under root, root first: what Swish simulates for it."""
+    """Every bone of the chain under root, root first: what Waifu Physics simulates for it."""
     excluded = set(excluded)
     found, stack = [], [obj.pose.bones.get(root)]
     while stack:

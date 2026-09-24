@@ -106,13 +106,13 @@ class Layout:
         # The rows: every group, and the chains of the open ones.
         rows = []
         if obj is not None:
-            for index, group in enumerate(obj.swish.groups):
+            for index, group in enumerate(obj.waifu_physics.groups):
                 rows.append(("group", index, "", group))
                 if group.show_chains:
                     rows += [("chain", index, root.name, group) for root in group.roots]
         self.dragging_chains = drag is not None and drag.kind == "chains"
         footer = unit if self.dragging_chains else 0.0
-        note = unit if obj is None else unit * 2.5 if not len(obj.swish.groups) else 0.0
+        note = unit if obj is None else unit * 2.5 if not len(obj.waifu_physics.groups) else 0.0
         spare = unit * (0.6 if self.dragging_chains else 1.0)      # empty space under the rows, to drop on
         body_top = y
         if height_unscaled is not None:                            # resized: the height is the user's
@@ -372,13 +372,13 @@ def draw(context):
     obj = layout.obj
     if obj is None:
         texts.append((frame.x0 + 10 * s, title.y0 - unit, "Make an armature active", colours["dim"]))
-    elif not len(obj.swish.groups):
+    elif not len(obj.waifu_physics.groups):
         texts.append((frame.x0 + 10 * s, title.y0 - 2.4 * unit, "No groups yet: select bones in Pose",
                       colours["dim"]))
         texts.append((frame.x0 + 10 * s, title.y0 - 3.2 * unit, "Mode, then + in the sidebar's Groups",
                       colours["dim"]))
 
-    active = obj.swish.active_group if obj is not None else -1
+    active = obj.waifu_physics.active_group if obj is not None else -1
     for row in layout.rows:
         mid = (row.y0 + row.y1) / 2
         if row.kind == "newzone":
@@ -399,7 +399,7 @@ def draw(context):
         text_colour = colours["text_sel"] if picked else colours["text"]
         count_right = row.x1 - 8 * s
         if row.kind == "group":
-            group = obj.swish.groups[row.group]
+            group = obj.waifu_physics.groups[row.group]
             _arrow(canvas, row.x0 + 12 * s, mid, s, group.show_chains, colours["dim"] if hovered is None
                    or hovered.kind != "fold" or hovered.group != row.group else colours["text"])
             is_active = row.group == active
@@ -434,9 +434,9 @@ def draw(context):
 
     if drag is not None:                                        # what is being dragged, by the mouse
         text = (f"{drag.count} chain{'' if drag.count == 1 else 's'}" if drag.kind == "chains"
-                else f"Merge '{obj.swish.groups[drag.group].name}'" if obj is not None else "")
+                else f"Merge '{obj.waifu_physics.groups[drag.group].name}'" if obj is not None else "")
         if drag.kind == "group" and target is not None:
-            text += f" into '{obj.swish.groups[target[1]].name}'"
+            text += f" into '{obj.waifu_physics.groups[target[1]].name}'"
         width = blf.dimensions(0, text)[0]
         x, y = drag.x + 14 * s, drag.y - 20 * s
         canvas.rect(x - 6 * s, y - 6 * s, x + width + 6 * s, y + 14 * s, colours["sel"][:3] + (1.0,), radius=3 * s)
@@ -453,12 +453,12 @@ def draw(context):
 # --------------------------------------------------------------------------- input: the gizmo over the manager
 
 def _call(name, **properties):
-    """Run one of Swish's operators as one undo step (from Python, bpy.ops pushes none unless asked)."""
-    getattr(bpy.ops.swish, name)("EXEC_DEFAULT", True, **properties)
+    """Run one of Waifu Physics' operators as one undo step (from Python, bpy.ops pushes none unless asked)."""
+    getattr(bpy.ops.waifu_physics, name)("EXEC_DEFAULT", True, **properties)
 
 
-class SWISH_GT_chain_manager(bpy.types.Gizmo):
-    bl_idname = "SWISH_GT_chain_manager"
+class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
+    bl_idname = "WAIFU_PHYSICS_GT_chain_manager"
 
     def draw(self, context):
         draw(context)
@@ -501,7 +501,7 @@ class SWISH_GT_chain_manager(bpy.types.Gizmo):
             else:
                 _call("chains_remove")
         elif kind == "fold":
-            group = obj.swish.groups[item.group]
+            group = obj.waifu_physics.groups[item.group]
             group.show_chains = not group.show_chains
         elif kind == "chain":
             picked = (item.group, item.root) in layout.chosen
@@ -586,9 +586,9 @@ class SWISH_GT_chain_manager(bpy.types.Gizmo):
         context.area.tag_redraw()
 
 
-class SWISH_GGT_chain_manager(bpy.types.GizmoGroup):
-    bl_idname = "SWISH_GGT_chain_manager"
-    bl_label = "Swish Chain Manager"
+class WAIFU_PHYSICS_GGT_chain_manager(bpy.types.GizmoGroup):
+    bl_idname = "WAIFU_PHYSICS_GGT_chain_manager"
+    bl_label = "Waifu Physics Chain Manager"
     bl_space_type = "VIEW_3D"
     bl_region_type = "WINDOW"
     bl_options = {"PERSISTENT", "SHOW_MODAL_ALL"}
@@ -599,29 +599,29 @@ class SWISH_GGT_chain_manager(bpy.types.GizmoGroup):
 
     @classmethod
     def setup_keymap(cls, keyconfig):
-        keymap = keyconfig.keymaps.new(name="Swish Chain Manager", space_type="EMPTY", region_type="WINDOW")
+        keymap = keyconfig.keymaps.new(name="Waifu Physics Chain Manager", space_type="EMPTY", region_type="WINDOW")
         items = keymap.keymap_items
         items.new("gizmogroup.gizmo_tweak", "LEFTMOUSE", "PRESS", any=True)
-        items.new("swish.group_rename", "LEFTMOUSE", "DOUBLE_CLICK")
-        items.new("swish.group_rename", "F2", "PRESS")
-        items.new("swish.manager_scroll", "WHEELUPMOUSE", "PRESS", any=True).properties.rows = -2
-        items.new("swish.manager_scroll", "WHEELDOWNMOUSE", "PRESS", any=True).properties.rows = 2
-        items.new("swish.manager_scroll", "TRACKPADPAN", "ANY", any=True)
-        items.new("swish.chains_remove", "X", "PRESS")
-        items.new("swish.chains_remove", "DEL", "PRESS")
-        items.new("swish.chains_select", "A", "PRESS").properties.action = "ALL"
-        items.new("swish.chains_select", "A", "PRESS", alt=True).properties.action = "NONE"
+        items.new("waifu_physics.group_rename", "LEFTMOUSE", "DOUBLE_CLICK")
+        items.new("waifu_physics.group_rename", "F2", "PRESS")
+        items.new("waifu_physics.manager_scroll", "WHEELUPMOUSE", "PRESS", any=True).properties.rows = -2
+        items.new("waifu_physics.manager_scroll", "WHEELDOWNMOUSE", "PRESS", any=True).properties.rows = 2
+        items.new("waifu_physics.manager_scroll", "TRACKPADPAN", "ANY", any=True)
+        items.new("waifu_physics.chains_remove", "X", "PRESS")
+        items.new("waifu_physics.chains_remove", "DEL", "PRESS")
+        items.new("waifu_physics.chains_select", "A", "PRESS").properties.action = "ALL"
+        items.new("waifu_physics.chains_select", "A", "PRESS", alt=True).properties.action = "NONE"
         return keymap
 
     def setup(self, context):
-        gizmo = self.gizmos.new(SWISH_GT_chain_manager.bl_idname)
+        gizmo = self.gizmos.new(WAIFU_PHYSICS_GT_chain_manager.bl_idname)
         gizmo.use_draw_modal = True               # drawn while its own drag is on, too
 
 
 # --------------------------------------------------------------------------- operators
 
-class SWISH_OT_chain_manager(bpy.types.Operator):
-    bl_idname = "swish.chain_manager"
+class WAIFU_PHYSICS_OT_chain_manager(bpy.types.Operator):
+    bl_idname = "waifu_physics.chain_manager"
     bl_label = "Chain Manager"
     bl_description = ("Show or hide the chain manager over this viewport: the groups as folders, to select "
                       "chains, drag them between groups, merge groups and delete chains")
@@ -635,8 +635,8 @@ class SWISH_OT_chain_manager(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_manager_scroll(bpy.types.Operator):
-    bl_idname = "swish.manager_scroll"
+class WAIFU_PHYSICS_OT_manager_scroll(bpy.types.Operator):
+    bl_idname = "waifu_physics.manager_scroll"
     bl_label = "Scroll Chain Manager"
     bl_options = {"INTERNAL"}
 
@@ -661,8 +661,8 @@ class SWISH_OT_manager_scroll(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class SWISH_OT_group_rename(bpy.types.Operator):
-    bl_idname = "swish.group_rename"
+class WAIFU_PHYSICS_OT_group_rename(bpy.types.Operator):
+    bl_idname = "waifu_physics.group_rename"
     bl_label = "Rename Group"
     bl_description = "Rename a group"
     bl_options = {"REGISTER", "UNDO"}
@@ -683,21 +683,21 @@ class SWISH_OT_group_rename(bpy.types.Operator):
             if item is None or item.kind != "group":
                 return {"PASS_THROUGH"}           # a double-click elsewhere is a click
             self.index = item.group
-        if not 0 <= self.index < len(obj.swish.groups):
+        if not 0 <= self.index < len(obj.waifu_physics.groups):
             return {"CANCELLED"}
-        self.name = obj.swish.groups[self.index].name
+        self.name = obj.waifu_physics.groups[self.index].name
         return context.window_manager.invoke_props_dialog(self, title="Rename Group")
 
     def execute(self, context):
         obj = active_armature(context)
-        if not 0 <= self.index < len(obj.swish.groups) or not self.name.strip():
+        if not 0 <= self.index < len(obj.waifu_physics.groups) or not self.name.strip():
             return {"CANCELLED"}
-        obj.swish.groups[self.index].name = self.name.strip()
+        obj.waifu_physics.groups[self.index].name = self.name.strip()
         return {"FINISHED"}
 
 
-CLASSES = (SWISH_OT_chain_manager, SWISH_OT_manager_scroll, SWISH_OT_group_rename, SWISH_GT_chain_manager,
-           SWISH_GGT_chain_manager)
+CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIFU_PHYSICS_OT_group_rename, WAIFU_PHYSICS_GT_chain_manager,
+           WAIFU_PHYSICS_GGT_chain_manager)
 
 
 @bpy.app.handlers.persistent

@@ -1,12 +1,12 @@
-# Swish Physics
+# Waifu Physics
 
 Bone-chain physics for Blender: hair, skirts, tails and accessories. The simulation is a faithful port of [Kawaii Physics](https://github.com/pafuhana1213/KawaiiPhysics), the Unreal Engine plugin, so physics tuned in Blender behaves the same in a game that runs Kawaii Physics. Around it sit the things Blender needs: keyframed settings, live playback with an optional cache, collider objects and selection-based editing.
 
-**Status:** v1.1, every phase of the [plan](docs/superpowers/plans/2026-09-23-swish-physics.md) done: the simulation, colliders, links, the cache, saved setups, external forces, wind and sync bones.
+**Status:** v1.1, every phase of the [plan](docs/superpowers/plans/2026-09-23-waifu-physics.md) done: the simulation, colliders, links, the cache, saved setups, external forces, wind and sync bones.
 
 ## Using it
 
-Everything is in the 3D Viewport sidebar, on the **Swish** tab.
+Everything is in the 3D Viewport sidebar, on the **Waifu Physics** tab.
 
 1. Select an armature, enter Pose Mode, select the first bone of each chain and click **New Group**. A group is one Kawaii Physics node: one set of settings for all of its chains.
 2. Pick a **Preset** (Hair or Skirt) as a starting point, then press **Simulate** and play the timeline.
@@ -17,9 +17,9 @@ The group list is a tree of armatures and their groups; the cursor toggle beside
 6. Push chains around in **Forces and Wind**. There are Kawaii's five external forces: Basic, Gravity, Curve, Wind and Procedural Wind. There is also a simple constant force, and scene wind that gusts. Blender's Wind force fields are the scene's wind.
 7. Keep a skirt out of the legs with **Sync Bones**. Make a thigh the active bone, select skirt bones, and click **+**. The skirt's pose then follows the thigh's movement.
 
-The input is the pose Blender evaluates each frame. It includes animation, constraints, drivers and IK, so hair under a head that copies another rig follows it. Before each frame, Swish clears its own output from the chain bones, so last frame's physics never feeds back. Keyed chain channels keep their animation, and unkeyed ones start from rest. Start a group below any constrained bones: Blender applies a constraint after the simulation's output, so a constrained bone in a chain cannot be moved. The panel warns when a group contains one.
+The input is the pose Blender evaluates each frame. It includes animation, constraints, drivers and IK, so hair under a head that copies another rig follows it. Before each frame, Waifu Physics clears its own output from the chain bones, so last frame's physics never feeds back. Keyed chain channels keep their animation, and unkeyed ones start from rest. Start a group below any constrained bones: Blender applies a constraint after the simulation's output, so a constrained bone in a chain cannot be moved. The panel warns when a group contains one.
 
-**Speed.** Blender evaluates each frame once, whether Swish is off, live or cached. While simulating, Swish takes over the chain bones' keyframes: it mutes those F-curves and samples them itself, so Blender keeps what Swish writes before each frame. The keys still drive the simulation, and they are unmuted when Simulate is off, in every saved file, and on load after a crash. Live playback solves before Blender evaluates the frame, so the body's movement reaches the hair one frame late. Jumps and the first frame use the exact, slower path. Cache All evaluates only what the simulation reads (the armatures, their constraint targets, colliders and wind fields) and hides everything else while it bakes. A chain channel animated by an NLA strip or a driver can't be taken over, and that rig falls back to two evaluations per frame.
+**Speed.** Blender evaluates each frame once, whether Waifu Physics is off, live or cached. While simulating, Waifu Physics takes over the chain bones' keyframes: it mutes those F-curves and samples them itself, so Blender keeps what Waifu Physics writes before each frame. The keys still drive the simulation, and they are unmuted when Simulate is off, in every saved file, and on load after a crash. Live playback solves before Blender evaluates the frame, so the body's movement reaches the hair one frame late. Jumps and the first frame use the exact, slower path. Cache All evaluates only what the simulation reads (the armatures, their constraint targets, colliders and wind fields) and hides everything else while it bakes. A chain channel animated by an NLA strip or a driver can't be taken over, and that rig falls back to two evaluations per frame.
 
 **Playback.** Live playback simulates as the timeline plays. **Cache** bakes the whole frame range on the scene's fixed simulation clock, to scrub and render. Click it again to clear the bake and go back to live. Any change that affects the result clears the bake too. Frames outside the range show the unsimulated pose.
 
@@ -35,7 +35,7 @@ To see the same motion in a game:
 - Convert lengths to centimetres: Blender units × 100 × the scene's unit scale. Gravity, radius, tip length and teleport distance are lengths. Damping, stiffness and world damping have no units.
 - Curves are exported as the 65 linear keys the solver used, which Kawaii's `FRichCurve` evaluates to the same values.
 
-Where Swish's defaults and conventions differ from Kawaii's:
+Where Waifu Physics' defaults and conventions differ from Kawaii's:
 
 - **Gravity.** It is on by default: (0, 0, −1) scaled by the scene's gravity. Kawaii's default is zero.
 - **Steps.** Steps per second and steps per frame are scene settings, as they are project settings in Kawaii. Live preview may raise the rate or the per-frame step cap to keep up with Blender's timeline; Cache All uses the configured fixed rate without dropping elapsed time.
@@ -49,16 +49,16 @@ Where Swish's defaults and conventions differ from Kawaii's:
 ```text
 python tools/run_tests.py            run every headless test in Blender
 python tools/run_tests.py register   run the tests whose file name contains "register"
-python tools/release.py              compile the C step (Windows), validate, build dist/swish_physics-<version>.zip
-python tools/release.py --dll-only   only compile the C step into swish_physics/bin/
+python tools/release.py              compile the C step (Windows), validate, build dist/waifu_physics-<version>.zip
+python tools/release.py --dll-only   only compile the C step into waifu_physics/bin/
 ```
 
-`SWISH_BLENDER` points the tools at a Blender executable (default: the Steam install). `SWISH_VCVARS` points the release script at `vcvars64.bat` (default: Visual Studio 2022 Build Tools).
+`WAIFU_PHYSICS_BLENDER` points the tools at a Blender executable (default: the Steam install). `WAIFU_PHYSICS_VCVARS` points the release script at `vcvars64.bat` (default: Visual Studio 2022 Build Tools).
 
 Tests are Blender scripts in `tests/`. Each prints one `[PASS]` or `[FAIL]` line per check and exits non-zero on failure; `tests/_harness.py` has the helpers.
 
 ## Credits and licence
 
-The simulation follows Kawaii Physics by pafuhana1213, MIT licence, at commit `64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21`. Its notice ships in [`swish_physics/THIRD_PARTY_NOTICES.txt`](swish_physics/THIRD_PARTY_NOTICES.txt). The interface takes ideas from Swingy Bone Physics but none of its code.
+The simulation follows Kawaii Physics by pafuhana1213, MIT licence, at commit `64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21`. Its notice ships in [`waifu_physics/THIRD_PARTY_NOTICES.txt`](waifu_physics/THIRD_PARTY_NOTICES.txt). The interface takes ideas from Swingy Bone Physics but none of its code.
 
-Swish Physics is GPL-3.0-or-later ([LICENSE](LICENSE)), like other Blender add-ons.
+Waifu Physics is GPL-3.0-or-later ([LICENSE](LICENSE)), like other Blender add-ons.

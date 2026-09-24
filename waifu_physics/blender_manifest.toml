@@ -1,8 +1,8 @@
 schema_version = "1.0.0"
 
-id = "swish_physics"
+id = "waifu_physics"
 version = "1.1.0"
-name = "Swish Physics"
+name = "Waifu Physics"
 tagline = "Fast bone-chain physics for hair, skirts and accessories"
 maintainer = "MeatisOmalley"
 type = "add-on"

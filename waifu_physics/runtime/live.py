@@ -50,7 +50,7 @@ def invalidate(scene=None):
 def is_cached(scene):
     """The scene plays a baked cache (Cache on and the bake still valid); otherwise it plays live."""
     current = _runtimes.get(scene.as_pointer())
-    return bool(scene.swish.simulate and scene.swish.use_cache and current is not None
+    return bool(scene.waifu_physics.simulate and scene.waifu_physics.use_cache and current is not None
                 and current.cache_mode == "canonical" and current.cache)
 
 
@@ -66,7 +66,7 @@ def mark_dirty(scene=None):
 def armatures(scene):
     """Armature objects in the scene with at least one enabled group."""
     return [obj for obj in scene.objects if obj.type == "ARMATURE"
-            and any(group.enabled and len(group.roots) for group in obj.swish.groups)]
+            and any(group.enabled and len(group.roots) for group in obj.waifu_physics.groups)]
 
 
 class Runtime:
@@ -78,11 +78,11 @@ class Runtime:
         self.scene_pointer = scene.as_pointer()
         self.cm = io.cm_per_unit(scene)
         self.rigs = [io.Rig(obj) for obj in armatures(scene)]
-        self.group_props = []          # (rig index, group index in obj.swish.groups)
+        self.group_props = []          # (rig index, group index in obj.waifu_physics.groups)
         names, parents, ref_length, pose, rotation = [], [], [], [], []
         offsets = []
         for rig in self.rigs:
-            groups = [props for props in rig.obj.swish.groups if props.enabled and len(props.roots)]
+            groups = [props for props in rig.obj.waifu_physics.groups if props.enabled and len(props.roots)]
             rig.set_chain(rig.subtree([root.name for props in groups for root in props.roots],
                                       [bone.name for props in groups for bone in props.excluded]))
         self.stepped_ahead = None
@@ -100,12 +100,12 @@ class Runtime:
         self.offsets = offsets
         specs = []
         for r, rig in enumerate(self.rigs):
-            for g, props in enumerate(rig.obj.swish.groups):
+            for g, props in enumerate(rig.obj.waifu_physics.groups):
                 if not props.enabled or not len(props.roots):
                     continue
                 self.group_props.append((r, g))
                 specs.append(self._spec(r, props))
-        scene_settings = scene.swish
+        scene_settings = scene.waifu_physics
         self.system = build(Skeleton(names, parents, ref_length,
                                      np.concatenate(pose) if pose else np.zeros((0, 3)),
                                      np.concatenate(rotation) if rotation else np.zeros((0, 4))),
@@ -124,8 +124,8 @@ class Runtime:
         self.bone_of_point = combined - np.array(offsets)[self.rig_of_point] if len(offsets) else combined
         for r, rig in enumerate(self.rigs):
             rig.set_chain(self.bone_of_point[self.rig_of_point == r])
-            rig.keys.mute()                # Swish samples the chains' keys itself while it simulates
-        # One evaluation a frame needs every chain's keys to be Swish's (keys.py).
+            rig.keys.mute()                # Waifu Physics samples the chains' keys itself while it simulates
+        # One evaluation a frame needs every chain's keys to be Waifu Physics' (keys.py).
         self.fast = all(rig.keys.ownable for rig in self.rigs)
         # Force filters and sync targets name bones; the points of each group by bone name.
         for i in self.real:
@@ -234,7 +234,7 @@ class Runtime:
 
     def _group(self, g):
         r, index = self.group_props[g]
-        return self.rigs[r], self.rigs[r].obj.swish.groups[index]
+        return self.rigs[r], self.rigs[r].obj.waifu_physics.groups[index]
 
     # ------------------------------------------------------------------ frames
     def _read(self, scene, sample_number=None, ahead=False):
@@ -423,7 +423,7 @@ class Runtime:
                    for rig in self.rigs for kind in ("location", "rotation", "scale"))
 
     def keys_changed(self):
-        """Keys added to or removed from a chain: the curves Swish owns must be found again."""
+        """Keys added to or removed from a chain: the curves Waifu Physics owns must be found again."""
         return any(rig.keys.count(rig) != rig.keys.total for rig in self.rigs)
 
 
@@ -452,7 +452,7 @@ def _essentials(scene, rt):
                 for variable in driver.driver.variables:
                     stack += [t.id for t in variable.targets if isinstance(t.id, bpy.types.Object)]
     for obj in scene.objects:
-        if obj.swish_collider.is_collider or (obj.field is not None and obj.field.type == "WIND"):
+        if obj.waifu_physics_collider.is_collider or (obj.field is not None and obj.field.type == "WIND"):
             needed.add(obj.name)
             parent = obj.parent
             while parent is not None:
@@ -530,10 +530,10 @@ def bake_cache(scene, progress=None):
     """
     global _building_cache
     if _building_cache:
-        raise RuntimeError("A Swish cache build is already running")
+        raise RuntimeError("A Waifu Physics cache build is already running")
     key = scene.as_pointer()
     original = scene.frame_current
-    rate = scene.swish.target_framerate
+    rate = scene.waifu_physics.target_framerate
     fps = scene.render.fps / scene.render.fps_base
     if rate < 1 or fps <= 0:
         raise ValueError("Invalid simulation or scene frame rate")
@@ -549,7 +549,7 @@ def bake_cache(scene, progress=None):
         start, end = scene.frame_start, scene.frame_end
         lean = lean_evaluation(scene, rt).__enter__()
         scene.frame_set(start)
-        if not scene.swish.simulate:
+        if not scene.waifu_physics.simulate:
             raise RuntimeError("Simulate must stay enabled while building the cache")
         rt.reset(scene)
         earlier = frame_cache.Snapshot(rt)
@@ -560,7 +560,7 @@ def bake_cache(scene, progress=None):
             position = start + tick * fps / rate
             whole = math.floor(position + 1e-10)
             scene.frame_set(whole, subframe=position - whole)
-            if not scene.swish.simulate:
+            if not scene.waifu_physics.simulate:
                 raise RuntimeError("Simulate must stay enabled while building the cache")
             if key in _dirty or "all" in _dirty:
                 raise RuntimeError("A group's structure changed while building the cache")
@@ -615,7 +615,7 @@ def set_simulating(scene, on):
 def _frame_changing(scene, depsgraph=None):
     """Before Blender evaluates a frame: write a cached frame, so renders see it; otherwise clear
     last frame's physics from the chains, so the evaluated pose is a clean input."""
-    settings = scene.swish
+    settings = scene.waifu_physics
     if not settings.simulate:
         return
     key = scene.as_pointer()
@@ -647,7 +647,7 @@ def _frame_changing(scene, depsgraph=None):
 def _frame_changed(scene, depsgraph=None):
     if _building_cache:
         return
-    settings = scene.swish
+    settings = scene.waifu_physics
     if not settings.simulate:
         return
     rt = runtime(scene)

@@ -10,7 +10,7 @@ COLOURS = ((0.35, 0.8, 1.0, 1.0), (1.0, 0.6, 0.25, 1.0), (0.6, 1.0, 0.4, 1.0), (
 def _draw():
     context = bpy.context
     scene = context.scene
-    if scene is None or not scene.swish.show_links:
+    if scene is None or not scene.waifu_physics.show_links:
         return
     lines, colours = [], []
     for obj in scene.objects:
@@ -18,7 +18,7 @@ def _draw():
             continue
         bones = obj.pose.bones
         world = obj.matrix_world
-        for index, group in enumerate(obj.swish.groups):
+        for index, group in enumerate(obj.waifu_physics.groups):
             if not group.enabled:
                 continue
             colour = COLOURS[index % len(COLOURS)]

@@ -9,8 +9,8 @@ import struct
 
 import numpy as np
 
-from swish_physics.solver import uemath as ue
-from swish_physics.solver.system import System, Group, Shape, SPHERE_OUTER, CAPSULE, BOX, PLANE
+from waifu_physics.solver import uemath as ue
+from waifu_physics.solver.system import System, Group, Shape, SPHERE_OUTER, CAPSULE, BOX, PLANE
 
 F32 = np.float32
 

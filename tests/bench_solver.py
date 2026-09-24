@@ -15,9 +15,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
-from swish_physics.solver import native, step_numpy, uemath as ue
-from swish_physics.solver.build import Skeleton, GroupSpec, build
-from swish_physics.solver.system import Group, Shape, SPHERE_OUTER, CAPSULE
+from waifu_physics.solver import native, step_numpy, uemath as ue
+from waifu_physics.solver.build import Skeleton, GroupSpec, build
+from waifu_physics.solver.system import Group, Shape, SPHERE_OUTER, CAPSULE
 
 F32 = np.float32
 

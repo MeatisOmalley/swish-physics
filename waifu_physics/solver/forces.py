@@ -3,7 +3,7 @@
 Kawaii's external forces (ExternalForces/*.cpp) prepare themselves in
 PreApply, once per SimulateModifyBones, then add to each bone in every
 substep. Everything they add is fixed for the frame -- a vector per bone,
-scaled by the substep's dt -- so Swish evaluates them here, in Python, into
+scaled by the substep's dt -- so Waifu Physics evaluates them here, in Python, into
 per-point arrays, and the step (numpy or C) only adds `vector * dt` at
 Kawaii's place in Simulate():
 
@@ -18,7 +18,7 @@ move pose targets once a frame, before warm-up and simulation.
 
 Randomness. Kawaii draws RandomForceScaleRange, the scene wind's gust and the
 Wind force's direction noise from Unreal's global random stream, which no
-two runs share. Swish draws them from Unreal's FRandomStream seeded by the
+two runs share. Waifu Physics draws them from Unreal's FRandomStream seeded by the
 frame number, so a frame simulates the same every time (the cache and
 renders depend on it). Procedural wind is seeded in Kawaii too, and matches
 it exactly.
@@ -505,7 +505,7 @@ def make(spec):
 
 def scene_wind_velocity(ctx, settings, gust, noise_rotation, target_framerate):
     """GetWindVelocity (Simulation.cpp:1317) * TargetFramerate, the same for every point
-    (Swish's wind sources are directional)."""
+    (Waifu Physics' wind sources are directional)."""
     scale = F32(settings.get("wind_scale", 1.0))
     if scale == 0.0 or ctx.wind is None:
         return np.zeros(3)

@@ -301,7 +301,7 @@ class Rig:
     def restore(self, frame=None):
         """Put the chain bones back to their input channels: keyed values, or rest. Before a frame
         is evaluated this clears last frame's physics, so the evaluated pose is a clean input.
-        Keys Swish has taken over (muted) are sampled at frame; with no frame they are left."""
+        Keys Waifu Physics has taken over (muted) are sampled at frame; with no frame they are left."""
         bones = self.obj.pose.bones
         rows = np.flatnonzero(self.chain)
         paths = (("location", 3, 0.0), ("rotation_quaternion", 4, None), ("rotation_euler", 3, 0.0),

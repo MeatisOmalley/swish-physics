@@ -11,8 +11,8 @@ import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
+addon = fresh_import()
+addon.register()
 scene = bpy.context.scene
 
 for obj in list(bpy.data.objects):
@@ -31,7 +31,7 @@ for i in range(3):
     bone.parent = parent
     parent, head = bone, bone.tail.copy()
 bpy.ops.object.mode_set(mode="OBJECT")
-group = rig.swish.groups.add()
+group = rig.waifu_physics.groups.add()
 group.roots.add().name = "c0"
 group.dummy_bone_length = 0.1
 group.damping = 0.05
@@ -57,9 +57,9 @@ scene.render.resolution_percentage = 100
 scene.world = scene.world or bpy.data.worlds.new("world")
 scene.world.color = (0.0, 0.0, 0.0)
 
-scene.swish.use_cache = False
+scene.waifu_physics.use_cache = False
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 expected = {}
 for frame in range(1, 13):
     scene.frame_set(frame)
@@ -77,6 +77,6 @@ for frame in (2, 6, 12):
           found is not None and abs(found[0] - expected[frame].x) < 0.01 and abs(found[1] - expected[frame].y) < 0.01,
           (found, tuple(expected[frame])[:2]))
 
-scene.swish.simulate = False
-swish.unregister()
+scene.waifu_physics.simulate = False
+addon.unregister()
 finish()

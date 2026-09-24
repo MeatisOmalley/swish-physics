@@ -10,16 +10,16 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
-live = sys.modules["swish_physics.runtime.live"]
-keys = sys.modules["swish_physics.runtime.keys"]
+addon = fresh_import()
+addon.register()
+live = sys.modules["waifu_physics.runtime.live"]
+keys = sys.modules["waifu_physics.runtime.keys"]
 scene = bpy.context.scene
 
 
 def build(keyed=True):
-    scene.swish.simulate = False
-    scene.swish.use_cache = False
+    scene.waifu_physics.simulate = False
+    scene.waifu_physics.use_cache = False
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj)
     for action in list(bpy.data.actions):
@@ -49,7 +49,7 @@ def build(keyed=True):
         pb.rotation_euler = (0.0, 0.0, 0.6)
         pb.keyframe_insert("rotation_euler", frame=40)
         pb.rotation_euler = (0.0, 0.0, 0.0)
-    group = rig.swish.groups.add()
+    group = rig.waifu_physics.groups.add()
     group.roots.add().name = "h0"
     group.dummy_bone_length = 0.05
     return rig
@@ -64,7 +64,7 @@ def chain_curves(rig):
 rig = build()
 curves = chain_curves(rig)
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rt = live.runtime(scene)
 check("simulating takes the chain's keys over: their curves are muted", curves and all(c.mute for c in curves))
 check("... the object's own animation is left alone",
@@ -84,22 +84,22 @@ check("a jump is not solved ahead (it resets from a freshly evaluated pose)", rt
 check("the keyed bone still turns toward its keys while simulating", turn > 0.1, turn)
 
 # --- saving: the file gets the keys unmuted, the session keeps them taken over
-path = os.path.join(tempfile.gettempdir(), "swish_fast_paths.blend")
+path = os.path.join(tempfile.gettempdir(), "waifu_physics_fast_paths.blend")
 bpy.ops.wm.save_as_mainfile(filepath=path, copy=True)
 check("after saving, the keys are taken over again", all(c.mute for c in curves))
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 check("stopping the simulation hands the keys back", not any(c.mute for c in curves)
       and keys.MARK not in rig.keys())
 
-# --- a crash while simulating: the next load unmutes what Swish had muted
+# --- a crash while simulating: the next load unmutes what Waifu Physics had muted
 rig = build()
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 curves = chain_curves(rig)
-check("the armature remembers what Swish muted", keys.MARK in rig.keys())
+check("the armature remembers what Waifu Physics muted", keys.MARK in rig.keys())
 keys.recover(bpy.data.objects)           # what load_post does with a file saved mid-simulation
 check("recovery unmutes those curves and forgets them", not any(c.mute for c in curves) and keys.MARK not in rig.keys())
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
 # --- an NLA-animated chain bone cannot be taken over: the slower, exact path
 rig = build(keyed=False)
@@ -114,32 +114,32 @@ rig.animation_data.action = None
 track.strips.new("nla", 1, nla_action)
 rig.animation_data.action = bpy.data.actions.new("own")
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rt = live.runtime(scene)
 check("a chain channel an NLA strip animates keeps the exact path", not rt.fast and rt.needs_post_replay())
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
 # --- the lean bake: same result, and every object comes back
 rig = build()
 extra = bpy.data.objects.new("mesh", bpy.data.meshes.new("mesh"))
 scene.collection.objects.link(extra)
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 rt = live.runtime(scene)
 needed = live._essentials(scene, rt)
 check("the bake evaluates the rig and skips unrelated meshes", "rig" in needed and "mesh" not in needed)
-bpy.ops.swish.cache_all()
+bpy.ops.waifu_physics.cache_all()
 check("Cache All fills the range", live.runtime(scene).cached_range() == (1, 40))
 check("... and unhides what it hid", not extra.hide_viewport)
 lean = {f: live.runtime(scene).cache[f].channels[0]["rotation_euler"].copy() for f in (10, 30)}
 with_mesh = live.lean_evaluation
 live.lean_evaluation = type("NoLean", (), {"__init__": lambda self, *a: None, "__enter__": lambda self: self,
                                            "__exit__": lambda self, *a: False})
-bpy.ops.swish.cache_all()
+bpy.ops.waifu_physics.cache_all()
 live.lean_evaluation = with_mesh
 full = {f: live.runtime(scene).cache[f].channels[0]["rotation_euler"] for f in (10, 30)}
 check("... with the same result as evaluating everything", all(np.array_equal(lean[f], full[f]) for f in lean))
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
-swish.unregister()
+addon.unregister()
 finish()

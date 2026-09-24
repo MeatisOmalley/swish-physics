@@ -3,7 +3,7 @@
     python tools/run_tests.py            every tests/test_*.py
     python tools/run_tests.py register   only tests whose name contains "register"
 
-Blender is found through the SWISH_BLENDER environment variable, or at the
+Blender is found through the WAIFU_PHYSICS_BLENDER environment variable, or at the
 default Steam install path.
 """
 import glob
@@ -13,7 +13,7 @@ import sys
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BLENDER = os.environ.get("SWISH_BLENDER",
+BLENDER = os.environ.get("WAIFU_PHYSICS_BLENDER",
                          r"C:\Program Files (x86)\Steam\steamapps\common\Blender\blender.exe")
 
 

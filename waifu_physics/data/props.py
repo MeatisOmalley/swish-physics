@@ -1,4 +1,4 @@
-"""What Swish stores in a .blend: groups on armature objects, and scene settings.
+"""What Waifu Physics stores in a .blend: groups on armature objects, and scene settings.
 
 A group is one Kawaii Physics node. Its per-bone settings (damping, stiffness,
 world damping, radius, limit angle) are animatable and are read every frame;
@@ -40,7 +40,7 @@ _propagating = False
 
 def _setting_changed(name):
     """With Edit Selected Groups on, a change to one group's setting reaches every group
-    holding a selected bone (Swish's version of Alt-editing). Any change drops cached frames."""
+    holding a selected bone (Waifu Physics' version of Alt-editing). Any change drops cached frames."""
     def update(self, context):
         global _propagating
         from ..runtime import live
@@ -69,11 +69,11 @@ def _curve_toggled(name):
     return update
 
 
-class SwishBoneName(PropertyGroup):
+class WaifuPhysicsBoneName(PropertyGroup):
     name: StringProperty()
 
 
-class SwishLink(PropertyGroup):
+class WaifuPhysicsLink(PropertyGroup):
     """A distance constraint between two bones of the group (Kawaii's bone constraint)."""
     bone_a: StringProperty(name="Bone A", update=_structure_changed)
     bone_b: StringProperty(name="Bone B", update=_structure_changed)
@@ -83,7 +83,7 @@ class SwishLink(PropertyGroup):
                                            description="Place no collision points along this link")
 
 
-class SwishColliderSet(PropertyGroup):
+class WaifuPhysicsColliderSet(PropertyGroup):
     """An armature whose colliders this group collides with."""
     armature: PointerProperty(type=bpy.types.Object, update=_structure_changed,
                               poll=lambda _self, obj: obj.type == "ARMATURE")
@@ -128,14 +128,14 @@ SYNC_DIRECTIONS = [("BOTH", "Both", "Follow movement either way along this axis"
                    ("NONE", "None", "Ignore movement along this axis")]
 
 
-class SwishForce(PropertyGroup):
+class WaifuPhysicsForce(PropertyGroup):
     """One Kawaii external force. Velocities are in Blender units a second; everything is animatable."""
     name: StringProperty(name="Name", default="Force")
     enabled: BoolProperty(name="Enabled", default=True, update=_result_changed)
     kind: EnumProperty(name="Type", items=FORCE_KINDS, default="BASIC", update=_force_kind_changed)
     space: EnumProperty(name="Space", items=FORCE_SPACES, default="WORLD", update=_result_changed)
-    apply_bones: CollectionProperty(type=SwishBoneName)
-    ignore_bones: CollectionProperty(type=SwishBoneName)
+    apply_bones: CollectionProperty(type=WaifuPhysicsBoneName)
+    ignore_bones: CollectionProperty(type=WaifuPhysicsBoneName)
     random_min: FloatProperty(name="Scale Min", default=1.0, update=_result_changed,
                               description="Each frame the force is scaled by a random value in this range; "
                                           "for Gravity it is the acceleration (Blender units a second squared)")
@@ -185,7 +185,7 @@ class SwishForce(PropertyGroup):
     show_advanced: BoolProperty(name="Advanced", default=False)
 
 
-class SwishSyncTarget(PropertyGroup):
+class WaifuPhysicsSyncTarget(PropertyGroup):
     bone: StringProperty(name="Bone", update=_result_changed)
     include_children: BoolProperty(name="Children", default=True, update=_result_changed,
                                    description="Move the bones under it too")
@@ -194,12 +194,12 @@ class SwishSyncTarget(PropertyGroup):
                                  description="Scale the movement from this bone (0) to its chain's tip (1)")
 
 
-class SwishSyncBone(PropertyGroup):
+class WaifuPhysicsSyncBone(PropertyGroup):
     """Kawaii's SyncBone: a bone outside the chains (a thigh) whose movement carries chain bones' poses."""
     name: StringProperty(name="Name", default="Sync")
     bone: StringProperty(name="Source Bone", update=_result_changed,
                          description="The bone whose movement from its rest position the targets follow")
-    targets: CollectionProperty(type=SwishSyncTarget)
+    targets: CollectionProperty(type=WaifuPhysicsSyncTarget)
     active_target: IntProperty()
     global_scale: FloatVectorProperty(name="Scale", default=(1.0, 1.0, 1.0), size=3, update=_result_changed)
     curve_key: StringProperty(options={"HIDDEN"})
@@ -224,7 +224,7 @@ SETTLE_OFF = 1000.0                  # settle time shown for no stiffness: the c
 
 def _step_rate():
     scene = getattr(bpy.context, "scene", None)
-    return scene.swish.target_framerate if scene is not None else 60
+    return scene.waifu_physics.target_framerate if scene is not None else 60
 
 
 def _settle_get(self):
@@ -290,14 +290,14 @@ def _inertia_set(name):
     return setter
 
 
-class SwishGroup(PropertyGroup):
+class WaifuPhysicsGroup(PropertyGroup):
     """One Kawaii Physics node: the chains under its root bones, and how they move."""
     name: StringProperty(name="Name", default="Group")
     enabled: BoolProperty(name="Enabled", default=True, update=_structure_changed)
-    roots: CollectionProperty(type=SwishBoneName)
-    excluded: CollectionProperty(type=SwishBoneName)
-    links: CollectionProperty(type=SwishLink)
-    collider_sets: CollectionProperty(type=SwishColliderSet)
+    roots: CollectionProperty(type=WaifuPhysicsBoneName)
+    excluded: CollectionProperty(type=WaifuPhysicsBoneName)
+    links: CollectionProperty(type=WaifuPhysicsLink)
+    collider_sets: CollectionProperty(type=WaifuPhysicsColliderSet)
     active_link: IntProperty()
 
     # FKawaiiPhysicsSettings, animatable. Radius is a length; limit angle an angle.
@@ -405,9 +405,9 @@ class SwishGroup(PropertyGroup):
                                 description="Steps simulated before the first frame, so chains start settled")
 
     show_chains: BoolProperty(name="Show Chains", default=True, description="Fold this group open in Chains")
-    forces: CollectionProperty(type=SwishForce)
+    forces: CollectionProperty(type=WaifuPhysicsForce)
     active_force: IntProperty()
-    sync_bones: CollectionProperty(type=SwishSyncBone)
+    sync_bones: CollectionProperty(type=WaifuPhysicsSyncBone)
     active_sync: IntProperty()
     simple_external_force: FloatVectorProperty(
         name="Simple Force", default=(0.0, 0.0, 0.0), size=3, subtype="VELOCITY", update=_result_changed,
@@ -421,8 +421,8 @@ class SwishGroup(PropertyGroup):
                                               subtype="ANGLE", update=_result_changed)
 
 
-class SwishCollider(PropertyGroup):
-    """Marks a mesh object as a Swish collider (its shape lives on its Swish Collider modifier)."""
+class WaifuPhysicsCollider(PropertyGroup):
+    """Marks a mesh object as a Waifu Physics collider (its shape lives on its Waifu Physics Collider modifier)."""
     is_collider: BoolProperty(options={"HIDDEN"})
     enabled: BoolProperty(name="Enabled", default=True, description="This collider pushes chains")
 
@@ -439,15 +439,15 @@ def _group_picked(self, context):
             view_layer.objects.active = obj
 
 
-class SwishArmature(PropertyGroup):
-    groups: CollectionProperty(type=SwishGroup)
+class WaifuPhysicsArmature(PropertyGroup):
+    groups: CollectionProperty(type=WaifuPhysicsGroup)
     active_group: IntProperty(update=_group_picked)
     expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's groups")
 
 
-class SwishScene(PropertyGroup):
+class WaifuPhysicsScene(PropertyGroup):
     simulate: BoolProperty(name="Simulate", default=False, update=lambda self, context: _simulate_changed(self),
-                           description="Simulate every Swish group in the scene while the timeline plays")
+                           description="Simulate every Waifu Physics group in the scene while the timeline plays")
     target_framerate: IntProperty(name="Steps per Second", default=60, min=1, max=480, update=_structure_changed,
                                   description="Fixed simulation rate (Kawaii's target framerate)")
     max_substeps: IntProperty(name="Max Steps per Frame", default=4, min=1, max=32, update=_structure_changed,
@@ -473,22 +473,22 @@ def _simulate_changed(settings):
     live.set_simulating(bpy.context.scene, settings.simulate)
 
 
-CLASSES = (SwishBoneName, SwishLink, SwishColliderSet, SwishForce, SwishSyncTarget, SwishSyncBone, SwishGroup,
-           SwishCollider, SwishArmature, SwishScene)
+CLASSES = (WaifuPhysicsBoneName, WaifuPhysicsLink, WaifuPhysicsColliderSet, WaifuPhysicsForce, WaifuPhysicsSyncTarget, WaifuPhysicsSyncBone, WaifuPhysicsGroup,
+           WaifuPhysicsCollider, WaifuPhysicsArmature, WaifuPhysicsScene)
 SETTING_NAMES = ("damping", "stiffness", "world_damping_location", "world_damping_rotation", "radius", "limit_angle")
 
 
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
-    bpy.types.Object.swish = PointerProperty(type=SwishArmature)
-    bpy.types.Object.swish_collider = PointerProperty(type=SwishCollider)
-    bpy.types.Scene.swish = PointerProperty(type=SwishScene)
+    bpy.types.Object.waifu_physics = PointerProperty(type=WaifuPhysicsArmature)
+    bpy.types.Object.waifu_physics_collider = PointerProperty(type=WaifuPhysicsCollider)
+    bpy.types.Scene.waifu_physics = PointerProperty(type=WaifuPhysicsScene)
 
 
 def unregister():
-    del bpy.types.Scene.swish
-    del bpy.types.Object.swish_collider
-    del bpy.types.Object.swish
+    del bpy.types.Scene.waifu_physics
+    del bpy.types.Object.waifu_physics_collider
+    del bpy.types.Object.waifu_physics
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

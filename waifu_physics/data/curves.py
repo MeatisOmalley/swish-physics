@@ -2,8 +2,8 @@
 
 Blender lets add-ons draw a curve widget only for a curve that already exists
 in some datablock (Swingy Bone Physics borrows brushes). Brushes are assets in
-Blender 5 and would crowd the brush shelves, so Swish keeps one node group,
-".Swish Curves", with a Float Curve node per group and setting. The leading
+Blender 5 and would crowd the brush shelves, so Waifu Physics keeps one node group,
+".Waifu Physics Curves", with a Float Curve node per group and setting. The leading
 dot keeps it out of the node editor's lists; a fake user keeps it saved.
 """
 import uuid
@@ -12,7 +12,7 @@ import bpy
 
 from ..solver.curves import LinearCurve
 
-HOST = ".Swish Curves"
+HOST = ".Waifu Physics Curves"
 CURVED = ("stiffness", "damping", "world_damping_location", "world_damping_rotation", "radius", "limit_angle")
 
 _cache = {}                  # node name -> (points signature, LinearCurve)

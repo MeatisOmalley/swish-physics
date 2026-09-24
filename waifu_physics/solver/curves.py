@@ -1,7 +1,7 @@
 """Setting curves as Kawaii evaluates them: FRichCurve with linear keys.
 
 A curve multiplies a group setting along each chain, by the point's length
-rate from root (0) to tip (1). Swish samples each Blender curve into evenly
+rate from root (0) to tip (1). Waifu Physics samples each Blender curve into evenly
 spaced linear keys, and both the Blender preview and any export use those same
 keys, so the game's FRichCurve::Eval (RichCurve.cpp:1163, linear keys via
 UE::Curves::EvalForTwoKeys) gives the values Blender simulated with.

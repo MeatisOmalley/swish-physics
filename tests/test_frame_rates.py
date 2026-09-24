@@ -9,14 +9,14 @@ import bpy
 import numpy as np
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
+addon = fresh_import()
+addon.register()
 scene = bpy.context.scene
-from swish_physics.runtime import live
+from waifu_physics.runtime import live
 
 
 def make_rig(fps, keyed_child=False):
-    scene.swish.simulate = False
+    scene.waifu_physics.simulate = False
     for obj in list(bpy.data.objects):
         bpy.data.objects.remove(obj)
     scene.render.fps = fps
@@ -34,7 +34,7 @@ def make_rig(fps, keyed_child=False):
     child.head, child.tail = anchor.tail, Vector(anchor.tail) + Vector((0.2, 0, 0))
     child.parent = anchor
     bpy.ops.object.mode_set(mode="OBJECT")
-    group = rig.swish.groups.add()
+    group = rig.waifu_physics.groups.add()
     group.roots.add().name = "child"
     group.dummy_bone_length = 0.1
     group.damping = 0.1
@@ -65,9 +65,9 @@ positions = {}
 early = {}
 for fps in (12, 24, 30, 60, 120):
     rig = make_rig(fps)
-    scene.swish.use_cache = True
-    scene.swish.simulate = True
-    bpy.ops.swish.cache_all()
+    scene.waifu_physics.use_cache = True
+    scene.waifu_physics.simulate = True
+    bpy.ops.waifu_physics.cache_all()
     rt = live.runtime(scene)
     bpy.context.view_layer.update()
     check(f"{fps} fps cache covers the range", rt.cached_range() == (1, fps + 1), rt.cached_range())
@@ -77,7 +77,7 @@ for fps in (12, 24, 30, 60, 120):
         samples.append(np.array(rig.pose.bones["child"].tail))
     positions[fps] = samples
     if fps == 24:
-        bpy.ops.swish.cache_all()
+        bpy.ops.waifu_physics.cache_all()
         repeated = []
         for frame in (1 + fps // 2, 1 + fps):
             scene.frame_set(frame)
@@ -103,9 +103,9 @@ check("changing scene FPS invalidates the old bake",
       live.runtime(scene).cache_mode == "auto" and not live.runtime(scene).cache)
 
 rig = make_rig(24, keyed_child=True)
-scene.swish.use_cache = True
-scene.swish.simulate = True
-bpy.ops.swish.cache_all()
+scene.waifu_physics.use_cache = True
+scene.waifu_physics.simulate = True
+bpy.ops.waifu_physics.cache_all()
 rt = live.runtime(scene)
 check("a keyed simulated bone is taken over, so its cache replays before evaluation alone",
       not rt.needs_post_replay() and rt.rigs[0].keys.muted)
@@ -118,8 +118,8 @@ check("post-frame replay restores the keyed bone's cached channel",
 
 for fps, expected in ((12, 5), (24, 2), (30, 2), (60, 1), (120, 0)):
     rig = make_rig(fps)
-    scene.swish.use_cache = False
-    scene.swish.simulate = True
+    scene.waifu_physics.use_cache = False
+    scene.waifu_physics.simulate = True
     rt = live.runtime(scene)
     calls = [0]
     original = rt.system._substep
@@ -133,7 +133,7 @@ for fps, expected in ((12, 5), (24, 2), (30, 2), (60, 1), (120, 0)):
     check(f"{fps} fps live frame does not lose normal elapsed time",
           calls[0] == expected, calls[0])
     check(f"{fps} fps live keeps the {rt.system.target_framerate} Hz step whatever the frame rate",
-          rt.system.target_framerate == scene.swish.target_framerate)
+          rt.system.target_framerate == scene.waifu_physics.target_framerate)
     if fps == 120:
         shown = [np.array(rig.pose.bones["child"].tail) for _ in [0]]
         scene.frame_set(3)
@@ -144,6 +144,6 @@ for fps, expected in ((12, 5), (24, 2), (30, 2), (60, 1), (120, 0)):
         check("... and the chains move on every frame, shown between steps",
               all(not np.array_equal(a, b) for a, b in zip(shown, shown[1:])), shown)
 
-scene.swish.simulate = False
-swish.unregister()
+scene.waifu_physics.simulate = False
+addon.unregister()
 finish()

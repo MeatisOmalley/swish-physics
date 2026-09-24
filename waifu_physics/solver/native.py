@@ -16,10 +16,10 @@ import numpy as np
 from . import step_numpy
 
 VERSION = 2
-DLL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "swish_step.dll")
+DLL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "waifu_physics_step.dll")
 
 _P = ctypes.c_void_p
-# (field, dtype) in the order of SwishSystem in step.c.
+# (field, dtype) in the order of WaifuPhysicsSystem in step.c.
 POINTER_FIELDS = (
     ("parent", np.int32), ("group", np.int32), ("real_parent", np.int32), ("real_child", np.int32),
     ("kind", np.int8),
@@ -45,7 +45,7 @@ POINTER_FIELDS = (
 )
 
 
-class SwishSystem(ctypes.Structure):
+class WaifuPhysicsSystem(ctypes.Structure):
     _fields_ = ([("n", ctypes.c_int), ("n_groups", ctypes.c_int), ("n_links", ctypes.c_int),
                  ("n_shapes", ctypes.c_int)]
                 + [(name, _P) for name, _dtype in POINTER_FIELDS]
@@ -58,10 +58,10 @@ class CBackend:
 
     def __init__(self, dll):
         self.dll = dll
-        dll.swish_simulate_once.argtypes = [ctypes.POINTER(SwishSystem)]
-        dll.swish_simulate_once.restype = None
-        dll.swish_pull.argtypes = [ctypes.c_int, _P, ctypes.c_float, _P]
-        dll.swish_pull.restype = None
+        dll.waifu_physics_simulate_once.argtypes = [ctypes.POINTER(WaifuPhysicsSystem)]
+        dll.waifu_physics_simulate_once.restype = None
+        dll.waifu_physics_pull.argtypes = [ctypes.c_int, _P, ctypes.c_float, _P]
+        dll.waifu_physics_pull.restype = None
 
     def _bind(self, s):
         """The struct for a System, rebuilt when any bound array was replaced."""
@@ -70,7 +70,7 @@ class CBackend:
         bound = getattr(s, "_c_bound", None)
         if bound is not None and bound[0] == key:
             return bound[1]
-        struct = SwishSystem(n=s.n, n_groups=len(s.groups), n_links=len(s.link_a), n_shapes=len(s.shape_type))
+        struct = WaifuPhysicsSystem(n=s.n, n_groups=len(s.groups), n_links=len(s.link_a), n_shapes=len(s.shape_type))
         for (name, dtype), array in zip(POINTER_FIELDS, arrays):
             if array.dtype != dtype or not array.flags.c_contiguous:
                 raise TypeError(f"{name}: expected contiguous {np.dtype(dtype)}, got {array.dtype}")
@@ -84,13 +84,13 @@ class CBackend:
         struct.n_pforce = len(s.pforce)
         struct.step_dt = float(s.step_dt)
         struct.dt_old = float(s.dt_old)
-        self.dll.swish_simulate_once(ctypes.byref(struct))
+        self.dll.waifu_physics_simulate_once(ctypes.byref(struct))
 
     def pull(self, stiffness, exponent):
         """ApplyStiffnessPull's factor, 1 - (1 - Stiffness) ^ Exponent, with the C runtime's powf."""
         stiffness = np.ascontiguousarray(stiffness, dtype=np.float32)
         out = np.empty_like(stiffness)
-        self.dll.swish_pull(len(stiffness), stiffness.ctypes.data, ctypes.c_float(exponent), out.ctypes.data)
+        self.dll.waifu_physics_pull(len(stiffness), stiffness.ctypes.data, ctypes.c_float(exponent), out.ctypes.data)
         return out
 
 
@@ -110,8 +110,8 @@ def backend():
     else:
         try:
             dll = ctypes.CDLL(DLL_PATH)
-            dll.swish_version.restype = ctypes.c_int
-            found = dll.swish_version()
+            dll.waifu_physics_version.restype = ctypes.c_int
+            found = dll.waifu_physics_version()
             if found != VERSION:
                 _reason = f"the C step is version {found}, expected {VERSION}"
             else:

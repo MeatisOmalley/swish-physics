@@ -1,4 +1,4 @@
-"""Swish setups as plain data: versioned dicts to save, share, paste and export.
+"""Waifu Physics setups as plain data: versioned dicts to save, share, paste and export.
 
 An armature's setup is its groups (settings, chains, links, collider sets,
 curves) and its colliders; the scene's stepping settings ride along, since a
@@ -17,7 +17,8 @@ from mathutils import Matrix
 
 from . import colliders, curves
 
-FORMAT = "swish_physics"
+FORMAT = "waifu_physics"
+LEGACY_FORMATS = {"swish_physics"}      # setups saved before the add-on was renamed
 VERSION = 1
 KAWAII_COMMIT = "64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21"
 SCENE_SETTINGS = ("target_framerate", "max_substeps", "fixed_substepping")
@@ -31,7 +32,7 @@ def _plain(value):
 
 
 def settings_names(group):
-    """Every value property of a group: Kawaii's settings plus Swish's own switches."""
+    """Every value property of a group: Kawaii's settings plus Waifu Physics' own switches."""
     return [p.identifier for p in group.bl_rna.properties
             if p.type in ("BOOLEAN", "INT", "FLOAT", "ENUM", "STRING") and p.identifier not in _NOT_SETTINGS]
 
@@ -190,7 +191,7 @@ def _bone_frame(obj):
 
 
 def collider_to_dict(obj):
-    return {"name": obj.name, "bone": obj.parent_bone, "enabled": obj.swish_collider.enabled,
+    return {"name": obj.name, "bone": obj.parent_bone, "enabled": obj.waifu_physics_collider.enabled,
             "shape": {name: _plain(value) for name, value in colliders.values(obj).items()},
             "matrix": [list(row) for row in _bone_frame(obj)]}
 
@@ -198,7 +199,7 @@ def collider_to_dict(obj):
 def collider_from_dict(armature, data):
     obj = colliders.add(armature, data["bone"], data["shape"].get("Shape", "Sphere"))
     obj.name = data.get("name", obj.name)
-    obj.swish_collider.enabled = data.get("enabled", True)
+    obj.waifu_physics_collider.enabled = data.get("enabled", True)
     for name, value in data["shape"].items():
         if name != "Shape":
             colliders.set_value(obj, name, tuple(value) if isinstance(value, list) else value)
@@ -210,9 +211,9 @@ def collider_from_dict(armature, data):
 
 def armature_to_dict(obj, scene=None, include_colliders=True):
     data = {"format": FORMAT, "version": VERSION, "kawaii_commit": KAWAII_COMMIT,
-            "armature": obj.name, "groups": [group_to_dict(group) for group in obj.swish.groups]}
+            "armature": obj.name, "groups": [group_to_dict(group) for group in obj.waifu_physics.groups]}
     if scene is not None:
-        data["scene"] = {name: getattr(scene.swish, name) for name in SCENE_SETTINGS}
+        data["scene"] = {name: getattr(scene.waifu_physics, name) for name in SCENE_SETTINGS}
     if include_colliders:
         data["colliders"] = [collider_to_dict(child) for child in obj.children if colliders.is_collider(child)
                              and child.parent_type == "BONE" and child.parent_bone in obj.data.bones]
@@ -220,10 +221,10 @@ def armature_to_dict(obj, scene=None, include_colliders=True):
 
 
 def check(data):
-    if not isinstance(data, dict) or data.get("format") != FORMAT:
-        raise ValueError("not a Swish Physics setup")
+    if not isinstance(data, dict) or data.get("format") not in {FORMAT, *LEGACY_FORMATS}:
+        raise ValueError("not a Waifu Physics setup")
     if data.get("version", 0) > VERSION:
-        raise ValueError(f"made by a newer Swish Physics (setup version {data['version']}, this reads {VERSION})")
+        raise ValueError(f"made by a newer Waifu Physics (setup version {data['version']}, this reads {VERSION})")
 
 
 def armature_from_dict(obj, data, scene=None, replace=True, include_colliders=True):
@@ -232,9 +233,9 @@ def armature_from_dict(obj, data, scene=None, replace=True, include_colliders=Tr
     from ..runtime import live
     warnings = []
     if replace:
-        for group in obj.swish.groups:
+        for group in obj.waifu_physics.groups:
             curves.remove_owned(group)
-        obj.swish.groups.clear()
+        obj.waifu_physics.groups.clear()
         if include_colliders and "colliders" in data:
             for child in [c for c in obj.children if colliders.is_collider(c)]:
                 mesh = child.data
@@ -243,7 +244,7 @@ def armature_from_dict(obj, data, scene=None, replace=True, include_colliders=Tr
                     bpy.data.meshes.remove(mesh)
     bones = obj.data.bones
     for found in data.get("groups", ()):
-        group = obj.swish.groups.add()
+        group = obj.waifu_physics.groups.add()
         for name in group_from_dict(group, found):
             warnings.append(f"collider set armature '{name}' not found")
         for name in [item.name for item in group.roots] + [item.name for item in group.excluded]:
@@ -258,7 +259,7 @@ def armature_from_dict(obj, data, scene=None, replace=True, include_colliders=Tr
     if scene is not None:
         for name, value in data.get("scene", {}).items():
             if name in SCENE_SETTINGS:
-                setattr(scene.swish, name, value)
-    obj.swish.active_group = 0
+                setattr(scene.waifu_physics, name, value)
+    obj.waifu_physics.active_group = 0
     live.mark_dirty()
     return warnings

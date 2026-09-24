@@ -1,4 +1,4 @@
-Swish Physics ports the simulation of Kawaii Physics
+Waifu Physics ports the simulation of Kawaii Physics
 (https://github.com/pafuhana1213/KawaiiPhysics), at commit
 64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21, under the following licence.
 

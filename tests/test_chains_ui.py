@@ -10,9 +10,9 @@ from _harness import check, finish, fresh_import
 import bpy
 from mathutils import Vector
 
-swish = fresh_import()
-swish.register()
-panels = sys.modules["swish_physics.ui.panels"]
+addon = fresh_import()
+addon.register()
+panels = sys.modules["waifu_physics.ui.panels"]
 scene = bpy.context.scene
 
 
@@ -34,7 +34,7 @@ def skirt(name, panels_count=6, grouped=True):
             parent, head = bone, bone.tail.copy()
     bpy.ops.object.mode_set(mode="OBJECT")
     if grouped:
-        group = obj.swish.groups.add()
+        group = obj.waifu_physics.groups.add()
         group.name = "Skirt"
         for k in range(panels_count):
             group.roots.add().name = f"p{k}_0"
@@ -51,7 +51,7 @@ for obj in scene.objects:
     obj.select_set(False)
 bpy.context.view_layer.objects.active = skirt_rig
 skirt_rig.select_set(True)
-scene.swish.selected_only = True
+scene.waifu_physics.selected_only = True
 check("with Selected Only, the tree lists the selected armature", panels._tree_armatures(bpy.context) == [skirt_rig])
 for obj in scene.objects:
     obj.select_set(True)                                  # Select All
@@ -63,67 +63,67 @@ for obj in scene.objects:
 check("... and none once nothing is selected, though one is still the active object",
       panels._tree_armatures(bpy.context) == [] and bpy.context.view_layer.objects.active == skirt_rig)
 skirt_rig.select_set(True)
-scene.swish.selected_only = False
+scene.waifu_physics.selected_only = False
 listed = panels._tree_armatures(bpy.context)
 check("without it, every armature with a group, and not one without",
       set(listed) == {skirt_rig, other} and bare not in listed, [o.name for o in listed])
-other.swish.active_group = 0                       # a click in the other armature's list
+other.waifu_physics.active_group = 0                       # a click in the other armature's list
 check("picking a group in another armature's list makes that armature active",
       bpy.context.view_layer.objects.active == other)
-skirt_rig.swish.active_group = 0
-group = skirt_rig.swish.groups[0]
+skirt_rig.waifu_physics.active_group = 0
+group = skirt_rig.waifu_physics.groups[0]
 
 # --- the reported case: Selected Only off, click an armature with no group, give it one
-scene.swish.selected_only = False
+scene.waifu_physics.selected_only = False
 bpy.context.view_layer.objects.active = skirt_rig
 bpy.ops.object.mode_set(mode="POSE")
-bpy.ops.swish.armature_activate(armature="bare")        # clicking its name, or clicking it in the viewport
+bpy.ops.waifu_physics.armature_activate(armature="bare")        # clicking its name, or clicking it in the viewport
 check("an armature with no group is listed once it is the active one",
       bare in panels._tree_armatures(bpy.context) and bpy.context.view_layer.objects.active == bare)
 check("... and it is in Pose Mode, as the user was", bare.mode == "POSE")
 for pb in bare.pose.bones:
     pb.select = False
 try:
-    empty = bpy.ops.swish.group_new()
+    empty = bpy.ops.waifu_physics.group_new()
 except RuntimeError:
     empty = {"CANCELLED"}
 check("+ with nothing selected says what to do instead of doing nothing", empty == {"CANCELLED"})
 for pb in bare.pose.bones:
     pb.select = pb.name in ("p0_0", "p1_0")
-check("+ gives it its first group", bpy.ops.swish.group_new() == {"FINISHED"} and len(bare.swish.groups) == 1
-      and [r.name for r in bare.swish.groups[0].roots] == ["p0_0", "p1_0"])
+check("+ gives it its first group", bpy.ops.waifu_physics.group_new() == {"FINISHED"} and len(bare.waifu_physics.groups) == 1
+      and [r.name for r in bare.waifu_physics.groups[0].roots] == ["p0_0", "p1_0"])
 bpy.ops.object.mode_set(mode="OBJECT")
-bpy.ops.swish.armature_activate(armature="skirt")
-group = skirt_rig.swish.groups[0]
+bpy.ops.waifu_physics.armature_activate(armature="skirt")
+group = skirt_rig.waifu_physics.groups[0]
 
 # --- links around the skirt; select chains as the manager's clicks do
 bpy.ops.object.mode_set(mode="POSE")
 for pb in skirt_rig.pose.bones:
     pb.select = pb.name.endswith("_1")
-bpy.ops.swish.link_chains(mode="LOOP")
+bpy.ops.waifu_physics.link_chains(mode="LOOP")
 links_before = len(group.links)
-ops = sys.modules["swish_physics.ui.ops"]
+ops = sys.modules["waifu_physics.ui.ops"]
 chosen = lambda: sorted(root for _g, root in ops.selected_chain_keys(skirt_rig))
-bpy.ops.swish.chain_click(group=0, root="p0_0")
-bpy.ops.swish.chain_click(group=0, root="p1_0", extend=True)
+bpy.ops.waifu_physics.chain_click(group=0, root="p0_0")
+bpy.ops.waifu_physics.chain_click(group=0, root="p1_0", extend=True)
 check("clicking a chain selects it; Ctrl-click adds another",
       chosen() == ["p0_0", "p1_0"]
       and {pb.name for pb in skirt_rig.pose.bones if pb.select} == {f"p{k}_{i}" for k in (0, 1) for i in range(3)})
-bpy.ops.swish.chain_click(group=0, root="p1_0", extend=True)
+bpy.ops.waifu_physics.chain_click(group=0, root="p1_0", extend=True)
 check("Ctrl-clicking a selected chain drops it", chosen() == ["p0_0"])
-bpy.ops.swish.chain_click(group=0, root="p0_0")
-bpy.ops.swish.chain_click(group=0, root="p3_0", span=True)
+bpy.ops.waifu_physics.chain_click(group=0, root="p0_0")
+bpy.ops.waifu_physics.chain_click(group=0, root="p3_0", span=True)
 check("Shift-click selects the range between", chosen() == ["p0_0", "p1_0", "p2_0", "p3_0"])
-bpy.ops.swish.chains_select(action="NONE")
+bpy.ops.waifu_physics.chains_select(action="NONE")
 check("clicking empty space selects none", chosen() == [])
-bpy.ops.swish.chains_select(action="ALL")
+bpy.ops.waifu_physics.chains_select(action="ALL")
 check("A selects them all", len(chosen()) == 6)
 
 # --- New Group from the selection
-bpy.ops.swish.chain_click(group=0, root="p0_0")
-bpy.ops.swish.chain_click(group=0, root="p1_0", extend=True)
-check("New Group runs", bpy.ops.swish.chains_to_group(index=-1) == {"FINISHED"})
-split = skirt_rig.swish.groups[1]
+bpy.ops.waifu_physics.chain_click(group=0, root="p0_0")
+bpy.ops.waifu_physics.chain_click(group=0, root="p1_0", extend=True)
+check("New Group runs", bpy.ops.waifu_physics.chains_to_group(index=-1) == {"FINISHED"})
+split = skirt_rig.waifu_physics.groups[1]
 check("the new group holds the selected chains, the rest stay",
       [r.name for r in split.roots] == ["p0_0", "p1_0"] and len(group.roots) == 4)
 check("... named from them, not a bone name", split.name == "p0" or not split.name.startswith("J_"), split.name)
@@ -135,7 +135,7 @@ check("... and links crossing to the chains left behind are removed",
       len(group.links) == links_before - len(inside) - 4, (links_before, len(group.links)))
 
 # --- the manager's layout: folders, rows, what a click or a drop lands on
-manager = sys.modules["swish_physics.ui.manager"]
+manager = sys.modules["waifu_physics.ui.manager"]
 layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
 kinds = [(item.kind, item.group, item.root) for item in layout.rows]
 check("the manager lists each group as a folder, its chains under it",
@@ -158,10 +158,10 @@ skirt_rig.pose.bones["p2_1"].select = True
 layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
 check("... and a chain from a second group turns Merge on",
       next(i for i in layout.items if i.kind == "merge").enabled)
-skirt_rig.swish.groups[1].show_chains = False
+skirt_rig.waifu_physics.groups[1].show_chains = False
 layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
 check("a folded group hides its chains", len(layout.rows) == 6)
-skirt_rig.swish.groups[1].show_chains = True
+skirt_rig.waifu_physics.groups[1].show_chains = True
 small = manager.Layout(skirt_rig, (1200, 180), 1.0, place=(20, 170), scroll=2)
 resized = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), size=(360, 200))
 check("dragged edges set the size", abs(resized.frame.x1 - resized.frame.x0 - 360) < 1e-6
@@ -190,38 +190,38 @@ for position in (0, 99):
           and compact.track.y0 == zone.y1
           and compact.drop_target(zone.x0 + 20, (zone.y0 + zone.y1) / 2) == ("new", -1))
 check("the manager edits one armature: nothing on it names another",
-      all(item.group < len(skirt_rig.swish.groups) for item in layout.items))
+      all(item.group < len(skirt_rig.waifu_physics.groups) for item in layout.items))
 
 # --- merge: the button merges the selected chains' groups; dragging a folder onto another merges it
-skirt_rig.swish.active_group = 0
+skirt_rig.waifu_physics.active_group = 0
 check("Merge merges the groups of the selected chains into the active one",
-      bpy.ops.swish.groups_merge() == {"FINISHED"} and len(skirt_rig.swish.groups) == 1
-      and len(skirt_rig.swish.groups[0].roots) == 6 and skirt_rig.swish.groups[0].name == "Skirt")
-group = skirt_rig.swish.groups[0]
+      bpy.ops.waifu_physics.groups_merge() == {"FINISHED"} and len(skirt_rig.waifu_physics.groups) == 1
+      and len(skirt_rig.waifu_physics.groups[0].roots) == 6 and skirt_rig.waifu_physics.groups[0].name == "Skirt")
+group = skirt_rig.waifu_physics.groups[0]
 check("... the moved chains' links came along", inside <= names(group))
-bpy.ops.swish.chain_click(group=0, root="p4_0")
-bpy.ops.swish.chains_to_group(index=-1)
+bpy.ops.waifu_physics.chain_click(group=0, root="p4_0")
+bpy.ops.waifu_physics.chains_to_group(index=-1)
 check("a folder dragged onto another merges into it",
-      bpy.ops.swish.groups_merge(source=1, target=0) == {"FINISHED"} and len(skirt_rig.swish.groups) == 1
+      bpy.ops.waifu_physics.groups_merge(source=1, target=0) == {"FINISHED"} and len(skirt_rig.waifu_physics.groups) == 1
       and len(group.roots) == 6)
-bpy.ops.swish.group_click(index=0)
+bpy.ops.waifu_physics.group_click(index=0)
 check("clicking a folder selects its chains and makes it the edited group",
-      len(chosen()) == 6 and skirt_rig.swish.active_group == 0)
+      len(chosen()) == 6 and skirt_rig.waifu_physics.active_group == 0)
 
 # --- delete: the selected chains go, and the next in line is selected
 order = [r.name for r in group.roots]
 doomed = order[2]
-bpy.ops.swish.chain_click(group=0, root=doomed)
-check("Delete stops simulating the selected chains", bpy.ops.swish.chains_remove() == {"FINISHED"}
+bpy.ops.waifu_physics.chain_click(group=0, root=doomed)
+check("Delete stops simulating the selected chains", bpy.ops.waifu_physics.chains_remove() == {"FINISHED"}
       and doomed not in [r.name for r in group.roots] and len(group.roots) == 5)
 check("... and selects the next chain in line", chosen() == [order[3]], (chosen(), order))
-bpy.ops.swish.chain_click(group=0, root=order[-1])
-bpy.ops.swish.chains_remove()
+bpy.ops.waifu_physics.chain_click(group=0, root=order[-1])
+bpy.ops.waifu_physics.chains_remove()
 check("deleting the last chain selects the one before it", chosen() == [order[-2]], (chosen(), order))
 bpy.ops.object.mode_set(mode="OBJECT")
 
 # --- stiffness 0-10, inertia, gravity: shown the intuitive way round, Kawaii's values stored
-g = skirt_rig.swish.groups[0]
+g = skirt_rig.waifu_physics.groups[0]
 g.stiffness = 0.05
 check("Kawaii's default stiffness shows as 9.03 of 10 (10 minus its 0.97 s to settle)",
       abs(g.stiffness_level - 9.0266) < 1e-3, g.stiffness_level)
@@ -236,7 +236,7 @@ g.world_damping_location = 0.8
 check("World Damping 0.8 shows as Movement Inertia 0.2", abs(g.movement_inertia - 0.2) < 1e-6)
 g.turning_inertia = 1.0
 check("Turning Inertia 1 is World Damping Rotation 0", g.world_damping_rotation == 0.0)
-serialize = sys.modules["swish_physics.data.serialize"]
+serialize = sys.modules["waifu_physics.data.serialize"]
 saved = serialize.settings_to_dict(g)
 check("saved setups keep Kawaii's values, not the display ones",
       not {"stiffness_level", "movement_inertia", "turning_inertia"} & set(saved) and "stiffness" in saved)
@@ -247,35 +247,35 @@ bpy.context.view_layer.objects.active = skirt_rig
 bpy.ops.object.mode_set(mode="POSE")
 for pb in skirt_rig.pose.bones:
     pb.select = pb.name.startswith(("p0_", "p3_"))
-before = len(skirt_rig.swish.groups)
+before = len(skirt_rig.waifu_physics.groups)
 check("Move Chains to Group > New Group makes a group of them",
-      bpy.ops.swish.chains_to_group(index=-1) == {"FINISHED"} and len(skirt_rig.swish.groups) == before + 1
-      and sorted(r.name for r in skirt_rig.swish.groups[-1].roots) == ["p0_0", "p3_0"])
+      bpy.ops.waifu_physics.chains_to_group(index=-1) == {"FINISHED"} and len(skirt_rig.waifu_physics.groups) == before + 1
+      and sorted(r.name for r in skirt_rig.waifu_physics.groups[-1].roots) == ["p0_0", "p3_0"])
 for pb in skirt_rig.pose.bones:
     pb.select = pb.name.startswith(("p0_", "p1_"))
 check("... and moving chains from two groups into one works in one go",
-      bpy.ops.swish.chains_to_group(index=0) == {"FINISHED"}
-      and {"p0_0", "p1_0"} <= {r.name for r in skirt_rig.swish.groups[0].roots})
+      bpy.ops.waifu_physics.chains_to_group(index=0) == {"FINISHED"}
+      and {"p0_0", "p1_0"} <= {r.name for r in skirt_rig.waifu_physics.groups[0].roots})
 check("the menu is in the Pose Mode right-click menu",
       any(getattr(f, "__name__", "") == "_pose_menu" for f in bpy.types.VIEW3D_MT_pose_context_menu._dyn_ui_initialize()))
 bpy.ops.object.mode_set(mode="OBJECT")
 
 # --- the simulation still runs over the reshaped groups
 scene.frame_set(1)
-scene.swish.simulate = True
+scene.waifu_physics.simulate = True
 for f in range(2, 12):
     scene.frame_set(f)
-live = sys.modules["swish_physics.runtime.live"]
+live = sys.modules["waifu_physics.runtime.live"]
 check("the reshaped groups simulate", live.runtime(scene).system.n > 0)
 import numpy as np
-skirt_rig.swish.groups[0].gravity_scale = 2.0
+skirt_rig.waifu_physics.groups[0].gravity_scale = 2.0
 scene.frame_set(12)
 rt = live.runtime(scene)
 g_index = next(i for i, (r, k) in enumerate(rt.group_props) if rt.rigs[r].obj == skirt_rig and k == 0)
 check("Gravity Scale 2 pulls with twice the scene's gravity",
       np.allclose(rt.system.gravity[g_index], np.array(scene.gravity) * 2.0 * rt.cm, atol=1e-4),
       rt.system.gravity[g_index])
-scene.swish.simulate = False
+scene.waifu_physics.simulate = False
 
-swish.unregister()
+addon.unregister()
 finish()

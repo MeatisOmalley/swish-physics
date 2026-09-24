@@ -7,7 +7,7 @@ from _harness import check, finish, REPO
 
 sys.path.insert(0, REPO)
 import kawaii_golden as golden
-from swish_physics.solver import native, step_numpy
+from waifu_physics.solver import native, step_numpy
 
 c_step = native.backend()
 on_windows = sys.platform == "win32"
