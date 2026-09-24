@@ -29,14 +29,22 @@ def _structure_changed(self, context):
     live.mark_dirty()
 
 
+def _result_changed(self, context):
+    """A setting read every frame changed: cached frames are stale."""
+    from ..runtime import live
+    live.invalidate()
+
+
 _propagating = False
 
 
 def _setting_changed(name):
     """With Edit Selected Groups on, a change to one group's setting reaches every group
-    holding a selected bone (Swish's version of Alt-editing)."""
+    holding a selected bone (Swish's version of Alt-editing). Any change drops cached frames."""
     def update(self, context):
         global _propagating
+        from ..runtime import live
+        live.invalidate()
         if _propagating or context is None or not context.scene.swish.edit_selected_groups:
             return
         from ..ui.selection import groups_of_selected
@@ -121,10 +129,11 @@ class SwishGroup(PropertyGroup):
     use_limit_angle_curve: BoolProperty(name="Limit Angle Curve", update=_curve_toggled("limit_angle"))
 
     gravity: FloatVectorProperty(name="Gravity", default=(0.0, 0.0, -1.0), subtype="ACCELERATION", size=3,
+                                 update=_result_changed,
                                  description="Gravity; with Use Scene Gravity, a direction scaled by the scene's")
-    use_scene_gravity: BoolProperty(name="Use Scene Gravity", default=True,
+    use_scene_gravity: BoolProperty(name="Use Scene Gravity", default=True, update=_result_changed,
                                     description="Scale Gravity by the scene's gravity (Kawaii: use the project's)")
-    use_world_space_gravity: BoolProperty(name="World Space Gravity", default=True,
+    use_world_space_gravity: BoolProperty(name="World Space Gravity", default=True, update=_result_changed,
                                           description="Gravity is in world space, not the armature's")
     legacy_gravity: BoolProperty(name="Legacy Gravity", default=False, update=_structure_changed,
                                  description="Kawaii's older gravity: added to position, not velocity")
@@ -157,11 +166,13 @@ class SwishGroup(PropertyGroup):
                                    description="How strongly a bridge point's collision pushes the bones it links")
 
     teleport_distance: FloatProperty(name="Teleport Distance", default=3.0, min=0.0, subtype="DISTANCE",
+                                     update=_result_changed,
                                      description="An armature jumping further than this in a frame is a teleport")
     teleport_rotation: FloatProperty(name="Teleport Rotation", default=math.radians(10.0), min=0.0,
+                                     update=_result_changed,
                                      subtype="ANGLE",
                                      description="An armature turning further than this in a frame is a teleport")
-    warm_up_frames: IntProperty(name="Warm Up Frames", default=0, min=0, max=500,
+    warm_up_frames: IntProperty(name="Warm Up Frames", default=0, min=0, max=500, update=_result_changed,
                                 description="Steps simulated before the first frame, so chains start settled")
 
 
@@ -188,6 +199,8 @@ class SwishScene(PropertyGroup):
     edit_selected_groups: BoolProperty(
         name="Edit Selected Groups", default=True,
         description="Changing a setting changes it in every group holding a selected bone")
+    use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
+                            description="Keep each simulated frame, to scrub and render without re-simulating")
     show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
     follow_selection: BoolProperty(
         name="Follow Selection", default=True,

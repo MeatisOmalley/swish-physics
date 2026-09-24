@@ -285,9 +285,45 @@ class SWISH_OT_link_remove(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class SWISH_OT_cache_all(bpy.types.Operator):
+    bl_idname = "swish.cache_all"
+    bl_label = "Cache All"
+    bl_description = "Simulate the whole frame range into the cache, to scrub and render"
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.swish.simulate
+
+    def execute(self, context):
+        scene = context.scene
+        scene.swish.use_cache = True
+        original = scene.frame_current
+        wm = context.window_manager
+        wm.progress_begin(scene.frame_start, scene.frame_end)
+        try:
+            for frame in range(scene.frame_start, scene.frame_end + 1):
+                scene.frame_set(frame)
+                wm.progress_update(frame)
+        finally:
+            wm.progress_end()
+        scene.frame_set(original)
+        return {"FINISHED"}
+
+
+class SWISH_OT_cache_clear(bpy.types.Operator):
+    bl_idname = "swish.cache_clear"
+    bl_label = "Clear Cache"
+    bl_description = "Forget every cached frame"
+
+    def execute(self, context):
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
 CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_group_remove, SWISH_OT_reset,
            SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove,
-           SWISH_OT_link_chains, SWISH_OT_links_clear, SWISH_OT_link_remove)
+           SWISH_OT_link_chains, SWISH_OT_links_clear, SWISH_OT_link_remove, SWISH_OT_cache_all,
+           SWISH_OT_cache_clear)
 
 
 def register():

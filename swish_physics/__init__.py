@@ -9,13 +9,13 @@ if "bpy" in locals():
 else:
     from .solver import uemath, system, curves as solver_curves, step_numpy, native, build
     from .data import props, curves, colliders, links
-    from .runtime import io, live
+    from .runtime import io, cache, live
     from .ui import selection, ops, panels, draw
 
 import bpy  # noqa: E402,F401  (its presence marks a reload, above)
 
 _RELOAD_ORDER = (uemath, system, solver_curves, step_numpy, native, build, props, curves, colliders, links, io,
-                 live, selection, ops, panels, draw)
+                 cache, live, selection, ops, panels, draw)
 
 # Registered in this order, unregistered in reverse.
 MODULES = (props, live, selection, ops, panels, draw)

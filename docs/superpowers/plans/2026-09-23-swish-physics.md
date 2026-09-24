@@ -129,10 +129,10 @@ Each phase ends with its tests passing headless and, where it changes what the m
 
 ### Phase 6: Cache
 
-- [ ] Per-frame state and rotations in memory; replay on scrub; Cache All over the frame range.
-- [ ] Invalidation from a depsgraph handler that ignores updates our own writes cause: settings, curves, groups, links, colliders, the armature's and the collider armatures' animation, object transform animation, frame range, fps.
-- [ ] Render: verify that a render reads cached frames reliably, and that a render from the first frame simulates correctly live.
-- [ ] Tests: replay matches live bit for bit; each invalidation trigger clears; Cache All then scrub shows the same poses.
+- [x] Per-frame state and rotations in memory; replay on scrub; Cache All over the frame range.
+- [x] Invalidation from a depsgraph handler that ignores updates our own writes cause: settings, curves, groups, links, colliders, the armature's and the collider armatures' animation, object transform animation, frame range, fps.
+- [x] Render: verify that a render reads cached frames reliably, and that a render from the first frame simulates correctly live.
+- [x] Tests: replay matches live bit for bit; each invalidation trigger clears; Cache All then scrub shows the same poses.
 
 ### Phase 7: Serialisation and presets
 

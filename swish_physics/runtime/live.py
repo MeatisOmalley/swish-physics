@@ -18,6 +18,7 @@ from ..data import curves as group_curves
 from ..solver import native
 from ..solver.build import Skeleton, GroupSpec, build, ComponentMotion
 from ..solver.system import Group, COMPLIANCE_TYPES, PLANAR_NONE, PLANAR_X, PLANAR_Y, PLANAR_Z
+from . import cache as frame_cache
 from . import io
 
 F32 = np.float32
@@ -27,6 +28,13 @@ MAX_FRAME_STEP = 4            # frames forward that still count as playing on; m
 _runtimes = {}                # scene pointer -> Runtime
 _dirty = set()                # scene pointers whose groups changed shape
 _writing = False              # our own writes are in progress (the cache ignores them)
+
+
+def invalidate(scene=None):
+    """Something that changes the result changed: drop cached frames."""
+    for key, current in _runtimes.items():
+        if scene is None or key == scene.as_pointer():
+            current.cache.clear()
 
 
 def mark_dirty(scene=None):
@@ -91,6 +99,10 @@ class Runtime:
         self.motions = [ComponentMotion() for _ in self.group_props]
         self.last_frame = None
         self.backend = native.backend()
+        self.cache = {}                   # frame -> cache.Snapshot
+        self.cache_key = frame_cache.key(scene)
+        self.own_update = False           # the next depsgraph update is our own write
+        self.collider_prints = {}
 
     def _spec(self, r, props):
         prefix = f"{r}|"
@@ -225,6 +237,7 @@ class Runtime:
         # A bone whose parent has several children takes its simulated head (ApplySimulateResult).
         placed = (parent >= 0) & (children[np.maximum(parent, 0)] > 1)
         _writing = True
+        self.own_update = True
         try:
             for r, rig in enumerate(self.rigs):
                 rows = self.rig_of_point == r
@@ -237,6 +250,21 @@ class Runtime:
         for rig in self.rigs:
             if rig.obj.name in bpy.data.objects:
                 rig.restore()
+
+    def store(self, frame):
+        if not self.cache:
+            self.collider_prints = frame_cache.collider_prints(self)
+        self.cache[frame] = frame_cache.Snapshot(self)
+
+    def show_unsimulated(self):
+        """A frame the cache has not reached: the chains at their input, as cloth shows them."""
+        self.own_update = True
+        for rig in self.rigs:
+            rig.read()
+            rig.restore()
+
+    def cached_range(self):
+        return (min(self.cache), max(self.cache)) if self.cache else None
 
 
 def runtime(scene, rebuild=False):
@@ -263,17 +291,65 @@ def set_simulating(scene, on):
 
 
 @persistent
+def _frame_changing(scene, depsgraph=None):
+    """A cached frame is written before Blender evaluates it, so renders see it."""
+    settings = scene.swish
+    if not (settings.simulate and settings.use_cache):
+        return
+    key = scene.as_pointer()
+    current = _runtimes.get(key)
+    if current is None or key in _dirty or "all" in _dirty:
+        return
+    snapshot = current.cache.get(scene.frame_current)
+    if snapshot is not None:
+        snapshot.replay(current)
+
+
+@persistent
 def _frame_changed(scene, depsgraph=None):
-    if not scene.swish.simulate:
+    settings = scene.swish
+    if not settings.simulate:
         return
     rt = runtime(scene)
     frame = scene.frame_current
     frames = None if rt.last_frame is None else frame - rt.last_frame
-    if frames is None or frame == scene.frame_start or not (1 <= frames <= MAX_FRAME_STEP):
+    playing_on = frames is not None and 1 <= frames <= MAX_FRAME_STEP
+    if not settings.use_cache:
+        if not playing_on or frame == scene.frame_start:
+            rt.reset(scene)
+        else:
+            rt.step(scene, frames)
+        rt.last_frame = frame
+        return
+    if rt.cache_key != frame_cache.key(scene):
+        rt.cache.clear()
+        rt.cache_key = frame_cache.key(scene)
+    snapshot = rt.cache.get(frame)
+    if snapshot is not None:
+        snapshot.restore_state(rt)
+        snapshot.replay(rt)
+        rt.last_frame = frame
+    elif frame == scene.frame_start:
         rt.reset(scene)
-    else:
+        rt.store(frame)
+        rt.last_frame = frame
+    elif playing_on and rt.last_frame in rt.cache:
+        rt.cache[rt.last_frame].restore_state(rt)
         rt.step(scene, frames)
-    rt.last_frame = frame
+        rt.store(frame)
+        rt.last_frame = frame
+    else:
+        rt.show_unsimulated()
+        rt.last_frame = None
+
+
+@persistent
+def _depsgraph_updated(scene, depsgraph):
+    current = _runtimes.get(scene.as_pointer())
+    if current is None:
+        return
+    if frame_cache.relevant_update(current, depsgraph):
+        current.cache.clear()
 
 
 @persistent
@@ -285,6 +361,10 @@ def _file_loaded(_file):
 def register():
     if _frame_changed not in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.append(_frame_changed)
+    if _frame_changing not in bpy.app.handlers.frame_change_pre:
+        bpy.app.handlers.frame_change_pre.append(_frame_changing)
+    if _depsgraph_updated not in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.append(_depsgraph_updated)
     if _file_loaded not in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.append(_file_loaded)
 
@@ -296,5 +376,9 @@ def unregister():
     _dirty.clear()
     while _frame_changed in bpy.app.handlers.frame_change_post:
         bpy.app.handlers.frame_change_post.remove(_frame_changed)
+    while _frame_changing in bpy.app.handlers.frame_change_pre:
+        bpy.app.handlers.frame_change_pre.remove(_frame_changing)
+    while _depsgraph_updated in bpy.app.handlers.depsgraph_update_post:
+        bpy.app.handlers.depsgraph_update_post.remove(_depsgraph_updated)
     while _file_loaded in bpy.app.handlers.load_pre:
         bpy.app.handlers.load_pre.remove(_file_loaded)

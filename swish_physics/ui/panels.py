@@ -27,6 +27,16 @@ class SWISH_PT_main(bpy.types.Panel):
         row.scale_y = 1.3
         row.prop(settings, "simulate", toggle=True, icon="PHYSICS")
         row.operator("swish.reset", text="", icon="FILE_REFRESH")
+        row = layout.row(align=True)
+        row.prop(settings, "use_cache", toggle=True, icon="DISK_DRIVE")
+        row.operator("swish.cache_all", icon="RENDER_ANIMATION")
+        row.operator("swish.cache_clear", text="", icon="TRASH")
+        if settings.use_cache and settings.simulate:
+            from ..runtime import live
+            current = live._runtimes.get(context.scene.as_pointer())
+            span = current.cached_range() if current is not None else None
+            layout.label(text=f"Cached frames {span[0]}-{span[1]}" if span else
+                         f"Nothing cached: play from frame {context.scene.frame_start}, or Cache All", icon="INFO")
         if native.backend() is native.step_numpy:
             layout.label(text=f"Using the slower numpy step: {native.reason()}", icon="INFO")
         obj = context.object
