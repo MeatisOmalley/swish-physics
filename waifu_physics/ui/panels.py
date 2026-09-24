@@ -39,17 +39,13 @@ class WAIFU_PHYSICS_UL_groups(bpy.types.UIList):
 
 
 class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
-    """Simulate, the cache, and the Groups box. The Physics and Colliders tabs are the next panel's, so a gap
-    sets them apart. Both are header-less: Blender pins header-less panels above all others and orders them
-    among themselves (find_highest_panel), so the gap can only fall between two of them. The sidebar tab
-    names the add-on."""
+    """Simulate, the cache, the Groups box, then (under a divider) the Physics and Colliders tabs and their
+    pages. The group settings subpanels follow on the Physics tab."""
     bl_idname = "WAIFU_PHYSICS_PT_main"
     bl_label = "Waifu Physics"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Waifu Physics"
-    bl_options = {"HIDE_HEADER"}
-    bl_order = 0
 
     def draw(self, context):
         from ..runtime import live
@@ -77,51 +73,25 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
                 note.alert = True
                 note.label(text="Turn on Gizmos in the header to see it", icon="ERROR")
         _draw_groups(layout, context)
-
-
-class WAIFU_PHYSICS_PT_pages(bpy.types.Panel):
-    """The Physics and Colliders tabs and their pages: a panel of its own under the main one, without a header,
-    so the gap between them sets the tabs apart without making them a category of their own. The group
-    settings subpanels hang from it."""
-    bl_idname = "WAIFU_PHYSICS_PT_pages"
-    bl_label = "Waifu Physics Pages"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Waifu Physics"
-    bl_options = {"HIDE_HEADER"}
-    bl_order = 1
-
-    def draw(self, context):
-        from ..runtime import live
-        layout = self.layout
-        settings = context.scene.waifu_physics
+        layout.separator(factor=1.2)
+        layout.separator(type="LINE")            # the tabs are a part of their own: set apart by space and a line
+        layout.separator(factor=0.6)
         _tabs(layout, settings, "tab")
         if settings.tab == "COLLIDERS":
             _draw_colliders(layout, context)
         else:
-            current = live._runtimes.get(context.scene.as_pointer())
-            _draw_group_tools(layout, context, current.cached_range() if live.is_cached(context.scene) else None)
+            _draw_group_tools(layout, context, span)
 
 
 def _tabs(layout, owner, prop):
-    """Folder tabs for an enum, the width of the panel: the chosen one raised (a box), the others flat, a line
-    between them and one under the bar. Blender's own tab widget (prop_tabs_enum) is the Properties editor's vertical bar only,
-    and in a panel overlaps its labels."""
+    """Tabs for an enum: tall buttons apart from each other, every one embossed, the chosen one lit. (Blender's
+    own tab widget, prop_tabs_enum, is the Properties editor's vertical bar only, and in a panel overlaps its
+    labels.)"""
     row = layout.row()
-    chosen = getattr(owner, prop)
-    for number, item in enumerate(owner.bl_rna.properties[prop].enum_items):
-        if number:                               # a line between the tabs, as under them: in a row a LINE
-            line = row.column()                  # separator draws a dash, so a sliver of a box draws it
-            line.ui_units_x = 0.2
-            line.scale_y = 1.6
-            line.box().label(text="")
-        cell = row.box() if item.identifier == chosen else row.column()
-        if item.identifier != chosen:
-            cell.separator(factor=0.45)          # level with the raised tab's label, which its box pads
-        cell.emboss = "NONE"
-        cell.scale_y = 1.6
-        cell.prop_enum(owner, prop, item.identifier)
-    layout.separator(type="LINE")
+    row.scale_y = 1.6
+    for item in owner.bl_rna.properties[prop].enum_items:
+        row.prop_enum(owner, prop, item.identifier)
+    layout.separator(factor=0.4)
 
 
 def _outside_buttons(layout):
@@ -214,7 +184,7 @@ class _GroupPanel:
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "Waifu Physics"
-    bl_parent_id = "WAIFU_PHYSICS_PT_pages"
+    bl_parent_id = "WAIFU_PHYSICS_PT_main"
 
     @classmethod
     def poll(cls, context):
@@ -748,7 +718,7 @@ class WAIFU_PHYSICS_PT_sync(_GroupPanel, bpy.types.Panel):
         sub.prop(sync, "max_attenuation")
 
 
-CLASSES = (WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main, WAIFU_PHYSICS_PT_pages,
+CLASSES = (WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
            WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_collides_with, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
            WAIFU_PHYSICS_PT_advanced)
 
