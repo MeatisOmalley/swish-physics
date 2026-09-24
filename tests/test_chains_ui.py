@@ -63,6 +63,29 @@ check("picking a group in another armature's list makes that armature active",
 skirt_rig.swish.active_group = 0
 group = skirt_rig.swish.groups[0]
 
+# --- the reported case: Selected Only off, click an armature with no group, give it one
+scene.swish.selected_only = False
+bpy.context.view_layer.objects.active = skirt_rig
+bpy.ops.object.mode_set(mode="POSE")
+bpy.ops.swish.armature_activate(armature="bare")        # clicking its name, or clicking it in the viewport
+check("an armature with no group is listed once it is the active one",
+      bare in panels._tree_armatures(bpy.context) and bpy.context.view_layer.objects.active == bare)
+check("... and it is in Pose Mode, as the user was", bare.mode == "POSE")
+for pb in bare.pose.bones:
+    pb.select = False
+try:
+    empty = bpy.ops.swish.group_new()
+except RuntimeError:
+    empty = {"CANCELLED"}
+check("+ with nothing selected says what to do instead of doing nothing", empty == {"CANCELLED"})
+for pb in bare.pose.bones:
+    pb.select = pb.name in ("p0_0", "p1_0")
+check("+ gives it its first group", bpy.ops.swish.group_new() == {"FINISHED"} and len(bare.swish.groups) == 1
+      and [r.name for r in bare.swish.groups[0].roots] == ["p0_0", "p1_0"])
+bpy.ops.object.mode_set(mode="OBJECT")
+bpy.ops.swish.armature_activate(armature="skirt")
+group = skirt_rig.swish.groups[0]
+
 # --- links around the skirt, then split two chains off
 bpy.ops.object.mode_set(mode="POSE")
 for pb in skirt_rig.pose.bones:

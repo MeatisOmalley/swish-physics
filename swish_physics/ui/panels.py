@@ -13,10 +13,12 @@ def _tree_armatures(context):
     active = context.object if context.object is not None and context.object.type == "ARMATURE" else None
     if context.scene.swish.selected_only:
         found = [o for o in context.selected_objects if o.type == "ARMATURE" and len(o.swish.groups)]
-        if active is not None and active not in found:
-            found.insert(0, active)
-        return found
-    return [o for o in context.scene.objects if o.type == "ARMATURE" and len(o.swish.groups)]
+    else:
+        found = [o for o in context.scene.objects if o.type == "ARMATURE" and len(o.swish.groups)]
+    # The active armature is always listed, groups or not, so it can be given its first group.
+    if active is not None and active not in found:
+        found.insert(0, active)
+    return found
 
 
 def _plural(count, noun):
@@ -83,10 +85,13 @@ class SWISH_PT_main(bpy.types.Panel):
             header = box.row(align=True)
             header.prop(rig.swish, "expanded", text="", emboss=False,
                         icon="DOWNARROW_HLT" if rig.swish.expanded else "RIGHTARROW")
-            header.label(text=rig.name, icon="ARMATURE_DATA")
+            name = header.operator("swish.armature_activate", text=rig.name, icon="ARMATURE_DATA",
+                                   emboss=rig == obj, depress=rig == obj)
+            name.armature = rig.name
             if not rig.swish.expanded:
                 continue
             row = box.row()
+            row.active = rig == obj                  # other armatures' lists are dimmed: not being edited
             row.template_list("SWISH_UL_groups", rig.name, rig.swish, "groups", rig.swish, "active_group", rows=3)
             if rig == obj:
                 column = row.column(align=True)

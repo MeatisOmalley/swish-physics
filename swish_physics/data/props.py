@@ -364,7 +364,11 @@ def _group_picked(self, context):
     obj = self.id_data
     view_layer = getattr(context, "view_layer", None)
     if view_layer is not None and view_layer.objects.active != obj and obj.name in view_layer.objects:
-        view_layer.objects.active = obj
+        from ..ui.ops import make_active
+        try:
+            make_active(context, obj)
+        except RuntimeError:                 # no mode switch possible from here: just make it active
+            view_layer.objects.active = obj
 
 
 class SwishArmature(PropertyGroup):

@@ -85,14 +85,53 @@ def group_name(obj, roots):
     return name
 
 
-class SWISH_OT_group_new(_PoseBonesOperator, bpy.types.Operator):
+def make_active(context, obj):
+    """Make an armature the one the panels edit, keeping Pose Mode if the user was in it."""
+    view_layer = context.view_layer
+    if view_layer.objects.active == obj or obj.name not in view_layer.objects:
+        return
+    posing = context.mode == "POSE"
+    if posing and obj.mode != "POSE":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    view_layer.objects.active = obj
+    obj.select_set(True)
+    if posing and obj.mode != "POSE":
+        bpy.ops.object.mode_set(mode="POSE")
+
+
+class SWISH_OT_armature_activate(bpy.types.Operator):
+    bl_idname = "swish.armature_activate"
+    bl_label = "Edit Armature"
+    bl_description = "Make this armature the one the panels edit (and add groups to)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    armature: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.armature)
+        if obj is None or obj.type != "ARMATURE":
+            return {"CANCELLED"}
+        make_active(context, obj)
+        return {"FINISHED"}
+
+
+class SWISH_OT_group_new(bpy.types.Operator):
     bl_idname = "swish.group_new"
     bl_label = "New Group"
-    bl_description = "Make a group of the chains under the selected bones"
+    bl_description = "Make a group of the chains under the bones selected in Pose Mode"
     bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
 
     def execute(self, context):
         obj = context.object
+        if context.mode != "POSE":
+            bpy.ops.object.mode_set(mode="POSE")
+        if not any(pb.id_data == obj for pb in context.selected_pose_bones or ()):
+            self.report({"INFO"}, "Pose Mode: select the first bone of each chain, then click + again")
+            return {"CANCELLED"}
         roots = _selected_roots(context)
         _claim(obj, roots)
         group = obj.swish.groups.add()
@@ -973,7 +1012,7 @@ CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_gr
            SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
            SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add,
            SWISH_OT_chain_click, SWISH_OT_chains_show, SWISH_OT_chains_remove, SWISH_OT_chains_split,
-           SWISH_OT_chains_move, SWISH_OT_chains_move_here, SWISH_OT_cache_toggle)
+           SWISH_OT_chains_move, SWISH_OT_chains_move_here, SWISH_OT_cache_toggle, SWISH_OT_armature_activate)
 
 
 def register():
