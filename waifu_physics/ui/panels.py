@@ -113,7 +113,6 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
         row = layout.row(align=True)
         row.operator("waifu_physics.group_add", icon="PLUS")
         row.operator("waifu_physics.exclude", icon="X")
-        layout.prop(settings, "follow_selection")
         if not len(obj.waifu_physics.groups):
             return
         from ..data import bone_refs
@@ -366,52 +365,76 @@ class WAIFU_PHYSICS_UL_forces(bpy.types.UIList):
         row.prop(item, "name", text="", emboss=False, icon=kind_icon)
 
 
+def _split_row(layout, label):
+    """A labelled row like the Physics panel's: the label right-aligned in the left half."""
+    split = layout.split(factor=0.28, align=True)
+    left = split.row()
+    left.alignment = "RIGHT"
+    left.label(text=label)
+    return split.row(align=True)
+
+
 class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
     bl_idname = "WAIFU_PHYSICS_PT_forces"
     bl_label = "Forces and Wind"
     bl_options = {"DEFAULT_CLOSED"}
 
     def draw_settings(self, context):
+        from ..runtime import fields as scene_fields
         group = self.group(context)
         layout = self.layout
-        col = layout.column()
-        col.use_property_split = True
-        col.prop(group, "simple_external_force")
-        col.prop(group, "world_space_simple_external_force")
-        col.prop(group, "enable_wind")
-        sub = col.column()
-        sub.active = group.enable_wind
-        sub.prop(group, "wind_scale")
-        sub.prop(group, "wind_direction_noise_angle", text="Direction Noise")
-        has_field = any(o.field and o.field.type == "WIND" for o in context.scene.objects)
-        if group.enable_wind and not has_field:
-            row = col.row()
-            row.label(text="No Wind force field in the scene", icon="INFO")
-            row.operator("waifu_physics.wind_field_add", text="", icon="FORCE_WIND")
+
+        # Blender's force fields, felt as Blender computes them
+        layout.prop(group, "use_force_fields")
+        if group.use_force_fields:
+            col = layout.column()
+            col.use_property_split = True
+            col.use_property_decorate = False
+            col.prop(group, "force_field_collection")
+            col.prop(group, "force_field_strength")
+            found = scene_fields.field_objects(context.scene, group.force_field_collection)
+            felt = [obj for obj in found if scene_fields.spec_of(obj) is not None]
+            if not found:
+                row = col.row()
+                row.label(text="No force fields yet", icon="INFO")
+                row.operator("waifu_physics.wind_field_add", text="", icon="FORCE_WIND")
+            elif len(felt) < len(found):
+                note = col.row()
+                note.enabled = False
+                note.label(text=f"{len(found) - len(felt)} of {len(found)} fields are types the chains can't feel",
+                           icon="INFO")
+        layout.separator()
+
+        # The group's own forces
         row = layout.row()
         row.template_list("WAIFU_PHYSICS_UL_forces", "", group, "forces", group, "active_force", rows=3)
         column = row.column(align=True)
-        column.operator_menu_enum("waifu_physics.force_add", "kind", text="", icon="ADD")
+        column.menu("WAIFU_PHYSICS_MT_force_add", text="", icon="ADD")
         column.operator("waifu_physics.force_remove", text="", icon="REMOVE")
         if not len(group.forces):
             return
         force = group.forces[min(group.active_force, len(group.forces) - 1)]
         box = layout.box()
+        header = box.column(align=True)
+        header.scale_y = 1.2
+        header.prop(force, "category", text="")                # what the force is, as its header
+        if force.category == "WIND":
+            header.prop(force, "wind_type", text="")           # and for wind, which kind, just under it
         col = box.column()
         col.use_property_split = True
-        col.prop(force, "kind")
+        col.use_property_decorate = False
         kind = force.kind
-        if kind in ("BASIC", "CURVE", "PROCEDURAL_WIND"):
-            col.prop(force, "space")
         if kind == "BASIC":
+            col.prop(force, "space")
             col.prop(force, "direction", text="Push")
-            col.prop(force, "interval")
+            col.prop(force, "interval", text="Pulse Every")
         elif kind == "GRAVITY":
             col.prop(force, "override_direction")
             sub = col.column()
             sub.active = force.override_direction
             sub.prop(force, "direction")
         elif kind == "CURVE":
+            col.prop(force, "space")
             col.prop(force, "amplitude")
             col.prop(force, "duration")
             col.prop(force, "time_scale")
@@ -420,35 +443,42 @@ class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
                 col.prop(force, "substeps")
             for axis, channel in zip("XYZ", FORCE_CHANNELS):
                 _curve_box(box, force, channel, f"{axis} over time, -1 to 1")
-        elif kind == "WIND":
-            if not any(o.field and o.field.type == "WIND" for o in context.scene.objects):
-                row = col.row()
-                row.alert = True
-                row.label(text="Blows only with a Wind force field", icon="ERROR")
-                row.operator("waifu_physics.wind_field_add", text="Add", icon="FORCE_WIND")
-            col.prop(force, "noise_angle")
-        else:
-            col.operator_menu_enum("waifu_physics.wind_preset", "preset", text="Kawaii Preset", icon="PRESET")
+        elif kind == "PROCEDURAL_WIND":
+            col.operator_menu_enum("waifu_physics.wind_preset", "preset", text="Preset", icon="PRESET")
+            col.prop(force, "space")
             col.prop(force, "direction")
-            col.prop(force, "constant")
-            col.prop(force, "sway")
-            col.prop(force, "sway_period")
-            col.prop(force, "ripple")
-            col.prop(force, "ripple_period")
-            col.prop(force, "cycle_min")
-            col.prop(force, "cycle_max")
-            col.prop(force, "cycle_period")
-            col.prop(force, "random")
-            col.prop(force, "random_period")
+            col.separator()
+            winds = box.column(align=True)
+            _split_row(winds, "Steady").prop(force, "constant", text="")
+            row = _split_row(winds, "Sway")
+            row.prop(force, "sway", text="")
+            row.prop(force, "sway_period", text="")
+            row = _split_row(winds, "Ripples")
+            row.prop(force, "ripple", text="")
+            row.prop(force, "ripple_period", text="")
+            row = _split_row(winds, "Gusts")
+            row.prop(force, "cycle_min", text="")
+            row.prop(force, "cycle_max", text="")
+            row.prop(force, "cycle_period", text="")
+            row = _split_row(winds, "Flutter")
+            row.prop(force, "random", text="")
+            row.prop(force, "random_period", text="")
+            col = box.column()
+            col.use_property_split = True
+            col.use_property_decorate = False
             col.prop(force, "show_advanced")
             if force.show_advanced:
                 for name in ("noise_angle", "noise_period", "time_scale", "sway_phase", "ripple_phase",
                              "ripple_delay", "cycle_phase", "seed"):
                     col.prop(force, name)
-        if kind != "PROCEDURAL_WIND":
-            row = col.row(align=True)
-            row.prop(force, "random_min")
-            row.prop(force, "random_max", text="Max")
+        if kind == "GRAVITY":
+            row = _split_row(col, "Strength")
+            row.prop(force, "random_min", text="")
+            row.prop(force, "random_max", text="to")
+        elif kind != "PROCEDURAL_WIND":
+            row = _split_row(col, "Random Scale")
+            row.prop(force, "random_min", text="")
+            row.prop(force, "random_max", text="to")
         row = box.row()
         row.prop(force, "use_rate_curve", icon="FCURVE")
         if force.use_rate_curve:

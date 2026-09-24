@@ -34,12 +34,45 @@ def migrate():
             found.name = new
             moved += 1
     for obj in bpy.data.objects:
+        if obj.library is None and obj.type == "ARMATURE":
+            for group in obj.waifu_physics.groups:
+                moved += upgrade_group(group)
+    for obj in bpy.data.objects:
         if obj.library is None and obj.type == "MESH":
             modifier = obj.modifiers.get(_MODIFIER)
             if modifier is not None and obj.modifiers.get(colliders.MODIFIER) is None:
                 modifier.name = colliders.MODIFIER
                 moved += 1
     return moved
+
+
+def upgrade_group(group):
+    """Kawaii's Simple External Force and scene wind, from before every force lived in the Forces list: the
+    simple force becomes a Push force (it adds the same push each step), and scene wind or Kawaii's Wind force
+    turns on Blender Force Fields, which reads the same Wind fields as Blender does. Returns whether it changed."""
+    from . import curves
+    changed = False
+    simple = tuple(group.simple_external_force)
+    if any(value != 0.0 for value in simple):
+        force = group.forces.add()
+        force.kind, force.name = "BASIC", "Push"
+        force.direction = simple
+        force.space = "WORLD" if group.world_space_simple_external_force else "COMPONENT"
+        group.simple_external_force = (0.0, 0.0, 0.0)
+        changed = True
+    if group.enable_wind:
+        group.use_force_fields, group.force_field_strength = True, group.wind_scale
+        group.enable_wind = False
+        changed = True
+    for index in reversed(range(len(group.forces))):
+        if group.forces[index].kind == "WIND":
+            group.use_force_fields = True
+            curves.remove(group.forces[index], ("rate",))
+            group.forces.remove(index)
+            changed = True
+    if changed:
+        group.active_force = max(0, min(group.active_force, len(group.forces) - 1))
+    return changed
 
 
 @bpy.app.handlers.persistent

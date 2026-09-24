@@ -492,8 +492,21 @@ def _positioned(ctx, spec, force):
     return force[None] * rate[:, None]
 
 
+FIELDS = "FIELDS"
+
+
+class FieldsForce(Force):
+    """Blender's force fields (solver/fields.py), which Kawaii has no part of: the runtime works out each
+    point's acceleration for the frame, and it is added through velocity like Gravity."""
+    supports_random_scale = False
+
+    def pre_apply(self, ctx):
+        vectors = np.asarray(self.spec.params["vectors"], dtype=F64)
+        return "velocity", vectors, np.ones(len(ctx.rows), dtype=bool)
+
+
 FORCES = {BASIC: BasicForce, GRAVITY: GravityForce, CURVE: CurveForce, WIND: WindForce,
-          PROCEDURAL_WIND: ProceduralWindForce}
+          PROCEDURAL_WIND: ProceduralWindForce, FIELDS: FieldsForce}
 
 
 def make(spec):

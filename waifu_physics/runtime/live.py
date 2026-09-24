@@ -170,16 +170,38 @@ class Runtime:
                     world_damping_rotation=props.world_damping_rotation,
                     radius=props.radius * self.cm, limit_angle=math.degrees(props.limit_angle))
 
-    def _frame_forces(self, g, rig, props):
+    def _frame_forces(self, g, rig, props, scene):
         """This frame's external forces, wind settings and sync bones of a group, in Kawaii's units."""
         grp, cm = self.system.groups[g], self.cm
         grp.forces = [self._force(f) for f in props.forces]
+        if props.use_force_fields:
+            vectors = self._field_accelerations(g, rig, props, scene)
+            if vectors is not None:
+                grp.forces.append(frame_forces.ForceSpec(frame_forces.FIELDS, params=dict(vectors=vectors)))
         grp.sync_bones = [self._sync(g, rig, sync) for sync in props.sync_bones]
         grp.simple_external_force = tuple(np.array(props.simple_external_force) * cm)
         grp.world_space_simple_external_force = props.world_space_simple_external_force
         grp.enable_wind = props.enable_wind
         grp.wind_scale = props.wind_scale
         grp.wind_direction_noise_angle = math.degrees(props.wind_direction_noise_angle)
+
+    def _field_accelerations(self, g, rig, props, scene):
+        """The scene's force fields on the group's points, as Blender computes them for a particle there with
+        the point's velocity (solver/fields.py), in simulation space: centimetres a second squared."""
+        from . import fields as scene_fields
+        from ..solver import fields as field_math
+        specs = scene_fields.specs(scene, props.force_field_collection, props.force_field_strength)
+        if not specs:
+            return None
+        s = self.system
+        rows = np.flatnonzero(s.group == g)
+        world = np.array(rig.obj.matrix_world)
+        turn = world[:3, :3]
+        positions = (s.loc[rows] / self.cm) @ turn.T + world[:3, 3]
+        dt = max(float(s.dt_old), 1.0e-6)
+        velocities = ((s.loc[rows] - s.prev[rows]) / (dt * self.cm)) @ turn.T
+        accelerations = field_math.accelerations(specs, positions, velocities, s.frame_number)
+        return (accelerations @ np.linalg.inv(turn).T) * self.cm
 
     def _force(self, f):
         cm, kind = self.cm, f.kind
@@ -256,7 +278,7 @@ class Runtime:
             rig, props = self._group(g)
             s.groups[g].settings = self._settings(props)
             s.groups[g].curves = group_curves.curves(props)
-            self._frame_forces(g, rig, props)
+            self._frame_forces(g, rig, props, scene)
             s.wind[g] = wind
             world = rig.obj.matrix_world
             s.world_to_sim[g] = np.linalg.inv(np.array(world.to_3x3()))

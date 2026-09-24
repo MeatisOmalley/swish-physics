@@ -47,8 +47,7 @@ def _follow():
     try:
         context = bpy.context
         obj = context.object
-        if (obj is not None and obj.type == "ARMATURE" and obj.mode == "POSE"
-                and context.scene is not None and context.scene.waifu_physics.follow_selection):
+        if obj is not None and obj.type == "ARMATURE" and obj.mode == "POSE":
             active = obj.data.bones.active
             name = active.name if active is not None else ""
             if name and _last_active.get(obj.session_uid) != name:

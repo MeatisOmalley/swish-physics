@@ -121,13 +121,46 @@ def _item_curve_toggled(name):
 
 FORCE_CHANNELS = ("force_x", "force_y", "force_z")
 FORCE_KINDS = [
-    ("BASIC", "Basic", "A steady push, or a pulse every interval (Kawaii's Basic external force)", "FORCE_FORCE", 0),
+    ("BASIC", "Push", "A steady push, or a pulse every interval (Kawaii's Basic external force)", "FORCE_FORCE", 0),
     ("GRAVITY", "Gravity", "Extra gravity through velocity, in world space (Kawaii's Gravity external force)",
      "FORCE_HARMONIC", 1),
     ("CURVE", "Curve", "A push that follows curves over time (Kawaii's Curve external force)", "FCURVE", 2),
-    ("WIND", "Wind", "The scene's wind force fields, per bone (Kawaii's Wind external force)", "FORCE_WIND", 3),
+    # Kawaii's Wind external force read the scene's Wind fields; Blender Force Fields does that job now, and
+    # files are converted on load. Kept so old files' values still read.
+    ("WIND", "Field Wind", "Kawaii's wind from Wind force fields (replaced by Blender Force Fields)", "FORCE_WIND", 3),
     ("PROCEDURAL_WIND", "Procedural Wind", "Seeded sway, ripple and gusting noise (Kawaii's Procedural Wind)",
-     "MOD_WAVE", 4)]
+     "FORCE_WIND", 4)]
+# What a force is, as its header shows it: the kinds, with every wind under Wind (its type in a second menu).
+FORCE_CATEGORIES = [("PUSH", "Push", "A steady push, or a pulse every interval", "FORCE_FORCE", 0),
+                    ("GRAVITY", "Gravity", "Extra gravity, in world space", "FORCE_HARMONIC", 1),
+                    ("CURVE", "Curve", "A push that follows curves over time", "FCURVE", 2),
+                    ("WIND", "Wind", "Wind blowing through the chains", "FORCE_WIND", 3)]
+WIND_TYPES = [("PROCEDURAL", "Procedural", "Generated sway, ripples and gusts; needs no force field", "MOD_WAVE", 0)]
+_CATEGORY_OF_KIND = {"BASIC": 0, "GRAVITY": 1, "CURVE": 2, "WIND": 3, "PROCEDURAL_WIND": 3}
+_KIND_OF_CATEGORY = ("BASIC", "GRAVITY", "CURVE", "PROCEDURAL_WIND")
+FORCE_NAMES = {"BASIC": "Push", "GRAVITY": "Gravity", "CURVE": "Curve", "WIND": "Wind", "PROCEDURAL_WIND": "Breeze"}
+
+
+def _category_get(self):
+    return _CATEGORY_OF_KIND[self.kind]
+
+
+def _category_set(self, value):
+    kind = _KIND_OF_CATEGORY[value]
+    if kind != self.kind:
+        if self.name == FORCE_NAMES.get(self.kind):        # a default name follows the type
+            self.name = FORCE_NAMES[kind]
+        self.kind = kind
+
+
+def _wind_type_get(self):
+    return 0
+
+
+def _wind_type_set(self, value):
+    self.kind = "PROCEDURAL_WIND"
+
+
 FORCE_SPACES = [("COMPONENT", "Armature", "In the armature's space"),
                 ("WORLD", "World", "In world space"),
                 ("BONE", "Bone", "In each bone's own space, turning with it")]
@@ -146,6 +179,10 @@ class WaifuPhysicsForce(PropertyGroup):
     name: StringProperty(name="Name", default="Force")
     enabled: BoolProperty(name="Enabled", default=True, update=_result_changed)
     kind: EnumProperty(name="Type", items=FORCE_KINDS, default="BASIC", update=_force_kind_changed)
+    category: EnumProperty(name="Type", items=FORCE_CATEGORIES, get=_category_get, set=_category_set,
+                           options=set(), description="What the force is")
+    wind_type: EnumProperty(name="Wind", items=WIND_TYPES, get=_wind_type_get, set=_wind_type_set, options=set(),
+                            description="How the wind is made")
     space: EnumProperty(name="Space", items=FORCE_SPACES, default="WORLD", update=_result_changed)
     apply_bones: CollectionProperty(type=WaifuPhysicsBoneName)
     ignore_bones: CollectionProperty(type=WaifuPhysicsBoneName)
@@ -154,7 +191,7 @@ class WaifuPhysicsForce(PropertyGroup):
                                           "for Gravity it is the acceleration (Blender units a second squared)")
     random_max: FloatProperty(name="Scale Max", default=1.0, update=_result_changed)
     curve_key: StringProperty(options={"HIDDEN"})
-    use_rate_curve: BoolProperty(name="Rate Curve", update=_item_curve_toggled("rate"),
+    use_rate_curve: BoolProperty(name="Along Chain", update=_item_curve_toggled("rate"),
                                  description="Scale the force along each chain, root to tip")
 
     direction: FloatVectorProperty(name="Direction", default=(0.0, 0.0, 0.0), size=3, update=_result_changed,
@@ -174,26 +211,28 @@ class WaifuPhysicsForce(PropertyGroup):
     substeps: IntProperty(name="Substeps", default=10, min=1, max=100, update=_result_changed)
     noise_angle: FloatProperty(name="Direction Noise", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
                                update=_result_changed, description="Random turn of the wind's direction")
-    noise_period: FloatProperty(name="Noise Period", default=1.0, min=0.01, update=_result_changed)
-    constant: FloatProperty(name="Constant", default=0.0, update=_result_changed,
+    noise_period: FloatProperty(name="Noise Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=1.0, min=0.01, update=_result_changed)
+    constant: FloatProperty(name="Constant", unit="VELOCITY", default=0.0, update=_result_changed,
                             description="Steady wind, in Blender units a second")
-    sway: FloatProperty(name="Sway", default=0.0, update=_result_changed,
+    sway: FloatProperty(name="Sway", unit="VELOCITY", default=0.0, update=_result_changed,
                         description="Back-and-forth wind, in Blender units a second")
-    sway_period: FloatProperty(name="Sway Period", default=1.0, min=0.01, update=_result_changed)
+    sway_period: FloatProperty(name="Sway Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=1.0, min=0.01, update=_result_changed)
     sway_phase: FloatProperty(name="Sway Phase", default=0.0, subtype="ANGLE", update=_result_changed)
-    ripple: FloatProperty(name="Ripple", default=0.0, update=_result_changed,
+    ripple: FloatProperty(name="Ripple", unit="VELOCITY", default=0.0, update=_result_changed,
                           description="A wave running root to tip, in Blender units a second")
-    ripple_period: FloatProperty(name="Ripple Period", default=1.0, min=0.01, update=_result_changed)
+    ripple_period: FloatProperty(name="Ripple Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=1.0, min=0.01, update=_result_changed)
     ripple_phase: FloatProperty(name="Ripple Phase", default=0.0, subtype="ANGLE", update=_result_changed)
     ripple_delay: FloatProperty(name="Ripple Tip Delay", default=math.pi, subtype="ANGLE", update=_result_changed,
                                 description="How far behind the root the tip's wave runs")
-    cycle_min: FloatProperty(name="Strength Min", default=1.0, update=_result_changed)
-    cycle_max: FloatProperty(name="Strength Max", default=1.0, update=_result_changed)
-    cycle_period: FloatProperty(name="Strength Period", default=10.0, min=0.01, update=_result_changed)
+    cycle_min: FloatProperty(name="Gust Low", default=1.0, update=_result_changed,
+                             description="The wind's strength at the calm of its slow gust cycle, as a multiplier")
+    cycle_max: FloatProperty(name="Gust High", default=1.0, update=_result_changed,
+                             description="The wind's strength at the peak of its slow gust cycle, as a multiplier")
+    cycle_period: FloatProperty(name="Strength Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=10.0, min=0.01, update=_result_changed)
     cycle_phase: FloatProperty(name="Strength Phase", default=0.0, subtype="ANGLE", update=_result_changed)
-    random: FloatProperty(name="Random", default=0.0, update=_result_changed,
+    random: FloatProperty(name="Random", unit="VELOCITY", default=0.0, update=_result_changed,
                           description="Seeded noise, in Blender units a second")
-    random_period: FloatProperty(name="Random Period", default=0.5, min=0.01, update=_result_changed)
+    random_period: FloatProperty(name="Random Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=0.5, min=0.01, update=_result_changed)
     seed: IntProperty(name="Seed", default=0, update=_result_changed)
     show_advanced: BoolProperty(name="Advanced", default=False)
 
@@ -325,6 +364,17 @@ class WaifuPhysicsGroup(PropertyGroup):
                     "Kawaii's default. Each step scales Kawaii's damping by the same factor, from 0.03 (even the "
                     "loosest chains still settle) to 0.33. Kawaii's own damping is what is saved and exported")
     preset_name: StringProperty(options=set(), description="The preset last applied to the group")
+    use_force_fields: BoolProperty(
+        name="Blender Force Fields", default=False, update=_result_changed,
+        description="The chains feel the scene's force fields, made in the Physics tab as usual: Wind, Force, "
+                    "Vortex, Magnetic, Harmonic, Turbulence and Drag. Blender only: Kawaii in a game has no "
+                    "force fields")
+    force_field_collection: PointerProperty(
+        type=bpy.types.Collection, name="Collection", update=_result_changed,
+        description="Only the fields in this collection; empty for every field in the scene")
+    force_field_strength: FloatProperty(
+        name="Strength", default=1.0, soft_min=0.0, soft_max=2.0, update=_result_changed,
+        description="Scales every field's effect on this group (as cloth's Field Weights: All)")
     stiffness_level: FloatProperty(
         name="Stiffness", get=_level_get, set=_level_set, min=0.0, max=STIFFNESS_SPAN, precision=2, step=10,
         options=set(),
@@ -487,9 +537,6 @@ class WaifuPhysicsScene(PropertyGroup):
     selected_only: BoolProperty(
         name="Selected Only", default=True,
         description="List the selected armature's groups only; off lists every armature with a group")
-    follow_selection: BoolProperty(
-        name="Follow Selection", default=True,
-        description="Clicking a bone in Pose Mode shows its group")
 
 
 def _simulate_changed(settings):
