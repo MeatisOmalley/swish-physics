@@ -1,0 +1,209 @@
+"""Swish setups as plain data: versioned dicts to save, share, paste and export.
+
+An armature's setup is its groups (settings, chains, links, collider sets,
+curves) and its colliders; the scene's stepping settings ride along, since a
+setup was tuned at them. Everything is JSON-safe. Lengths are Blender units in
+the armature's space, angles radians, as in the properties.
+
+Curves carry both their control points, to edit again in Blender, and the
+dense linear keys the solver simulated with (curves.py), which is what an
+exporter hands a game's FRichCurve.
+
+A collider's transform is stored relative to its bone's head frame, which
+does not depend on the pose, and restored as a bone-parented object.
+"""
+import bpy
+from mathutils import Matrix
+
+from . import colliders, curves
+
+FORMAT = "swish_physics"
+VERSION = 1
+KAWAII_COMMIT = "64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21"
+SCENE_SETTINGS = ("target_framerate", "max_substeps", "fixed_substepping")
+_NOT_SETTINGS = {"rna_type", "name", "curve_key", "active_link"}
+
+
+def _plain(value):
+    return list(value) if hasattr(value, "__len__") and not isinstance(value, str) else value
+
+
+def settings_names(group):
+    """Every value property of a group: Kawaii's settings plus Swish's own switches."""
+    return [p.identifier for p in group.bl_rna.properties
+            if p.type in ("BOOLEAN", "INT", "FLOAT", "ENUM", "STRING") and p.identifier not in _NOT_SETTINGS]
+
+
+def settings_to_dict(group):
+    return {name: _plain(getattr(group, name)) for name in settings_names(group)}
+
+
+def settings_from_dict(group, data):
+    """Apply what the dict holds; names this version does not know are ignored."""
+    known = set(settings_names(group))
+    for name, value in data.items():
+        if name in known and _plain(getattr(group, name)) != value:
+            setattr(group, name, tuple(value) if isinstance(value, list) else value)
+
+
+def curve_to_dict(group, setting):
+    found = curves.node(group, setting, create=False)
+    if found is None:
+        return None
+    points = found.mapping.curves[0].points
+    sampled = curves.curve(group, setting)
+    return {"points": [[p.location[0], p.location[1], p.handle_type] for p in points],
+            "keys": sampled.keys() if sampled is not None else None}
+
+
+def curve_from_dict(group, setting, data):
+    mapping = curves.node(group, setting).mapping
+    curve = mapping.curves[0]
+    points = data["points"]
+    while len(curve.points) > max(2, len(points)):
+        curve.points.remove(curve.points[-1])
+    while len(curve.points) < len(points):
+        curve.points.new(0.0, 1.0)
+    # Points keep themselves sorted by x; set them in order, left to right.
+    for point, (x, y, handle) in zip(curve.points, sorted(points)):
+        point.location = (x, y)
+        point.handle_type = handle
+    mapping.update()
+
+
+def group_to_dict(group):
+    used = {setting: curve_to_dict(group, setting) for setting in curves.CURVED
+            if getattr(group, f"use_{setting}_curve")}
+    return {
+        "name": group.name,
+        "settings": settings_to_dict(group),
+        "roots": [item.name for item in group.roots],
+        "excluded": [item.name for item in group.excluded],
+        "links": [{"bone_a": link.bone_a, "bone_b": link.bone_b, "compliance": link.compliance,
+                   "exclude_from_subdivision": link.exclude_from_subdivision} for link in group.links],
+        # The group's own armature is null, so a setup moved to another armature keeps its own colliders.
+        "collider_sets": [None if item.armature == group.id_data else item.armature.name
+                          for item in group.collider_sets if item.armature is not None],
+        "curves": {setting: data for setting, data in used.items() if data is not None},
+    }
+
+
+def group_from_dict(group, data):
+    """Fill an empty group. Returns the collider set armatures it names that this file lacks."""
+    group.name = data.get("name", group.name)
+    settings_from_dict(group, data.get("settings", {}))
+    for name in data.get("roots", ()):
+        group.roots.add().name = name
+    for name in data.get("excluded", ()):
+        group.excluded.add().name = name
+    for found in data.get("links", ()):
+        link = group.links.add()
+        for key, value in found.items():
+            setattr(link, key, value)
+    missing = []
+    for name in data.get("collider_sets", ()):
+        armature = group.id_data if name is None else bpy.data.objects.get(name)
+        if armature is None or armature.type != "ARMATURE":
+            missing.append(name)
+            continue
+        group.collider_sets.add().armature = armature
+    for setting, curve in data.get("curves", {}).items():
+        if setting in curves.CURVED:
+            curve_from_dict(group, setting, curve)
+    return missing
+
+
+def settings_text(group):
+    """A group's settings and curves, without its chains, as JSON for the clipboard."""
+    import json
+    found = group_to_dict(group)
+    return json.dumps({"format": FORMAT, "version": VERSION, "settings": found["settings"], "curves": found["curves"]})
+
+
+def paste(group, text):
+    """Apply settings_text() to a group; raises ValueError for anything else."""
+    import json
+    data = json.loads(text)
+    check(data)
+    group_from_dict(group, {"settings": data.get("settings", {}), "curves": data.get("curves", {})})
+
+
+def _bone_frame(obj):
+    """The collider's transform in its bone's head frame (BONE parenting hangs it off the tail)."""
+    length = obj.parent.data.bones[obj.parent_bone].length
+    return Matrix.Translation((0.0, length, 0.0)) @ obj.matrix_parent_inverse @ obj.matrix_basis
+
+
+def collider_to_dict(obj):
+    return {"name": obj.name, "bone": obj.parent_bone, "enabled": obj.swish_collider.enabled,
+            "shape": {name: _plain(value) for name, value in colliders.values(obj).items()},
+            "matrix": [list(row) for row in _bone_frame(obj)]}
+
+
+def collider_from_dict(armature, data):
+    obj = colliders.add(armature, data["bone"], data["shape"].get("Shape", "Sphere"))
+    obj.name = data.get("name", obj.name)
+    obj.swish_collider.enabled = data.get("enabled", True)
+    for name, value in data["shape"].items():
+        if name != "Shape":
+            colliders.set_value(obj, name, tuple(value) if isinstance(value, list) else value)
+    length = armature.data.bones[data["bone"]].length
+    obj.matrix_parent_inverse = Matrix.Identity(4)
+    obj.matrix_basis = Matrix.Translation((0.0, -length, 0.0)) @ Matrix(data["matrix"])
+    return obj
+
+
+def armature_to_dict(obj, scene=None, include_colliders=True):
+    data = {"format": FORMAT, "version": VERSION, "kawaii_commit": KAWAII_COMMIT,
+            "armature": obj.name, "groups": [group_to_dict(group) for group in obj.swish.groups]}
+    if scene is not None:
+        data["scene"] = {name: getattr(scene.swish, name) for name in SCENE_SETTINGS}
+    if include_colliders:
+        data["colliders"] = [collider_to_dict(child) for child in obj.children if colliders.is_collider(child)
+                             and child.parent_type == "BONE" and child.parent_bone in obj.data.bones]
+    return data
+
+
+def check(data):
+    if not isinstance(data, dict) or data.get("format") != FORMAT:
+        raise ValueError("not a Swish Physics setup")
+    if data.get("version", 0) > VERSION:
+        raise ValueError(f"made by a newer Swish Physics (setup version {data['version']}, this reads {VERSION})")
+
+
+def armature_from_dict(obj, data, scene=None, replace=True, include_colliders=True):
+    """Load a setup onto an armature. Returns warnings: bones, armatures the setup names but this file lacks."""
+    check(data)
+    from ..runtime import live
+    warnings = []
+    if replace:
+        for group in obj.swish.groups:
+            curves.remove(group)
+        obj.swish.groups.clear()
+        if include_colliders and "colliders" in data:
+            for child in [c for c in obj.children if colliders.is_collider(c)]:
+                mesh = child.data
+                bpy.data.objects.remove(child)
+                if mesh is not None and mesh.users == 0:
+                    bpy.data.meshes.remove(mesh)
+    bones = obj.data.bones
+    for found in data.get("groups", ()):
+        group = obj.swish.groups.add()
+        for name in group_from_dict(group, found):
+            warnings.append(f"collider set armature '{name}' not found")
+        for name in [item.name for item in group.roots] + [item.name for item in group.excluded]:
+            if name not in bones:
+                warnings.append(f"group '{group.name}': bone '{name}' not found")
+    if include_colliders:
+        for found in data.get("colliders", ()):
+            if found["bone"] not in bones:
+                warnings.append(f"collider '{found['name']}': bone '{found['bone']}' not found")
+                continue
+            collider_from_dict(obj, found)
+    if scene is not None:
+        for name, value in data.get("scene", {}).items():
+            if name in SCENE_SETTINGS:
+                setattr(scene.swish, name, value)
+    obj.swish.active_group = 0
+    live.mark_dirty()
+    return warnings

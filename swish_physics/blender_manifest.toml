@@ -10,7 +10,7 @@ type = "add-on"
 blender_version_min = "5.2.0"
 
 license = ["SPDX:GPL-3.0-or-later"]
-copyright = ["2026 MeatisOmalley"]
+copyright = ["2026 MeatisOmalley", "2019-2026 pafuhana1213 (Kawaii Physics)"]
 
 tags = ["Animation", "Physics", "Rigging"]
 

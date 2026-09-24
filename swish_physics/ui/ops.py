@@ -1,9 +1,13 @@
 """Operators: make and edit groups from the bones selected in Pose Mode."""
+import json
+
 import bpy
+from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from ..data import colliders
 from ..data import links as chain_links
 from ..data import curves as group_curves
+from ..data import presets, serialize
 from ..runtime import live
 
 
@@ -262,7 +266,8 @@ class SWISH_OT_links_clear(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0             and len(obj.swish.groups[obj.swish.active_group].links) > 0
+        return (obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0
+                and len(obj.swish.groups[obj.swish.active_group].links) > 0)
 
     def execute(self, context):
         obj = context.object
@@ -320,10 +325,131 @@ class SWISH_OT_cache_clear(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _active_group(context):
+    obj = context.object
+    if obj is None or obj.type != "ARMATURE" or not len(obj.swish.groups):
+        return None
+    return obj.swish.groups[min(obj.swish.active_group, len(obj.swish.groups) - 1)]
+
+
+def _target_groups(context):
+    """The active group, plus every group holding a selected bone when Edit Selected Groups is on."""
+    from .selection import groups_of_selected
+    targets = [_active_group(context)]
+    if context.scene.swish.edit_selected_groups:
+        targets += [g for g in groups_of_selected(context) if all(g != t for t in targets)]
+    return targets
+
+
+class _GroupOperator:
+    @classmethod
+    def poll(cls, context):
+        return _active_group(context) is not None
+
+
+class SWISH_OT_preset_apply(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.preset_apply"
+    bl_label = "Apply Preset"
+    bl_description = "Set the group's physics to a starting point for this kind of chain"
+    bl_options = {"REGISTER", "UNDO"}
+
+    preset: bpy.props.EnumProperty(name="Preset", items=presets.ITEMS)
+
+    def execute(self, context):
+        for group in _target_groups(context):
+            presets.apply(group, self.preset)
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_group_copy(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.group_copy"
+    bl_label = "Copy Settings"
+    bl_description = "Copy the active group's physics settings and curves (not its chains) to the clipboard"
+
+    def execute(self, context):
+        context.window_manager.clipboard = serialize.settings_text(_active_group(context))
+        return {"FINISHED"}
+
+
+class SWISH_OT_group_paste(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.group_paste"
+    bl_label = "Paste Settings"
+    bl_description = ("Paste copied physics settings and curves onto the active group "
+                      "(and the groups of selected bones, with Edit Selected Groups)")
+    bl_options = {"REGISTER", "UNDO"}
+
+    text: bpy.props.StringProperty(options={"HIDDEN", "SKIP_SAVE"},
+                                   description="Settings to paste instead of the clipboard's")
+
+    def execute(self, context):
+        text = self.text or context.window_manager.clipboard
+        try:
+            for group in _target_groups(context):
+                serialize.paste(group, text)
+        except ValueError as error:
+            self.report({"ERROR"}, f"The clipboard holds no Swish settings ({error})")
+            return {"CANCELLED"}
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_setup_export(ExportHelper, bpy.types.Operator):
+    bl_idname = "swish.setup_export"
+    bl_label = "Export Setup"
+    bl_description = "Save the armature's groups, links, curves and colliders to a JSON file"
+    filename_ext = ".json"
+    filter_glob: bpy.props.StringProperty(default="*.json", options={"HIDDEN"})
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        data = serialize.armature_to_dict(context.object, context.scene)
+        with open(self.filepath, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=1)
+        self.report({"INFO"}, f"Saved {len(data['groups'])} groups, {len(data['colliders'])} colliders")
+        return {"FINISHED"}
+
+
+class SWISH_OT_setup_import(ImportHelper, bpy.types.Operator):
+    bl_idname = "swish.setup_import"
+    bl_label = "Import Setup"
+    bl_description = "Replace the armature's groups and colliders with a saved setup"
+    bl_options = {"REGISTER", "UNDO"}
+    filename_ext = ".json"
+    filter_glob: bpy.props.StringProperty(default="*.json", options={"HIDDEN"})
+
+    include_colliders: bpy.props.BoolProperty(name="Colliders", default=True,
+                                              description="Replace the armature's colliders too")
+    include_scene: bpy.props.BoolProperty(name="Step Settings", default=True,
+                                          description="Set the scene's steps per second and steps per frame")
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        try:
+            with open(self.filepath, encoding="utf-8") as handle:
+                data = json.load(handle)
+            warnings = serialize.armature_from_dict(context.object, data,
+                                                    context.scene if self.include_scene else None,
+                                                    include_colliders=self.include_colliders)
+        except (OSError, ValueError, KeyError) as error:
+            self.report({"ERROR"}, f"Could not load the setup: {error}")
+            return {"CANCELLED"}
+        for warning in warnings:
+            self.report({"WARNING"}, warning)
+        return {"FINISHED"}
+
+
 CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_group_remove, SWISH_OT_reset,
            SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove,
            SWISH_OT_link_chains, SWISH_OT_links_clear, SWISH_OT_link_remove, SWISH_OT_cache_all,
-           SWISH_OT_cache_clear)
+           SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_group_copy, SWISH_OT_group_paste,
+           SWISH_OT_setup_export, SWISH_OT_setup_import)
 
 
 def register():

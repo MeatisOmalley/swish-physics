@@ -48,4 +48,4 @@ class LinearCurve:
 
     def keys(self):
         """[(time, value)] for an export."""
-        return list(zip(self.times.tolist(), self.values.tolist()))
+        return [[time, value] for time, value in zip(self.times.tolist(), self.values.tolist())]

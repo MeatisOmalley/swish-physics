@@ -8,14 +8,14 @@ if "bpy" in locals():
         importlib.reload(_module)
 else:
     from .solver import uemath, system, curves as solver_curves, step_numpy, native, build
-    from .data import props, curves, colliders, links
+    from .data import props, curves, colliders, links, serialize, presets
     from .runtime import io, cache, live
     from .ui import selection, ops, panels, draw
 
 import bpy  # noqa: E402,F401  (its presence marks a reload, above)
 
-_RELOAD_ORDER = (uemath, system, solver_curves, step_numpy, native, build, props, curves, colliders, links, io,
-                 cache, live, selection, ops, panels, draw)
+_RELOAD_ORDER = (uemath, system, solver_curves, step_numpy, native, build, props, curves, colliders, links, serialize,
+                 presets, io, cache, live, selection, ops, panels, draw)
 
 # Registered in this order, unregistered in reverse.
 MODULES = (props, live, selection, ops, panels, draw)

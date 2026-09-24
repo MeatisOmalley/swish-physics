@@ -55,6 +55,14 @@ class SWISH_PT_main(bpy.types.Panel):
         layout.prop(settings, "follow_selection")
         if not len(swish.groups):
             layout.label(text="Select bones in Pose Mode, then New Group", icon="INFO")
+        else:
+            row = layout.row(align=True)
+            row.operator_menu_enum("swish.preset_apply", "preset", text="Preset", icon="PRESET")
+            row.operator("swish.group_copy", text="", icon="COPYDOWN")
+            row.operator("swish.group_paste", text="", icon="PASTEDOWN")
+        row = layout.row(align=True)
+        row.operator("swish.setup_import", icon="IMPORT")
+        row.operator("swish.setup_export", icon="EXPORT")
 
 
 class _GroupPanel:
