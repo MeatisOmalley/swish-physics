@@ -28,9 +28,8 @@ group = obj.waifu_physics.groups.add()
 check("stiffness comes before damping", curves.CURVED[:2] == ("stiffness", "damping"))
 group.damping_level = 0.0
 check("damping 0 is the floor, not zero", abs(group.damping - props.DAMPING_FLOOR) < 1e-6, group.damping)
-check("the floor is 0.01", abs(props.DAMPING_FLOOR - 0.01) < 1e-9)
-group.damping = 0.1
-check("Kawaii's default, 0.1, shows as about 6.6", abs(group.damping_level - 6.5665) < 1e-3, group.damping_level)
+group.damping_level = 5.0
+check("damping 5 is Kawaii's default, 0.1", abs(group.damping - 0.1) < 1e-6, group.damping)
 group.damping_level = 10.0
 check("damping 10 is 0.33", abs(group.damping - 0.3333) < 1e-3, group.damping)
 steps = []
