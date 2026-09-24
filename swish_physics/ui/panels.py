@@ -36,13 +36,6 @@ class SWISH_UL_groups(bpy.types.UIList):
         count.alignment = "RIGHT"
         count.enabled = False
         count.label(text=_plural(len(item.roots), "chain"))
-        moving = _moving.get(item.id_data.name)
-        if moving is not None and index != moving:
-            drop = row.operator("swish.chains_move_here", text="", icon="IMPORT", emboss=False)
-            drop.armature, drop.index = item.id_data.name, index
-
-
-_moving = {}              # armature -> active group index, while that group has chains selected
 
 
 class SWISH_PT_main(bpy.types.Panel):
@@ -54,7 +47,6 @@ class SWISH_PT_main(bpy.types.Panel):
 
     def draw(self, context):
         from ..runtime import live
-        from .ops import selected_chains
         layout = self.layout
         scene, settings = context.scene, context.scene.swish
         row = layout.row(align=True)
@@ -83,14 +75,9 @@ class SWISH_PT_main(bpy.types.Panel):
             box.label(text="Select an armature" if settings.selected_only else "No armature has a group yet",
                       icon="INFO")
             return
-        _moving.clear()
         for number, rig in enumerate(armatures):
             if number:
                 box.separator(factor=0.8)            # a little space between armatures
-            if len(rig.swish.groups) and rig == obj:
-                current_group = rig.swish.groups[min(rig.swish.active_group, len(rig.swish.groups) - 1)]
-                if selected_chains(rig, current_group):
-                    _moving[rig.name] = rig.swish.active_group
             row = box.row(align=True)
             row.prop(rig.swish, "expanded", text="", emboss=False,
                      icon="DOWNARROW_HLT" if rig.swish.expanded else "RIGHTARROW")
@@ -113,6 +100,14 @@ class SWISH_PT_main(bpy.types.Panel):
                                 rows=len(rig.swish.groups), maxrows=len(rig.swish.groups))
         if obj is None or obj.type != "ARMATURE":
             return
+        from . import manager
+        showing = manager.is_open(context.area)
+        layout.operator("swish.chain_manager", icon="OUTLINER", depress=showing,
+                        text="Hide Chain Manager" if showing else "Chain Manager")
+        if showing and not context.space_data.show_gizmo:
+            note = layout.row()
+            note.alert = True
+            note.label(text="Turn on Gizmos in the header to see it", icon="ERROR")
         row = layout.row(align=True)
         row.operator("swish.group_add", icon="PLUS")
         row.operator("swish.exclude", icon="X")
@@ -169,7 +164,7 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
         if len(shared) > 1:
             note = layout.row()
             note.enabled = False
-            note.label(text=f"Changes apply to all {len(shared)} groups with selected bones", icon="INFO")
+            note.label(text=f"Edits go to all {len(shared)} selected groups", icon="INFO")
         column = layout.column(align=True)
         for name in curves.CURVED:
             shown = _SHOWN.get(name, name)
@@ -204,47 +199,6 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
             column.prop(group, "use_world_space_gravity")
 
 
-class SWISH_PT_chains(_GroupPanel, bpy.types.Panel):
-    bl_idname = "SWISH_PT_chains"
-    bl_label = "Chains"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    def draw(self, context):
-        group = self.group(context)
-        layout = self.layout
-        obj = context.object
-        excluded = [bone.name for bone in group.excluded]
-        from .ops import selected_chains
-        chosen = set(selected_chains(obj, group))
-        _chain_rows.clear()
-        _chain_rows.update({root.name: (root.name in chosen,
-                                        len(chain_links.chain_subtree(obj, root.name, excluded)))
-                            for root in group.roots})
-        layout.template_list("SWISH_UL_chains", "", group, "roots", group, "active_chain", rows=8)
-        row = layout.row()
-        row.enabled = False
-        row.label(text=f"{len(chosen)} of {len(group.roots)} selected" if chosen
-                  else "Click; Shift-click a range; Ctrl-click to add or drop one")
-        row = layout.row(align=True)
-        row.operator("swish.chains_show", text="", icon="RESTRICT_SELECT_OFF")
-        row.operator("swish.chains_split", text="Split", icon="SPLIT_HORIZONTAL")
-        row.operator_menu_enum("swish.chains_move", "target", text="Move to", icon="FORWARD")
-        row.operator("swish.chains_remove", text="", icon="TRASH")
-        if len(group.excluded):
-            layout.label(text="Excluded:")
-            column = layout.column(align=True)
-            for bone in group.excluded:
-                column.label(text=bone.name, icon="X")
-        layout.use_property_split = True
-        layout.prop(group, "dummy_bone_length")
-        layout.prop(group, "bone_subdivision_count")
-        sub = layout.column()
-        sub.active = group.bone_subdivision_count > 0
-        sub.prop(group, "bone_subdivision_collision_only")
-        sub.prop(group, "bone_subdivision_densify_by_radius")
-        layout.prop(group, "planar_constraint")
-
-
 class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
     bl_idname = "SWISH_PT_advanced"
     bl_label = "Advanced"
@@ -254,6 +208,22 @@ class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
         group = self.group(context)
         layout = self.layout
         layout.use_property_split = True
+        layout.use_property_decorate = False
+        layout.label(text="Chain Shape")
+        layout.prop(group, "dummy_bone_length")
+        layout.prop(group, "bone_subdivision_count")
+        sub = layout.column()
+        sub.active = group.bone_subdivision_count > 0
+        sub.prop(group, "bone_subdivision_collision_only")
+        sub.prop(group, "bone_subdivision_densify_by_radius")
+        layout.prop(group, "planar_constraint")
+        if len(group.excluded):
+            listed = layout.column(align=True)
+            listed.label(text="Excluded Bones")
+            for bone in group.excluded:
+                listed.label(text=bone.name, icon="X")
+        layout.separator()
+        layout.label(text="Group")
         layout.prop(group, "legacy_gravity")
         layout.prop(group, "teleport_distance")
         layout.prop(group, "teleport_rotation")
@@ -266,24 +236,6 @@ class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
         sub.active = settings.fixed_substepping
         sub.prop(settings, "target_framerate")
         sub.prop(settings, "max_substeps")
-
-
-_chain_rows = {}          # root -> (selected, bone count), filled by the Chains panel before its list draws
-
-
-class SWISH_UL_chains(bpy.types.UIList):
-    """A group's chains; clicking a row selects its bones (Shift adds, Ctrl selects a range)."""
-
-    def draw_item(self, context, layout, data, item, icon, active_data, active_property, index=0, flt_flag=0):
-        picked, count = _chain_rows.get(item.name, (False, 0))
-        row = layout.row(align=True)
-        op = row.operator("swish.chain_click", text=item.name, depress=picked, emboss=picked,
-                          icon="BONE_DATA")
-        op.root = item.name
-        sub = row.row()
-        sub.alignment = "RIGHT"
-        sub.enabled = False
-        sub.label(text=str(count))
 
 
 class SWISH_UL_links(bpy.types.UIList):
@@ -544,8 +496,8 @@ class SWISH_PT_sync(_GroupPanel, bpy.types.Panel):
         sub.prop(sync, "max_attenuation")
 
 
-CLASSES = (SWISH_UL_groups, SWISH_UL_chains, SWISH_UL_links, SWISH_UL_forces, SWISH_UL_sync, SWISH_UL_sync_targets, SWISH_PT_main,
-           SWISH_PT_settings, SWISH_PT_chains, SWISH_PT_links, SWISH_PT_colliders, SWISH_PT_forces, SWISH_PT_sync,
+CLASSES = (SWISH_UL_groups, SWISH_UL_links, SWISH_UL_forces, SWISH_UL_sync, SWISH_UL_sync_targets, SWISH_PT_main,
+           SWISH_PT_settings, SWISH_PT_links, SWISH_PT_colliders, SWISH_PT_forces, SWISH_PT_sync,
            SWISH_PT_advanced)
 
 

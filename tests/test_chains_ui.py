@@ -1,4 +1,4 @@
-"""The group tree and the Chains tab: which armatures are listed, and splitting, moving, merging and
+"""The group tree and the chain manager: which armatures are listed, and selecting, moving, merging and
 removing chains."""
 import math
 import os
@@ -96,53 +96,104 @@ bpy.ops.object.mode_set(mode="OBJECT")
 bpy.ops.swish.armature_activate(armature="skirt")
 group = skirt_rig.swish.groups[0]
 
-# --- links around the skirt, then split two chains off
+# --- links around the skirt; select chains as the manager's clicks do
 bpy.ops.object.mode_set(mode="POSE")
 for pb in skirt_rig.pose.bones:
     pb.select = pb.name.endswith("_1")
 bpy.ops.swish.link_chains(mode="LOOP")
 links_before = len(group.links)
-bpy.ops.swish.chain_click(root="p0_0")
-bpy.ops.swish.chain_click(root="p1_0", extend=True)
 ops = sys.modules["swish_physics.ui.ops"]
-check("clicking a chain row selects it; Shift-click adds another",
-      ops.selected_chains(skirt_rig, group) == ["p0_0", "p1_0"]
+chosen = lambda: sorted(root for _g, root in ops.selected_chain_keys(skirt_rig))
+bpy.ops.swish.chain_click(group=0, root="p0_0")
+bpy.ops.swish.chain_click(group=0, root="p1_0", extend=True)
+check("clicking a chain selects it; Ctrl-click adds another",
+      chosen() == ["p0_0", "p1_0"]
       and {pb.name for pb in skirt_rig.pose.bones if pb.select} == {f"p{k}_{i}" for k in (0, 1) for i in range(3)})
-bpy.ops.swish.chain_click(root="p1_0", extend=True)
-check("Shift-clicking a selected chain drops it", ops.selected_chains(skirt_rig, group) == ["p0_0"])
-bpy.ops.swish.chain_click(root="p0_0")
-bpy.ops.swish.chain_click(root="p3_0", span=True)
-check("Ctrl-click selects the range between", ops.selected_chains(skirt_rig, group) == ["p0_0", "p1_0", "p2_0", "p3_0"])
-bpy.ops.swish.chain_click(root="p0_0")
-bpy.ops.swish.chain_click(root="p1_0", extend=True)
-check("Split to New Group runs", bpy.ops.swish.chains_split() == {"FINISHED"})
+bpy.ops.swish.chain_click(group=0, root="p1_0", extend=True)
+check("Ctrl-clicking a selected chain drops it", chosen() == ["p0_0"])
+bpy.ops.swish.chain_click(group=0, root="p0_0")
+bpy.ops.swish.chain_click(group=0, root="p3_0", span=True)
+check("Shift-click selects the range between", chosen() == ["p0_0", "p1_0", "p2_0", "p3_0"])
+bpy.ops.swish.chains_select(action="NONE")
+check("clicking empty space selects none", chosen() == [])
+bpy.ops.swish.chains_select(action="ALL")
+check("A selects them all", len(chosen()) == 6)
+
+# --- New Group from the selection
+bpy.ops.swish.chain_click(group=0, root="p0_0")
+bpy.ops.swish.chain_click(group=0, root="p1_0", extend=True)
+check("New Group runs", bpy.ops.swish.chains_to_group(index=-1) == {"FINISHED"})
 split = skirt_rig.swish.groups[1]
-check("the split group holds the selected chains, the rest stay",
+check("the new group holds the selected chains, the rest stay",
       [r.name for r in split.roots] == ["p0_0", "p1_0"] and len(group.roots) == 4)
+check("... named from them, not a bone name", split.name == "p0" or not split.name.startswith("J_"), split.name)
 check("... with the original's settings", math.isclose(split.damping, 0.37, rel_tol=1e-6))
 names = lambda g: {frozenset((l.bone_a, l.bone_b)) for l in g.links}
 inside = {frozenset(("p0_1", "p1_1")), frozenset(("p0_2", "p1_2"))}
-check("... links inside the split chains move with them", names(split) == inside, names(split))
+check("... links inside the moved chains move with them", names(split) == inside, names(split))
 check("... and links crossing to the chains left behind are removed",
       len(group.links) == links_before - len(inside) - 4, (links_before, len(group.links)))
 
-# --- move chains back by viewport selection: moving all of them merges the groups
-skirt_rig.swish.active_group = 1
-for pb in skirt_rig.pose.bones:
-    pb.select = pb.name.startswith(("p0_", "p1_"))       # as a box select in the viewport would
-check("the move-here arrow moves the chains holding selected bones",
-      bpy.ops.swish.chains_move_here(armature="skirt", index=0) == {"FINISHED"})
-check("... and moving them all merges the groups: the empty one is gone",
-      len(skirt_rig.swish.groups) == 1 and len(skirt_rig.swish.groups[0].roots) == 6)
+# --- the manager's layout: folders, rows, what a click or a drop lands on
+manager = sys.modules["swish_physics.ui.manager"]
+layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
+kinds = [(item.kind, item.group, item.root) for item in layout.rows]
+check("the manager lists each group as a folder, its chains under it",
+      kinds == [("group", 0, "")] + [("chain", 0, f"p{k}_0") for k in (2, 3, 4, 5)]
+      + [("group", 1, "")] + [("chain", 1, f"p{k}_0") for k in (0, 1)], kinds)
+row = layout.rows[2]
+mid_y = (row.y0 + row.y1) / 2
+check("a click on a row hits that chain", layout.hit(row.x0 + 60, mid_y).root == "p3_0")
+check("... and on its right end, the chain's trash button", layout.hit(row.x1 - 8, mid_y).kind == "trash")
+check("a group's arrow folds it", layout.hit(layout.rows[0].x0 + 8, (layout.rows[0].y0 + layout.rows[0].y1) / 2).kind == "fold")
+check("dropping on a chain row drops into its group", layout.drop_target(row.x0 + 60, mid_y) == ("group", 0))
+check("dropping on the empty space under the rows makes a new group",
+      layout.drop_target(layout.empty.x0 + 30, (layout.empty.y0 + layout.empty.y1) / 2) == ("new", -1))
+check("outside the manager is nothing", layout.hit(layout.frame.x1 + 5, mid_y) is None)
+tools = {item.kind: item.enabled for item in layout.items if item.kind in ("new", "merge", "delete")}
+check("with chains of one group selected, New Group and Delete are on, Merge is off",
+      tools == {"new": True, "merge": False, "delete": True}, tools)
+skirt_rig.pose.bones["p2_1"].select = True
+layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
+check("... and a chain from a second group turns Merge on",
+      next(i for i in layout.items if i.kind == "merge").enabled)
+skirt_rig.swish.groups[1].show_chains = False
+layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
+check("a folded group hides its chains", len(layout.rows) == 6)
+skirt_rig.swish.groups[1].show_chains = True
+small = manager.Layout(skirt_rig, (1200, 180), 1.0, place=(20, 170), scroll=2)
+check("a short viewport scrolls the rows", small.total == 8 and small.capacity < 8 and small.first == 2
+      and small.rows[0].root == "p3_0", (small.total, small.capacity, small.first))
+dragging = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), drag=manager.Drag("chains", 0, 2, 0, 0))
+zone = dragging.rows[-1]
+check("while chains are dragged, a new-group drop zone shows under the rows",
+      zone.kind == "newzone" and dragging.drop_target(zone.x0 + 20, (zone.y0 + zone.y1) / 2) == ("new", -1))
+check("the manager edits one armature: nothing on it names another",
+      all(item.group < len(skirt_rig.swish.groups) for item in layout.items))
+
+# --- merge: the button merges the selected chains' groups; dragging a folder onto another merges it
+skirt_rig.swish.active_group = 0
+check("Merge merges the groups of the selected chains into the active one",
+      bpy.ops.swish.groups_merge() == {"FINISHED"} and len(skirt_rig.swish.groups) == 1
+      and len(skirt_rig.swish.groups[0].roots) == 6 and skirt_rig.swish.groups[0].name == "Skirt")
 group = skirt_rig.swish.groups[0]
 check("... the moved chains' links came along", inside <= names(group))
+bpy.ops.swish.chain_click(group=0, root="p4_0")
+bpy.ops.swish.chains_to_group(index=-1)
+check("a folder dragged onto another merges into it",
+      bpy.ops.swish.groups_merge(source=1, target=0) == {"FINISHED"} and len(skirt_rig.swish.groups) == 1
+      and len(group.roots) == 6)
+bpy.ops.swish.group_click(index=0)
+check("clicking a folder selects its chains and makes it the edited group",
+      len(chosen()) == 6 and skirt_rig.swish.active_group == 0)
 
-# --- select in viewport, remove
-bpy.ops.swish.chain_click(root="p5_0")
-check("clicking a row selects just that chain's bones",
-      {pb.name for pb in skirt_rig.pose.bones if pb.select} == {"p5_0", "p5_1", "p5_2"})
-check("Remove Chains stops simulating them", bpy.ops.swish.chains_remove() == {"FINISHED"}
-      and "p5_0" not in [r.name for r in group.roots] and len(group.roots) == 5)
+# --- delete: a chain's trash button, and the selected chains
+bpy.ops.swish.chain_remove(group=0, root="p5_0")
+check("a chain's trash button stops simulating it", "p5_0" not in [r.name for r in group.roots]
+      and len(group.roots) == 5)
+bpy.ops.swish.chain_click(group=0, root="p4_0")
+check("Delete stops simulating the selected chains", bpy.ops.swish.chains_remove() == {"FINISHED"}
+      and "p4_0" not in [r.name for r in group.roots] and len(group.roots) == 4)
 bpy.ops.object.mode_set(mode="OBJECT")
 
 # --- stiffness 0-10, inertia, gravity: shown the intuitive way round, Kawaii's values stored
@@ -171,11 +222,11 @@ g.stiffness = 0.05
 bpy.context.view_layer.objects.active = skirt_rig
 bpy.ops.object.mode_set(mode="POSE")
 for pb in skirt_rig.pose.bones:
-    pb.select = pb.name.startswith(("p0_", "p4_"))
+    pb.select = pb.name.startswith(("p0_", "p3_"))
 before = len(skirt_rig.swish.groups)
 check("Move Chains to Group > New Group makes a group of them",
       bpy.ops.swish.chains_to_group(index=-1) == {"FINISHED"} and len(skirt_rig.swish.groups) == before + 1
-      and sorted(r.name for r in skirt_rig.swish.groups[-1].roots) == ["p0_0", "p4_0"])
+      and sorted(r.name for r in skirt_rig.swish.groups[-1].roots) == ["p0_0", "p3_0"])
 for pb in skirt_rig.pose.bones:
     pb.select = pb.name.startswith(("p0_", "p1_"))
 check("... and moving chains from two groups into one works in one go",

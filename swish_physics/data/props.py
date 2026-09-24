@@ -374,7 +374,7 @@ class SwishGroup(PropertyGroup):
     warm_up_frames: IntProperty(name="Warm Up Frames", default=0, min=0, max=500, update=_result_changed,
                                 description="Steps simulated before the first frame, so chains start settled")
 
-    active_chain: IntProperty(default=-1)     # kept out of range: the list's highlight is the bones' selection
+    show_chains: BoolProperty(name="Show Chains", default=True, description="Fold this group open in Chains")
     forces: CollectionProperty(type=SwishForce)
     active_force: IntProperty()
     sync_bones: CollectionProperty(type=SwishSyncBone)

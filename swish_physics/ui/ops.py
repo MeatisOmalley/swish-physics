@@ -661,9 +661,6 @@ def selected_chains(obj, group):
     return [root.name for root in group.roots if selected & set(_chain_bones(obj, group, root.name))]
 
 
-def _chosen_chains(context, obj, group):
-    return selected_chains(obj, group)
-
 
 def _move_chains(obj, source, roots, target):
     """Chains from one group to another: their roots, exclusions and the links inside them.
@@ -711,23 +708,32 @@ def _drop_if_empty(obj, group):
     return True
 
 
-class _ChainsOperator(_GroupOperator):
-    @classmethod
-    def poll(cls, context):
-        group = _active_group(context)
-        return group is not None and len(group.roots) > 0
+def all_chains(obj):
+    """Every chain of the armature as (group index, root), in the Chains list's order."""
+    return [(index, root.name) for index, group in enumerate(obj.swish.groups) for root in group.roots]
 
 
-def _select_chains(context, obj, group, roots, keep=False, deselect=()):
+def _bones_of(obj, chains):
+    found = set()
+    for index, root in chains:
+        found |= set(_chain_bones(obj, obj.swish.groups[index], root))
+    return found
+
+
+def selected_chain_keys(obj):
+    """(group index, root) of every chain with a selected bone."""
+    selected = {pb.name for pb in obj.pose.bones if pb.select}
+    if not selected:
+        return set()
+    return {(index, root) for index, root in all_chains(obj)
+            if selected & set(_chain_bones(obj, obj.swish.groups[index], root))}
+
+
+def _select(context, obj, chains, keep=False, deselect=()):
     """Select chains' bones in the viewport (Pose Mode), as clicking their rows does."""
     if context.mode != "POSE" and context.view_layer.objects.active == obj:
         bpy.ops.object.mode_set(mode="POSE")
-    wanted = set()
-    for root in roots:
-        wanted |= set(_chain_bones(obj, group, root))
-    dropped = set()
-    for root in deselect:
-        dropped |= set(_chain_bones(obj, group, root))
+    wanted, dropped = _bones_of(obj, chains), _bones_of(obj, deselect)
     for pb in obj.pose.bones:
         if pb.name in wanted:
             pb.select = True
@@ -735,18 +741,23 @@ def _select_chains(context, obj, group, roots, keep=False, deselect=()):
             pb.select = False
 
 
-_last_clicked = {}                   # (armature, group) -> the chain clicked last, for Ctrl-click ranges
+_last_clicked = {}                   # armature -> the chain clicked last, for Shift-click ranges
 
 
-class SWISH_OT_chain_click(_ChainsOperator, bpy.types.Operator):
+class SWISH_OT_chain_click(bpy.types.Operator):
     bl_idname = "swish.chain_click"
     bl_label = "Select Chain"
     bl_description = "Select this chain. Shift-click selects a range; Ctrl-click adds or drops one chain"
     bl_options = {"REGISTER", "UNDO"}
 
+    group: bpy.props.IntProperty()
     root: bpy.props.StringProperty()
     extend: bpy.props.BoolProperty(options={"SKIP_SAVE"})
     span: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
 
     def invoke(self, context, event):
         # As in a file browser: Shift selects a range, Ctrl adds or drops one.
@@ -754,156 +765,186 @@ class SWISH_OT_chain_click(_ChainsOperator, bpy.types.Operator):
         return self.execute(context)
 
     def execute(self, context):
-        obj, group = context.object, _active_group(context)
-        names = [root.name for root in group.roots]
-        if self.root not in names:
+        obj = context.object
+        chains = all_chains(obj)
+        this = (self.group, self.root)
+        if this not in chains:
             return {"CANCELLED"}
-        key = (obj.name, group.curve_key or group.name)
-        chosen = selected_chains(obj, group)
-        if self.span and _last_clicked.get(key) in names:
-            a, b = sorted((names.index(_last_clicked[key]), names.index(self.root)))
-            _select_chains(context, obj, group, names[a:b + 1], keep=True)
+        last = _last_clicked.get(obj.name)
+        if self.span and last in chains:
+            a, b = sorted((chains.index(last), chains.index(this)))
+            _select(context, obj, chains[a:b + 1], keep=True)
         elif self.extend:
-            if self.root in chosen:
-                _select_chains(context, obj, group, [], keep=True, deselect=[self.root])
+            if this in selected_chain_keys(obj):
+                _select(context, obj, [], keep=True, deselect=[this])
             else:
-                _select_chains(context, obj, group, [self.root], keep=True)
+                _select(context, obj, [this], keep=True)
         else:
-            _select_chains(context, obj, group, [self.root])
-        _last_clicked[key] = self.root
-        group.active_chain = -1                      # the list highlights selection, not an active row
+            _select(context, obj, [this])
+        _last_clicked[obj.name] = this
+        obj.swish.active_group = self.group
         return {"FINISHED"}
 
 
-class SWISH_OT_chains_show(_ChainsOperator, bpy.types.Operator):
-    bl_idname = "swish.chains_show"
-    bl_label = "Select All Chains"
-    bl_description = "Select every chain of the group, or none if all are selected"
+class SWISH_OT_chains_select(bpy.types.Operator):
+    bl_idname = "swish.chains_select"
+    bl_label = "Select Chains"
+    bl_description = "Select every chain of the armature, or none"
+    bl_options = {"REGISTER", "UNDO"}
+
+    action: bpy.props.EnumProperty(items=(("ALL", "All", ""), ("NONE", "None", ""), ("TOGGLE", "Toggle", "")),
+                                   default="TOGGLE")
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        obj = context.object
+        chains = all_chains(obj)
+        every = self.action == "ALL" or (self.action == "TOGGLE" and len(selected_chain_keys(obj)) < len(chains))
+        _select(context, obj, chains if every else [], deselect=() if every else chains)
+        return {"FINISHED"}
+
+
+class SWISH_OT_group_click(bpy.types.Operator):
+    bl_idname = "swish.group_click"
+    bl_label = "Select Group"
+    bl_description = "Edit this group and select its chains. Ctrl or Shift adds them to the selection"
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: bpy.props.IntProperty()
+    extend: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        obj = context.object
+        if not 0 <= self.index < len(obj.swish.groups):
+            return {"CANCELLED"}
+        mine = [(self.index, root.name) for root in obj.swish.groups[self.index].roots]
+        if self.extend and mine and set(mine) <= selected_chain_keys(obj):
+            _select(context, obj, [], keep=True, deselect=mine)        # all selected already: drop them
+        else:
+            _select(context, obj, mine, keep=self.extend)
+        if mine:
+            _last_clicked[obj.name] = mine[-1]
+        obj.swish.active_group = self.index
+        return {"FINISHED"}
+
+
+def _remove_chains(obj, chains):
+    """Stop simulating chains, dropping groups they empty. Returns the links removed."""
+    broken, names = 0, [g.name for g in obj.swish.groups]
+    by_group = {}
+    for index, root in chains:
+        by_group.setdefault(names[index], []).append(root)
+    for name, roots in by_group.items():
+        group = obj.swish.groups[[g.name for g in obj.swish.groups].index(name)]
+        broken += _move_chains(obj, group, roots, None)
+        _drop_if_empty(obj, group)
+    return broken
+
+
+class SWISH_OT_chain_remove(bpy.types.Operator):
+    bl_idname = "swish.chain_remove"
+    bl_label = "Remove Chain"
+    bl_description = "Stop simulating this chain (a group left empty is removed)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    group: bpy.props.IntProperty()
+    root: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = context.object
+        if obj is None or (self.group, self.root) not in all_chains(obj):
+            return {"CANCELLED"}
+        _remove_chains(obj, [(self.group, self.root)])
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_chains_remove(bpy.types.Operator):
+    bl_idname = "swish.chains_remove"
+    bl_label = "Remove Selected Chains"
+    bl_description = "Stop simulating the selected chains"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        obj, group = context.object, _active_group(context)
-        names = [root.name for root in group.roots]
-        if len(selected_chains(obj, group)) == len(names):
-            _select_chains(context, obj, group, [])
-        else:
-            _select_chains(context, obj, group, names)
+        obj = context.object
+        chains = sorted(selected_chain_keys(obj)) if obj is not None and obj.type == "ARMATURE" else []
+        if not chains:
+            self.report({"WARNING"}, "Select chains first: click their rows, or their bones in the viewport")
+            return {"CANCELLED"}
+        broken = _remove_chains(obj, chains)
+        live.mark_dirty(context.scene)
+        self.report({"INFO"}, f"Removed {len(chains)} chains" + (f" and {broken} links" if broken else ""))
         return {"FINISHED"}
 
 
-class SWISH_OT_chains_move_here(bpy.types.Operator):
-    bl_idname = "swish.chains_move_here"
-    bl_label = "Move Selected Chains Here"
-    bl_description = ("Move the active group's selected chains into this group; "
-                      "moving all of them merges the groups")
+def merge_groups(obj, sources, target):
+    """Move every chain of the source groups into the target, which keeps its settings, and remove the
+    sources. Returns the target's index afterwards."""
+    name = target.name
+    for source in sources:
+        if source == target:
+            continue
+        _move_chains(obj, source, [root.name for root in source.roots], target)
+        _drop_if_empty(obj, source)
+    index = [g.name for g in obj.swish.groups].index(name)
+    obj.swish.active_group = index
+    return index
+
+
+class SWISH_OT_groups_merge(bpy.types.Operator):
+    bl_idname = "swish.groups_merge"
+    bl_label = "Merge Groups"
+    bl_description = ("Merge the groups of the selected chains into one: the active group if it is among them, "
+                      "keeping its settings")
     bl_options = {"REGISTER", "UNDO"}
 
-    armature: bpy.props.StringProperty()
+    source: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
+    target: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        obj = context.object
+        groups = obj.swish.groups
+        if self.source >= 0 and self.target >= 0:
+            if self.source == self.target or max(self.source, self.target) >= len(groups):
+                return {"CANCELLED"}
+            chosen, target = [groups[self.source]], groups[self.target]
+        else:
+            indices = sorted({index for index, _root in selected_chain_keys(obj)})
+            if len(indices) < 2:
+                self.report({"WARNING"}, "Select chains from two or more groups")
+                return {"CANCELLED"}
+            chosen = [groups[i] for i in indices]
+            target = groups[obj.swish.active_group] if obj.swish.active_group in indices else chosen[0]
+        names = [g.name for g in chosen if g != target]
+        merge_groups(obj, [g for g in chosen if g != target], target)
+        live.mark_dirty(context.scene)
+        self.report({"INFO"}, f"Merged {', '.join(names)} into '{target.name}'")
+        return {"FINISHED"}
+
+
+class SWISH_OT_group_pick(bpy.types.Operator):
+    bl_idname = "swish.group_pick"
+    bl_label = "Edit Group"
+    bl_description = "Edit this group's settings"
+
     index: bpy.props.IntProperty()
 
     def execute(self, context):
-        obj = bpy.data.objects.get(self.armature)
-        if obj is None or obj != context.object or not 0 <= self.index < len(obj.swish.groups):
+        obj = context.object
+        if obj is None or not 0 <= self.index < len(obj.swish.groups):
             return {"CANCELLED"}
-        group = _active_group(context)
-        target = obj.swish.groups[self.index]
-        if target == group:
-            return {"CANCELLED"}
-        roots = selected_chains(obj, group)
-        if not roots:
-            self.report({"WARNING"}, "Select chains first: click their rows, or their bones in the viewport")
-            return {"CANCELLED"}
-        name = target.name
-        broken = _move_chains(obj, group, roots, target)
-        merged = _drop_if_empty(obj, group)
-        obj.swish.active_group = [g.name for g in obj.swish.groups].index(name)
-        live.mark_dirty(context.scene)
-        self.report({"INFO"}, (f"Merged into '{name}'" if merged else f"{len(roots)} chains to '{name}'")
-                              + (f"; {broken} links removed" if broken else ""))
-        return {"FINISHED"}
-
-
-class SWISH_OT_chains_remove(_ChainsOperator, bpy.types.Operator):
-    bl_idname = "swish.chains_remove"
-    bl_label = "Remove Chains"
-    bl_description = "Stop simulating the ticked chains (or those holding selected bones)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        obj, group = context.object, _active_group(context)
-        roots = _chosen_chains(context, obj, group)
-        if not roots:
-            self.report({"WARNING"}, "Select chains first: click their rows, or their bones in the viewport")
-            return {"CANCELLED"}
-        broken = _move_chains(obj, group, roots, None)
-        _drop_if_empty(obj, group)
-        live.mark_dirty(context.scene)
-        self.report({"INFO"}, f"Removed {len(roots)} chain{'s' if len(roots) != 1 else ''}"
-                              + (f" and {broken} link{'s' if broken != 1 else ''}" if broken else ""))
-        return {"FINISHED"}
-
-
-class SWISH_OT_chains_split(_ChainsOperator, bpy.types.Operator):
-    bl_idname = "swish.chains_split"
-    bl_label = "Split to New Group"
-    bl_description = "Move the ticked chains (or those holding selected bones) into a new group with the same settings"
-    bl_options = {"REGISTER", "UNDO"}
-
-    def execute(self, context):
-        obj, group = context.object, _active_group(context)
-        roots = _chosen_chains(context, obj, group)
-        if not roots or len(roots) == len(group.roots):
-            self.report({"WARNING"}, "Select some, but not all, of the group's chains")
-            return {"CANCELLED"}
-        target = obj.swish.groups.add()
-        target.name = f"{group.name} split"
-        serialize.paste(target, serialize.settings_text(group))
-        broken = _move_chains(obj, group, roots, target)
-        obj.swish.active_group = len(obj.swish.groups) - 1
-        live.mark_dirty(context.scene)
-        self.report({"INFO"}, f"{len(roots)} chains to '{target.name}'"
-                              + (f"; {broken} links between the two groups removed" if broken else ""))
-        return {"FINISHED"}
-
-
-_move_items = []                 # dynamic enum strings must outlive the call that lists them
-
-
-def _other_groups(self, context):
-    obj = context.object
-    _move_items.clear()
-    if obj is not None and obj.type == "ARMATURE":
-        for index, group in enumerate(obj.swish.groups):
-            if index != obj.swish.active_group:
-                _move_items.append((str(index), group.name, f"Move the chains into '{group.name}'"))
-    return _move_items or [("NONE", "No other group", "")]
-
-
-class SWISH_OT_chains_move(_ChainsOperator, bpy.types.Operator):
-    bl_idname = "swish.chains_move"
-    bl_label = "Move to Group"
-    bl_description = ("Move the ticked chains (or those holding selected bones) into another group; "
-                      "moving all of them merges the groups")
-    bl_options = {"REGISTER", "UNDO"}
-
-    target: bpy.props.EnumProperty(name="Group", items=_other_groups)
-
-    def execute(self, context):
-        obj, group = context.object, _active_group(context)
-        if self.target == "NONE":
-            return {"CANCELLED"}
-        target = obj.swish.groups[int(self.target)]
-        roots = _chosen_chains(context, obj, group)
-        if not roots:
-            self.report({"WARNING"}, "Select chains first: click their rows, or their bones in the viewport")
-            return {"CANCELLED"}
-        name = target.name
-        broken = _move_chains(obj, group, roots, target)
-        merged = _drop_if_empty(obj, group)
-        obj.swish.active_group = [g.name for g in obj.swish.groups].index(name)
-        live.mark_dirty(context.scene)
-        self.report({"INFO"}, (f"Merged into '{name}'" if merged else f"{len(roots)} chains to '{name}'")
-                              + (f"; {broken} links removed" if broken else ""))
+        obj.swish.active_group = self.index
         return {"FINISHED"}
 
 
@@ -923,7 +964,7 @@ class SWISH_OT_chains_to_group(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return obj is not None and obj.type == "ARMATURE" and context.mode == "POSE"
+        return obj is not None and obj.type == "ARMATURE"
 
     def execute(self, context):
         obj = context.object
@@ -1076,10 +1117,9 @@ CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_gr
            SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_group_copy, SWISH_OT_group_paste,
            SWISH_OT_setup_export, SWISH_OT_setup_import, SWISH_OT_force_add, SWISH_OT_force_remove,
            SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
-           SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add,
-           SWISH_OT_chain_click, SWISH_OT_chains_show, SWISH_OT_chains_remove, SWISH_OT_chains_split,
-           SWISH_OT_chains_move, SWISH_OT_chains_move_here, SWISH_OT_cache_toggle, SWISH_OT_armature_activate,
-           SWISH_OT_chains_to_group, SWISH_MT_chains_to_group)
+           SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add, SWISH_OT_chain_click,
+           SWISH_OT_chains_select, SWISH_OT_group_click, SWISH_OT_groups_merge, SWISH_OT_chains_remove, SWISH_OT_cache_toggle, SWISH_OT_armature_activate,
+           SWISH_OT_chains_to_group, SWISH_MT_chains_to_group, SWISH_OT_chain_remove, SWISH_OT_group_pick)
 
 
 def register():

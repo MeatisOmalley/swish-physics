@@ -10,15 +10,15 @@ else:
     from .solver import uemath, system, curves as solver_curves, step_numpy, native, build
     from .data import props, curves, colliders, links, serialize, presets
     from .runtime import keys, io, cache, live
-    from .ui import selection, ops, panels, draw
+    from .ui import selection, ops, manager, panels, draw
 
 import bpy  # noqa: E402,F401  (its presence marks a reload, above)
 
 _RELOAD_ORDER = (uemath, system, solver_curves, step_numpy, native, build, props, curves, colliders, links, serialize,
-                 presets, keys, io, cache, live, selection, ops, panels, draw)
+                 presets, keys, io, cache, live, selection, ops, manager, panels, draw)
 
 # Registered in this order, unregistered in reverse.
-MODULES = (props, live, selection, ops, panels, draw)
+MODULES = (props, live, selection, ops, manager, panels, draw)
 
 
 def register():
