@@ -350,11 +350,14 @@ class WaifuPhysicsGroup(PropertyGroup):
         name="World Damping Rotation", default=0.8, min=0.0, max=1.0,
         update=_setting_changed("world_damping_rotation"),
         description="How little the chains feel the armature object turning: 0 trails fully, 1 rides along")
-    radius: FloatProperty(name="Radius", default=0.03, min=0.0, subtype="DISTANCE", precision=4,
-                          update=_setting_changed("radius"), description="Each point's collision radius")
-    limit_angle: FloatProperty(name="Limit Angle", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
+    radius: FloatProperty(name="Collision Radius", default=0.03, min=0.0, subtype="DISTANCE", precision=4,
+                          update=_setting_changed("radius"),
+                          description="How thick the chain is where it meets colliders: each bone collides as a "
+                                      "sphere this size (Kawaii's Radius)")
+    limit_angle: FloatProperty(name="Joint Limit", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
                                update=_setting_changed("limit_angle"),
-                               description="How far a bone may swing from its animated direction; 0 for no limit")
+                               description="How far each bone may bend away from its animated direction; 0 for no "
+                                           "limit (Kawaii's Limit Angle)")
     # Curves along the chain, root to tip, multiplying each setting (Kawaii's *CurveData).
     curve_key: StringProperty(options={"HIDDEN"})
     use_damping_curve: BoolProperty(name="Damping Curve", update=_curve_toggled("damping"))
