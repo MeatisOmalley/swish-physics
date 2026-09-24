@@ -22,6 +22,12 @@ def _tree_armatures(context):
 def _draw_tree(layout, context):
     """Groups under their armatures, each armature folding open and closed."""
     armatures = _tree_armatures(context)
+    active_obj = context.object
+    moving = False
+    if active_obj is not None and active_obj.type == "ARMATURE" and len(active_obj.swish.groups):
+        from .ops import selected_chains
+        current = active_obj.swish.groups[min(active_obj.swish.active_group, len(active_obj.swish.groups) - 1)]
+        moving = bool(selected_chains(active_obj, current))
     box = layout.box()
     column = box.column(align=True)
     if not armatures:
@@ -51,6 +57,9 @@ def _draw_tree(layout, context):
                               icon="BONE_DATA", emboss=active)
             op.armature, op.index = obj.name, index
             row.label(text=f"{len(group.roots)}")
+            if moving and obj == context.object and not active:
+                drop = row.operator("swish.chains_move_here", text="", icon="IMPORT")
+                drop.armature, drop.index = obj.name, index
 
 
 class SWISH_PT_main(bpy.types.Panel):
@@ -139,8 +148,15 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
         layout.prop(context.scene.swish, "edit_selected_groups")
         for name in curves.CURVED:
             row = layout.row(align=True)
-            row.prop(group, name)
+            as_time = name == "stiffness" and context.scene.swish.stiffness_as_time
+            row.prop(group, "settle_time" if as_time else name)
+            if name == "stiffness":
+                row.prop(context.scene.swish, "stiffness_as_time", text="", icon="TIME")
             row.prop(group, f"use_{name}_curve", text="", icon="FCURVE")
+            if as_time:
+                note = layout.row()
+                note.scale_y = 0.7
+                note.label(text=f"     Kawaii stiffness {group.stiffness:.4f}")
             if getattr(group, f"use_{name}_curve"):
                 node = curves.node(group, name, create=False)
                 if node is not None:
@@ -164,16 +180,19 @@ class SWISH_PT_chains(_GroupPanel, bpy.types.Panel):
         layout = self.layout
         obj = context.object
         excluded = [bone.name for bone in group.excluded]
+        from .ops import selected_chains
+        chosen = set(selected_chains(obj, group))
         row = layout.row(align=True)
-        row.operator("swish.chains_select_all", text="", icon="CHECKBOX_HLT")
-        row.operator("swish.chains_show", icon="RESTRICT_SELECT_OFF")
+        row.operator("swish.chains_show", text="Select All", icon="RESTRICT_SELECT_OFF")
         box = layout.box().column(align=True)
         for root in group.roots:
-            row = box.row(align=True)
-            row.prop(root, "select", text="")
-            row.label(text=f"{root.name}  ({len(chain_links.chain_subtree(obj, root.name, excluded))})")
-        ticked = sum(root.select for root in group.roots)
-        box.label(text=(f"{ticked} ticked" if ticked else "None ticked: actions use the chains of selected bones"))
+            count = len(chain_links.chain_subtree(obj, root.name, excluded))
+            picked = root.name in chosen
+            op = box.operator("swish.chain_click", text=f"{root.name}  ({count})", depress=picked,
+                              emboss=picked, icon="BONE_DATA")
+            op.root = root.name
+        box.label(text=f"{len(chosen)} selected: click the arrow on a group above to move them there"
+                  if chosen else "Click, Shift-click, Ctrl-click, or select bones in the viewport")
         row = layout.row(align=True)
         row.operator("swish.chains_split", text="Split", icon="SPLIT_HORIZONTAL")
         row.operator_menu_enum("swish.chains_move", "target", text="Move to", icon="FORWARD")

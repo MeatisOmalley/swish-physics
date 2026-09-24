@@ -69,11 +69,22 @@ for pb in skirt_rig.pose.bones:
     pb.select = pb.name.endswith("_1")
 bpy.ops.swish.link_chains(mode="LOOP")
 links_before = len(group.links)
-for root in group.roots:
-    root.select = root.name in ("p0_0", "p1_0")
+bpy.ops.swish.chain_click(root="p0_0")
+bpy.ops.swish.chain_click(root="p1_0", extend=True)
+ops = sys.modules["swish_physics.ui.ops"]
+check("clicking a chain row selects it; Shift-click adds another",
+      ops.selected_chains(skirt_rig, group) == ["p0_0", "p1_0"]
+      and {pb.name for pb in skirt_rig.pose.bones if pb.select} == {f"p{k}_{i}" for k in (0, 1) for i in range(3)})
+bpy.ops.swish.chain_click(root="p1_0", extend=True)
+check("Shift-clicking a selected chain drops it", ops.selected_chains(skirt_rig, group) == ["p0_0"])
+bpy.ops.swish.chain_click(root="p0_0")
+bpy.ops.swish.chain_click(root="p3_0", span=True)
+check("Ctrl-click selects the range between", ops.selected_chains(skirt_rig, group) == ["p0_0", "p1_0", "p2_0", "p3_0"])
+bpy.ops.swish.chain_click(root="p0_0")
+bpy.ops.swish.chain_click(root="p1_0", extend=True)
 check("Split to New Group runs", bpy.ops.swish.chains_split() == {"FINISHED"})
 split = skirt_rig.swish.groups[1]
-check("the split group holds the ticked chains, the rest stay",
+check("the split group holds the selected chains, the rest stay",
       [r.name for r in split.roots] == ["p0_0", "p1_0"] and len(group.roots) == 4)
 check("... with the original's settings", math.isclose(split.damping, 0.37, rel_tol=1e-6))
 names = lambda g: {frozenset((l.bone_a, l.bone_b)) for l in g.links}
@@ -84,25 +95,36 @@ check("... and links crossing to the chains left behind are removed",
 
 # --- move chains back by viewport selection: moving all of them merges the groups
 skirt_rig.swish.active_group = 1
-for root in split.roots:
-    root.select = False
 for pb in skirt_rig.pose.bones:
-    pb.select = pb.name.startswith(("p0_", "p1_"))
-check("Move to Group moves the chains holding selected bones", bpy.ops.swish.chains_move(target="0") == {"FINISHED"})
+    pb.select = pb.name.startswith(("p0_", "p1_"))       # as a box select in the viewport would
+check("the move-here arrow moves the chains holding selected bones",
+      bpy.ops.swish.chains_move_here(armature="skirt", index=0) == {"FINISHED"})
 check("... and moving them all merges the groups: the empty one is gone",
       len(skirt_rig.swish.groups) == 1 and len(skirt_rig.swish.groups[0].roots) == 6)
 group = skirt_rig.swish.groups[0]
 check("... the moved chains' links came along", inside <= names(group))
 
 # --- select in viewport, remove
-for root in group.roots:
-    root.select = root.name == "p5_0"
-bpy.ops.swish.chains_show()
-check("Select in Viewport selects the ticked chain's bones",
+bpy.ops.swish.chain_click(root="p5_0")
+check("clicking a row selects just that chain's bones",
       {pb.name for pb in skirt_rig.pose.bones if pb.select} == {"p5_0", "p5_1", "p5_2"})
 check("Remove Chains stops simulating them", bpy.ops.swish.chains_remove() == {"FINISHED"}
       and "p5_0" not in [r.name for r in group.roots] and len(group.roots) == 5)
 bpy.ops.object.mode_set(mode="OBJECT")
+
+# --- stiffness as settle time
+g = skirt_rig.swish.groups[0]
+g.stiffness = 0.05
+check("Kawaii's default stiffness settles 95% of the way in about a second",
+      abs(g.settle_time - 0.9737) < 1e-3, g.settle_time)
+g.settle_time = 3.0
+check("setting a settle time sets Kawaii's stiffness", 0.0 < g.stiffness < 0.05
+      and abs(g.settle_time - 3.0) < 1e-3, (g.stiffness, g.settle_time))
+g.settle_time = 1000.0
+check("the longest settle time turns stiffness off", g.stiffness == 0.0)
+serialize = sys.modules["swish_physics.data.serialize"]
+check("saved setups keep Kawaii's stiffness, not the settle time",
+      "settle_time" not in serialize.settings_to_dict(g) and "stiffness" in serialize.settings_to_dict(g))
 
 # --- the simulation still runs over the reshaped groups
 scene.frame_set(1)
