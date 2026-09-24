@@ -379,21 +379,17 @@ class WAIFU_PHYSICS_OT_collider_remove(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class WAIFU_PHYSICS_MT_collider_add(bpy.types.Menu):
-    """Add one collider: on the active bone (of the Generate shape), or in the scene."""
-    bl_idname = "WAIFU_PHYSICS_MT_collider_add"
-    bl_label = "Add Collider"
+class WAIFU_PHYSICS_MT_scene_collider_add(bpy.types.Menu):
+    """A scene collider, placed at the 3D cursor: a ground, or a primitive."""
+    bl_idname = "WAIFU_PHYSICS_MT_scene_collider_add"
+    bl_label = "Add Scene Collider"
 
     def draw(self, context):
+        from .panels import SHAPE_ICONS
         layout = self.layout
-        shape = context.scene.waifu_physics.collider_shape
-        label = dict((key, name) for key, name, _ in colliders.SHAPE_CHOICES)[shape]
-        layout.operator("waifu_physics.collider_add", text=f"On Active Bone: {label}", icon="BONE_DATA").shape = shape
-        layout.separator()
-        layout.label(text="In the Scene")
         for shape in ("Plane", "Sphere", "Capsule", "Tapered Capsule", "Box"):
             layout.operator("waifu_physics.scene_collider_add", text="Ground" if shape == "Plane" else shape,
-                            icon="MESH_PLANE" if shape == "Plane" else "ADD").shape = shape
+                            icon=SHAPE_ICONS[shape]).shape = shape
 
 
 def _chain_root(obj, group, name):
@@ -1376,7 +1372,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_MT_collider_add, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_MT_scene_collider_add, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_scene_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,
