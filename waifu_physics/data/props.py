@@ -271,11 +271,12 @@ def _level_set(self, value):
 
 
 # Damping on a 0-10 scale. How long a swing lasts goes as about 1 / damping, and durations are judged by
-# ratio, so each step of the scale multiplies Kawaii's damping by the same factor. 0 is the floor: measured on
-# VRoid hair at the loosest stiffness, less than this never settles (a frictionless tangle of pendulums);
-# 0.03 settles in about ten seconds, the loosest the stiffness scale goes. 5 is Kawaii's default, 0.1.
-DAMPING_FLOOR = 0.03
-DAMPING_CEILING = 0.1 * 0.1 / DAMPING_FLOOR      # 0.33: the bounce is gone in about a tenth of a second
+# ratio, so each step of the scale multiplies Kawaii's damping by the same factor. 0 is a floor above zero:
+# with no damping at the loosest stiffness, VRoid hair never settles (a frictionless tangle of pendulums).
+# At this floor it still swings for over 16 seconds there (measured; 0.03 settles in about ten), which is the
+# user's choice: the loosest end is for long, free swinging. Kawaii's default, 0.1, sits at about 6.6.
+DAMPING_FLOOR = 0.01
+DAMPING_CEILING = 1.0 / 3.0                      # the bounce is gone in about a tenth of a second
 DAMPING_SPAN = 10.0
 
 
@@ -321,9 +322,9 @@ class WaifuPhysicsGroup(PropertyGroup):
     damping_level: FloatProperty(
         name="Damping", get=_damping_level_get, set=_damping_level_set, min=0.0, max=DAMPING_SPAN, precision=2,
         step=10, options=set(),
-        description="How quickly swinging dies down: 0 swings longest, 10 stops the bounce almost at once, 5 is "
-                    "Kawaii's default. Each step scales Kawaii's damping by the same factor, from 0.03 (even the "
-                    "loosest chains still settle) to 0.33. Kawaii's own damping is what is saved and exported")
+        description="How quickly swinging dies down: 0 swings longest, 10 stops the bounce almost at once, about "
+                    "6.6 is Kawaii's default. Each step scales Kawaii's damping by the same factor, from 0.01 to "
+                    "0.33. Kawaii's own damping is what is saved and exported")
     preset_name: StringProperty(options=set(), description="The preset last applied to the group")
     stiffness_level: FloatProperty(
         name="Stiffness", get=_level_get, set=_level_set, min=0.0, max=STIFFNESS_SPAN, precision=2, step=10,
