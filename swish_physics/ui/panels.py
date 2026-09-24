@@ -63,9 +63,10 @@ class SWISH_PT_main(bpy.types.Panel):
             if constrained:
                 box = layout.box().column(align=True)
                 box.alert = True
-                box.label(text=f"{len(constrained)} bone{'s' if len(constrained) != 1 else ''} in this group "
-                               f"have constraints", icon="ERROR")
-                box.label(text="Constraints override the simulation. Start the group below them.")
+                box.label(text=f"{len(constrained)} constrained bone{'s' if len(constrained) != 1 else ''}",
+                          icon="ERROR")
+                box.label(text="Physics can't move them.")
+                box.label(text="Start the group below them.")
                 box.label(text=", ".join(constrained[:4]) + (" ..." if len(constrained) > 4 else ""))
             row = layout.row(align=True)
             row.operator_menu_enum("swish.preset_apply", "preset", text="Preset", icon="PRESET")
