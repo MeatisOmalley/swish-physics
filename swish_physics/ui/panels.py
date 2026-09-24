@@ -68,35 +68,46 @@ class SWISH_PT_main(bpy.types.Panel):
 
         obj = context.object
         armatures = _tree_armatures(context)
-        row = layout.row(align=True)
-        row.label(text="Groups")
-        row.prop(settings, "selected_only", text="", icon="RESTRICT_SELECT_OFF")
+        box = layout.box()
+        header = box.row(align=True)
+        header.label(text="Groups")
+        header.prop(settings, "selected_only", text="", icon="RESTRICT_SELECT_OFF")
+        editing = obj is not None and obj.type == "ARMATURE"
+        buttons = header.row(align=True)
+        buttons.enabled = editing
+        buttons.operator("swish.group_new", text="", icon="ADD")
+        buttons.operator("swish.group_remove", text="", icon="REMOVE")
         if not armatures:
-            layout.label(text="Select an armature" if settings.selected_only else "No armature has a group yet",
-                         icon="INFO")
+            box.label(text="Select an armature" if settings.selected_only else "No armature has a group yet",
+                      icon="INFO")
             return
         _moving.clear()
-        for rig in armatures:
+        for number, rig in enumerate(armatures):
+            if number:
+                box.separator(factor=0.8)            # a little space between armatures
             if len(rig.swish.groups) and rig == obj:
                 current_group = rig.swish.groups[min(rig.swish.active_group, len(rig.swish.groups) - 1)]
                 if selected_chains(rig, current_group):
                     _moving[rig.name] = rig.swish.active_group
-            box = layout.box()
-            header = box.row(align=True)
-            header.prop(rig.swish, "expanded", text="", emboss=False,
-                        icon="DOWNARROW_HLT" if rig.swish.expanded else "RIGHTARROW")
-            name = header.operator("swish.armature_activate", text=rig.name, icon="ARMATURE_DATA",
-                                   emboss=rig == obj, depress=rig == obj)
+            row = box.row(align=True)
+            row.prop(rig.swish, "expanded", text="", emboss=False,
+                     icon="DOWNARROW_HLT" if rig.swish.expanded else "RIGHTARROW")
+            left = row.row(align=True)
+            left.alignment = "LEFT"
+            name = left.operator("swish.armature_activate", text=rig.name, icon="ARMATURE_DATA",
+                                 emboss=rig == obj, depress=rig == obj)
             name.armature = rig.name
             if not rig.swish.expanded:
                 continue
-            row = box.row()
-            row.active = rig == obj                  # other armatures' lists are dimmed: not being edited
-            row.template_list("SWISH_UL_groups", rig.name, rig.swish, "groups", rig.swish, "active_group", rows=3)
-            if rig == obj:
-                column = row.column(align=True)
-                column.operator("swish.group_new", text="", icon="ADD")
-                column.operator("swish.group_remove", text="", icon="REMOVE")
+            if not len(rig.swish.groups):
+                hint = box.row()
+                hint.enabled = False
+                hint.label(text="Select bones in Pose Mode, then +")
+                continue
+            lists = box.row()
+            lists.active = rig == obj                # other armatures' lists are dimmed: not being edited
+            lists.template_list("SWISH_UL_groups", rig.name, rig.swish, "groups", rig.swish, "active_group",
+                                rows=len(rig.swish.groups), maxrows=len(rig.swish.groups))
         if obj is None or obj.type != "ARMATURE":
             return
         row = layout.row(align=True)
@@ -104,7 +115,6 @@ class SWISH_PT_main(bpy.types.Panel):
         row.operator("swish.exclude", icon="X")
         layout.prop(settings, "follow_selection")
         if not len(obj.swish.groups):
-            layout.label(text="Select bones in Pose Mode, then +", icon="INFO")
             return
         group = obj.swish.groups[min(obj.swish.active_group, len(obj.swish.groups) - 1)]
         constrained = chain_links.constrained_bones(obj, group)
