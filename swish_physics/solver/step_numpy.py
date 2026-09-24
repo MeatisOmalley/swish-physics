@@ -50,14 +50,21 @@ def simulate_once(s):
         velocity = (loc[rows] - prev[rows]) * _over(F32(dt_old))
         prev[rows] = loc[rows]
         velocity = velocity * _f(F32(1.0) - s.damping[rows])[:, None]
-        velocity = velocity + 0.0                                    # wind (none in v1)
+        velocity = velocity + s.wind_vel[rows]                       # scene wind (zero when off)
         step_dt = F64(s.step_dt)
         legacy = s.legacy_gravity[group].astype(bool)
         gravity = s.gravity[group]
         velocity[~legacy] = velocity[~legacy] + gravity[~legacy] * step_dt
+        for k in range(len(s.vforce)):                               # ApplyToVelocity, in force order
+            m = s.vmask[k][rows].astype(bool)
+            if m.any():
+                velocity[m] = velocity[m] + s.vforce[k][rows[m]] * step_dt
         moved = loc[rows]
         moved[legacy] = moved[legacy] + ((0.5 * gravity[legacy]) * step_dt) * step_dt
         moved = moved + velocity * step_dt
+        simple = s.simple_on[group].astype(bool)                     # ApplySimpleExternalForce
+        if simple.any():
+            moved[simple] = moved[simple] + s.simple_force[group[simple]] * step_dt
         follow = s.teleport[group] == 0
         if follow.any():
             f_rows = np.flatnonzero(follow)
@@ -66,6 +73,10 @@ def simulate_once(s):
             moved[f_rows] = moved[f_rows] + s.move[fg] * _f(F32(1.0) - s.world_damping_location[rows[f_rows]])[:, None]
             turned = ue.rotate_vector(s.move_rot[fg], old)
             moved[f_rows] = moved[f_rows] + (turned - old) * _f(F32(1.0) - s.world_damping_rotation[rows[f_rows]])[:, None]
+        for k in range(len(s.pforce)):                               # external forces' Apply, in force order
+            m = s.pmask[k][rows].astype(bool)
+            if m.any():
+                moved[m] = moved[m] + s.pforce[k][rows[m]] * step_dt
         loc[rows] = moved
         for level in s.sim_levels:
             par = s.parent[level]

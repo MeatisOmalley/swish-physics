@@ -200,7 +200,8 @@ def build(skeleton, specs, target_framerate=60, max_substeps=4, fixed_substeppin
         real_child=[n.real_child for n in all_nodes], alpha=[n.alpha for n in all_nodes],
         location=[n.loc for n in all_nodes], pose=[n.loc for n in all_nodes],
         pose_rotation=[n.rot for n in all_nodes], length_rate=[n.length_rate for n in all_nodes],
-        bone=[n.bone for n in all_nodes])
+        bone=[n.bone for n in all_nodes], bone_length=[n.bone_length for n in all_nodes],
+        length_from_root=[n.length_from_root for n in all_nodes])
     link_arrays = dict(a=[l[0] for l in links], b=[l[1] for l in links], length=[l[2] for l in links],
                        compliance_type=[l[3] for l in links])
     system = System(groups, points, link_arrays, target_framerate, max_substeps, fixed_substepping)

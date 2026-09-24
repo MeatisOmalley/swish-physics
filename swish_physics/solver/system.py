@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from . import forces as frame_forces
 from . import uemath as ue
 
 F32, F64, I32, I8 = np.float32, np.float64, np.int32, np.int8
@@ -57,6 +58,14 @@ class Group:
     auto_add_child_dummy_constraint: bool = True
     constraint_subdivision_count: int = 0
     constraint_subdivision_feedback_scale: float = 1.0
+    # Read every frame (Kawaii units: centimetres, seconds, degrees).
+    forces: list = field(default_factory=list)            # forces.ForceSpec, in ExternalForces order
+    sync_bones: list = field(default_factory=list)        # forces.SyncSpec, in SyncBones order
+    simple_external_force: tuple = (0.0, 0.0, 0.0)
+    world_space_simple_external_force: bool = True
+    enable_wind: bool = False
+    wind_scale: float = 1.0
+    wind_direction_noise_angle: float = 0.0
 
 
 @dataclass
@@ -107,6 +116,8 @@ class System:
         self.real_child = remap(np.asarray(points["real_child"])[order])
         self.alpha = np.asarray(points["alpha"], dtype=F32)[order]
         self.length_rate = np.asarray(points["length_rate"], dtype=F32)[order]
+        self.bone_length = np.asarray(points.get("bone_length", [0.0] * n), dtype=F32)[order]
+        self.length_from_root = np.asarray(points.get("length_from_root", [0.0] * n), dtype=F32)[order]
         self.bone = np.asarray(points.get("bone", [-1] * n), dtype=I32)[order]
         self.loc = np.ascontiguousarray(np.asarray(points["location"], dtype=F64).reshape(n, 3)[order])
         self.prev = self.loc.copy()
@@ -116,6 +127,19 @@ class System:
         self.frame_pose, self.frame_pose_rot = self.pose.copy(), self.pose_rot.copy()
         self.prev_pose, self.prev_pose_rot = self.pose.copy(), self.pose_rot.copy()
         self.pose_initialized = False
+        self.frame_pose_scale = np.ones((n, 3))
+        # Children in Kawaii's order (ChildIndices), and the bone whose transform a point's
+        # bone-space forces use (ResolveExternalForceBoneTransform).
+        self.child_lists = [[] for _ in range(n)]
+        for caller in range(n):
+            i = int(new_index[caller])
+            if self.parent[i] >= 0:
+                self.child_lists[int(self.parent[i])].append(i)
+        dummy = self.kind != KIND_BONE
+        self.tm_point = np.where(dummy, np.where(self.real_parent >= 0, self.real_parent, self.parent),
+                                 np.arange(n)).astype(I32)
+        self.tm_point = np.where(self.tm_point >= 0, self.tm_point, np.arange(n)).astype(I32)
+        self.bone_names = [""] * n                  # a point's bone name, "" for dummies (force filters)
 
         for name in SETTINGS:
             setattr(self, name, np.zeros(n, dtype=F32))
@@ -131,6 +155,16 @@ class System:
         self.frame_move = np.zeros((g, 3))
         self.frame_move_rot = np.tile([0.0, 0.0, 0.0, 1.0], (g, 1))
         self.teleport = np.zeros(g, dtype=I8)
+        self.world_to_sim = np.tile(np.eye(3), (g, 1, 1))
+        self.wind = [None] * g                      # (world direction, speed) of the scene's wind, per group
+        self.frame_number = 0
+        self.skip_known = False                     # Kawaii's bSkipSimulate is set by the first simulated frame
+        self._forces = [[] for _ in range(g)]
+        self._wind_noise = (None, None)
+        self.wind_vel = np.zeros((n, 3))
+        self.simple_force = np.zeros((g, 3))
+        self.simple_on = np.zeros(g, dtype=I8)
+        self._set_force_slots(0, 0)
         self.legacy_gravity = np.array([grp.legacy_gravity for grp in self.groups], dtype=I8)
         self.planar_axis = np.array([grp.planar_constraint for grp in self.groups], dtype=I8)
         self.collision_only = np.array([grp.bone_subdivision_collision_only for grp in self.groups], dtype=I8)
@@ -311,23 +345,122 @@ class System:
                     self.slots.append((rows[mask], shape[mask]))
 
     # ------------------------------------------------------------------ frames
-    def update_dummy_poses(self):
+    def update_dummy_poses(self, subdivided_tips_only=False):
         """Tip and inter-bone dummy poses from the real bones' (UpdateModifyBonesPoseTransform,
-        ModifyBones.cpp:520). Call after setting the real bones' frame pose."""
+        ModifyBones.cpp:520). Call after setting the real bones' frame pose. After sync
+        bones only subdivided tips are updated (UpdateSubdivisionDummyPoseAfterSyncBones)."""
         pose, rot = self.frame_pose, self.frame_pose_rot
-        tips = np.flatnonzero(self.kind == KIND_TIP)
+        tips = self.kind == KIND_TIP
+        if subdivided_tips_only:
+            tips &= self.real_parent >= 0
+        tips = np.flatnonzero(tips)
         if len(tips):
             ancestor = np.where(self.real_parent[tips] >= 0, self.real_parent[tips], self.parent[tips])
             forward = ue.axis(rot[ancestor], self.forward_axis)
             length = np.array([self.groups[g].dummy_bone_length for g in self.group[tips]], dtype=F32)
             pose[tips] = pose[ancestor] + forward * length.astype(F64)[:, None]
             rot[tips] = rot[ancestor]
+            self.frame_pose_scale[tips] = self.frame_pose_scale[ancestor]
         inter = np.flatnonzero(self.kind == KIND_INTER)
         if len(inter):
             rp, rc = self.real_parent[inter], self.real_child[inter]
             pose[inter] = ue.lerp(pose[rp], pose[rc], self.alpha[inter])
             for i, p, c, a in zip(inter, rp, rc, self.alpha[inter]):
                 rot[i] = ue.slerp(rot[p][None], rot[c][None], a)[0]
+            self.frame_pose_scale[inter] = ue.lerp(self.frame_pose_scale[rp], self.frame_pose_scale[rc],
+                                                   self.alpha[inter])
+
+    def prepare_frame(self):
+        """This frame's pose targets, once, before warm-up and simulation: dummy poses, then
+        sync bones (EvaluateSkeletalControl: UpdateModifyBonesPoseTransform, ApplySyncBones)."""
+        self.update_dummy_poses()
+        synced = False
+        for grp in self.groups:
+            for spec in grp.sync_bones:
+                frame_forces.apply_sync(self, spec)
+                synced = True
+        if synced:
+            self.update_dummy_poses(subdivided_tips_only=True)
+
+    # ------------------------------------------------------------------ forces
+    def _set_force_slots(self, velocity_slots, position_slots):
+        n = self.n
+        self.vforce = np.zeros((velocity_slots, n, 3))
+        self.vmask = np.zeros((velocity_slots, n), dtype=I8)
+        self.pforce = np.zeros((position_slots, n, 3))
+        self.pmask = np.zeros((position_slots, n), dtype=I8)
+
+    def _force_state(self, g):
+        """The group's force objects, remade where a force was added, removed or changed kind."""
+        specs = self.groups[g].forces
+        current = self._forces[g]
+        kept = []
+        for k, spec in enumerate(specs):
+            found = current[k] if k < len(current) and current[k].spec.kind == spec.kind else None
+            if found is None:
+                found = frame_forces.make(spec)
+            found.spec = spec
+            kept.append(found)
+        self._forces[g] = kept
+        return kept
+
+    def force_states(self):
+        """Every force's clock, for the cache."""
+        return [[force.state() for force in group] for group in self._forces]
+
+    def set_force_states(self, states):
+        for group, group_states in zip(self._forces, states):
+            for force, state in zip(group, group_states):
+                force.set_state(state)
+
+    def pre_apply(self, frame_dt, call):
+        """Every group's external forces and wind for this SimulateModifyBones (Simulation.cpp:645)."""
+        rng = frame_forces.RandomStream(frame_forces.stable_hash(0x53574953, self.frame_number, call))
+        if self._wind_noise[0] != self.frame_number:
+            wind_rng = frame_forces.RandomStream(frame_forces.stable_hash(0x57494E44, self.frame_number, 0))
+            self._wind_noise = (self.frame_number, [
+                frame_forces.scene_wind_noise(wind_rng, grp.wind_direction_noise_angle) for grp in self.groups])
+        velocity, position = [], []
+        self.wind_vel[:] = 0.0
+        for g, grp in enumerate(self.groups):
+            simple = np.asarray(grp.simple_external_force, dtype=F64)
+            on = not frame_forces._nearly_zero(simple)
+            if on and grp.world_space_simple_external_force:
+                simple = self.world_to_sim[g] @ simple
+            self.simple_force[g] = simple if on else 0.0
+            self.simple_on[g] = on
+            forces = [f for f in self._force_state(g) if f.spec.enabled]
+            if not forces and not grp.enable_wind:
+                continue
+            rows = np.flatnonzero(self.group == g)
+            ctx = frame_forces.FrameContext(self, g, rows, rng, frame_dt, self.wind[g])
+            if grp.enable_wind:
+                gust, rotation = self._wind_noise[1][g]
+                settings = dict(wind_scale=grp.wind_scale, wind_noise_angle=grp.wind_direction_noise_angle)
+                self.wind_vel[rows] = frame_forces.scene_wind_velocity(ctx, settings, gust, rotation,
+                                                                       self.target_framerate)
+            v_slot = p_slot = 0
+            for force in forces:
+                kind, vectors, mask = force.pre_apply(ctx)
+                if kind == "velocity":
+                    velocity.append((v_slot, rows, vectors, mask))
+                    v_slot += 1
+                else:
+                    position.append((p_slot, rows, vectors, mask))
+                    p_slot += 1
+        v_count = 1 + max((slot for slot, *_ in velocity), default=-1)
+        p_count = 1 + max((slot for slot, *_ in position), default=-1)
+        if self.vforce.shape[0] != v_count or self.pforce.shape[0] != p_count:
+            self._set_force_slots(v_count, p_count)
+        else:
+            self.vmask[:] = 0
+            self.pmask[:] = 0
+        for slot, rows, vectors, mask in velocity:
+            self.vforce[slot, rows] = vectors
+            self.vmask[slot, rows] = mask
+        for slot, rows, vectors, mask in position:
+            self.pforce[slot, rows] = vectors
+            self.pmask[slot, rows] = mask
 
     forward_axis = 1   # Blender bones point along +Y (Kawaii's BoneForwardAxis Y_Positive)
 
@@ -342,17 +475,23 @@ class System:
         self.pose_rot[:] = self.frame_pose_rot
         self.pose_initialized = False
         self.accumulator = F32(0.0)
+        self.skip_known = False
+        self._forces = [[] for _ in self.groups]
 
-    def step_frame(self, frame_dt, backend):
+    def step_frame(self, frame_dt, backend, prepare=True, call=0):
         """SimulateModifyBones (Simulation.cpp:597): fixed substeps or one legacy step.
 
         Before calling: frame_pose / frame_pose_rot hold this frame's real-bone pose
         (dummies are derived here), frame_move / frame_move_rot this frame's component
-        movement per group, teleport per group, gravity per group in simulation space."""
+        movement per group, teleport per group, gravity per group in simulation space.
+        prepare=False reuses the pose targets already prepared for this frame (warm-up
+        steps after the first); call numbers the steps of one frame for its random draws."""
         frame_dt = F32(frame_dt)
         if frame_dt <= 0:
             return
-        self.update_dummy_poses()
+        if prepare:
+            self.prepare_frame()
+        self.pre_apply(frame_dt, call)
         if not self.pose_initialized:
             self.prev_pose[:] = self.frame_pose
             self.prev_pose_rot[:] = self.frame_pose_rot
@@ -395,6 +534,7 @@ class System:
             self.pose_rot[:] = self.frame_pose_rot
         self.prev_pose[:] = self.frame_pose
         self.prev_pose_rot[:] = self.frame_pose_rot
+        self.skip_known = True
 
     def _substep(self, backend):
         self.pull[:] = backend.pull(self.stiffness, self.exponent)

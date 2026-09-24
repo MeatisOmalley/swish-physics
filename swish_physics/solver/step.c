@@ -13,7 +13,7 @@
 #include <string.h>
 
 #define EXPORT __declspec(dllexport)
-#define SWISH_VERSION 1
+#define SWISH_VERSION 2
 
 #define KIND_BRIDGE 3
 #define KIND_INTER 2
@@ -52,6 +52,11 @@ typedef struct SwishSystem {
     const double *shape_loc, *shape_rot, *shape_start_point, *shape_end_point, *shape_segment, *shape_segment_sq,
         *shape_fallback_dir, *shape_normal, *shape_plane_w, *shape_extent, *shape_fallback_center;
     const float *shape_radius0, *shape_radius1, *shape_fallback_radius;
+    /* this frame's forces: scene wind per point, simple force per group, and per force
+       slot a vector and a mask per point (velocity slots: ApplyToVelocity; position: Apply) */
+    const double *wind_vel, *simple_force, *vforce, *pforce;
+    const signed char *simple_on, *vmask, *pmask;
+    int n_vforce, n_pforce;
     /* this substep */
     float step_dt, dt_old;
 } SwishSystem;
@@ -464,7 +469,7 @@ EXPORT void swish_simulate_once(SwishSystem *s)
         const double *gravity = s->gravity + 3 * g;
         for (int j = 0; j < 3; ++j) {
             v[j] = v[j] * damp;
-            v[j] = v[j] + 0.0;
+            v[j] = v[j] + s->wind_vel[3 * i + j];
         }
         if (!s->legacy_gravity[g]) {
             for (int j = 0; j < 3; ++j)
@@ -473,8 +478,20 @@ EXPORT void swish_simulate_once(SwishSystem *s)
             for (int j = 0; j < 3; ++j)
                 x[j] = x[j] + ((0.5 * gravity[j]) * step_dt) * step_dt;
         }
+        for (int k = 0; k < s->n_vforce; ++k) {
+            if (!s->vmask[(size_t)k * s->n + i])
+                continue;
+            const double *f = s->vforce + ((size_t)k * s->n + i) * 3;
+            for (int j = 0; j < 3; ++j)
+                v[j] = v[j] + f[j] * step_dt;
+        }
         for (int j = 0; j < 3; ++j)
             x[j] = x[j] + v[j] * step_dt;
+        if (s->simple_on[g]) {
+            const double *f = s->simple_force + 3 * g;
+            for (int j = 0; j < 3; ++j)
+                x[j] = x[j] + f[j] * step_dt;
+        }
         if (s->teleport[g] == 0) {
             const double *move = s->move + 3 * g;
             double follow_loc = (double)(1.0f - s->world_loc[i]);
@@ -485,6 +502,13 @@ EXPORT void swish_simulate_once(SwishSystem *s)
             rotate(s->move_rot + 4 * g, old, turned, 1.0);
             for (int j = 0; j < 3; ++j)
                 x[j] = x[j] + (turned[j] - old[j]) * follow_rot;
+        }
+        for (int k = 0; k < s->n_pforce; ++k) {
+            if (!s->pmask[(size_t)k * s->n + i])
+                continue;
+            const double *f = s->pforce + ((size_t)k * s->n + i) * 3;
+            for (int j = 0; j < 3; ++j)
+                x[j] = x[j] + f[j] * step_dt;
         }
         const double *px = s->loc + 3 * p, *pose = s->pose + 3 * i, *ppose = s->pose + 3 * p;
         double pull = (double)s->pull[i];

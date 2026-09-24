@@ -15,7 +15,7 @@ import numpy as np
 
 from . import step_numpy
 
-VERSION = 1
+VERSION = 2
 DLL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "swish_step.dll")
 
 _P = ctypes.c_void_p
@@ -40,6 +40,8 @@ POINTER_FIELDS = (
     ("shape_fallback_dir", np.float64), ("shape_normal", np.float64), ("shape_plane_w", np.float64),
     ("shape_extent", np.float64), ("shape_fallback_center", np.float64),
     ("shape_radius0", np.float32), ("shape_radius1", np.float32), ("shape_fallback_radius", np.float32),
+    ("wind_vel", np.float64), ("simple_force", np.float64), ("vforce", np.float64), ("pforce", np.float64),
+    ("simple_on", np.int8), ("vmask", np.int8), ("pmask", np.int8),
 )
 
 
@@ -47,6 +49,7 @@ class SwishSystem(ctypes.Structure):
     _fields_ = ([("n", ctypes.c_int), ("n_groups", ctypes.c_int), ("n_links", ctypes.c_int),
                  ("n_shapes", ctypes.c_int)]
                 + [(name, _P) for name, _dtype in POINTER_FIELDS]
+                + [("n_vforce", ctypes.c_int), ("n_pforce", ctypes.c_int)]
                 + [("step_dt", ctypes.c_float), ("dt_old", ctypes.c_float)])
 
 
@@ -77,6 +80,8 @@ class CBackend:
 
     def simulate_once(self, s):
         struct = self._bind(s)
+        struct.n_vforce = len(s.vforce)
+        struct.n_pforce = len(s.pforce)
         struct.step_dt = float(s.step_dt)
         struct.dt_old = float(s.dt_old)
         self.dll.swish_simulate_once(ctypes.byref(struct))
