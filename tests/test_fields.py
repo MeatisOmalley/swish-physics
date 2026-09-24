@@ -167,7 +167,7 @@ force.kind, force.name = "BASIC", "Push"
 check("a Push force shows as Push", force.category == "PUSH")
 force.category = "WIND"
 check("choosing Wind makes it Procedural Wind, and its default name follows",
-      force.kind == "PROCEDURAL_WIND" and force.name == "Breeze")
+      force.kind == "PROCEDURAL_WIND" and force.name == "Wind")
 force.name = "My Gust"
 force.category = "CURVE"
 check("a name the user chose stays", force.kind == "CURVE" and force.name == "My Gust")

@@ -138,7 +138,7 @@ FORCE_CATEGORIES = [("PUSH", "Push", "A steady push, or a pulse every interval",
                     ("WIND", "Wind", "Generated sway, ripples and gusts; needs no force field", "FORCE_WIND", 3)]
 _CATEGORY_OF_KIND = {"BASIC": 0, "GRAVITY": 1, "CURVE": 2, "WIND": 3, "PROCEDURAL_WIND": 3}
 _KIND_OF_CATEGORY = ("BASIC", "GRAVITY", "CURVE", "PROCEDURAL_WIND")
-FORCE_NAMES = {"BASIC": "Push", "GRAVITY": "Gravity", "CURVE": "Curve", "WIND": "Wind", "PROCEDURAL_WIND": "Breeze"}
+FORCE_NAMES = {"BASIC": "Push", "GRAVITY": "Gravity", "CURVE": "Curve", "WIND": "Wind", "PROCEDURAL_WIND": "Wind"}
 
 
 def _category_get(self):
