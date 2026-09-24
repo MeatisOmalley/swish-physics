@@ -26,6 +26,9 @@ Recorded 2026-09-23 so implementation does not re-derive them. Benchmark and pro
 | numpy and C can agree exactly | Same order and formulas, links in batches that share no point and collisions in a fixed per-point order: 0.0 m difference over 240 steps on Peach's dress and hair (`kstep_bench.py`) |
 | C is ~15x faster to solve | Peach dress + hair (178 points, 32 chains, 28 colliders, 30 links), 60 Hz steps at 24 fps, headless, our code only: numpy 5.8 ms a frame (solve 4.9), C 1.2 ms (solve 0.35). Five characters: numpy 11.3 ms, C 2.7 ms. With C, Blender I/O dominates: writing rotations is 0.66 ms of 1.2 |
 | numpy's cost is per call, not per point | Every phase cost about the same for 42 and 136 points; collisions ran one numpy pass per collider slot (22) and were the largest phase |
+| The port reproduces Kawaii to the bit | Kawaii's own golden test (`KawaiiPhysicsGoldenTest.cpp`: chain, legacy chain, links, sphere/capsule/box/plane collisions with an angle limit; 200 frames each) matches 156 of 156 doubles bit for bit on both steps (`tests/test_solver_golden.py`). It took Kawaii's exact precisions: `DistSq` and `Dist` in sphere collision are floats, vector division multiplies by the reciprocal, `DegreesToRadians(double)` uses the double pi, and the test's `FVector(0.3f, ...)` inputs are floats |
+| C and numpy agree to the bit on every feature | Six random scenes (tip, inter-bone and bridge dummies, links, all collider types, curves, planar constraints, legacy and substep modes, teleports), 170 frames each (`tests/test_solver_agreement.py`) |
+| The whole frame loop is fast in C | Peach-sized scene (160 points, 32 links, 56 colliders), 24 fps: numpy 4.1 ms a frame, C 0.26 ms; five characters: numpy 7.7 ms, C 0.55 ms (`tests/bench_solver.py`, Blender I/O not included) |
 | Posed chain lengths differ from rest | Peach MAXED's hair chains hang from `J_Scale_J_Bip_C_Head` at pose scale (2.44, 2.11, 2.23): up to 271 mm longer than rest. Kawaii restores posed lengths, so the solver handles it |
 
 ## Design decisions
@@ -87,12 +90,12 @@ Each phase ends with its tests passing headless and, where it changes what the m
 
 ### Phase 1: The solver step
 
-- [ ] `layout.py`: scene arrays from a description of chains (no bpy), points sorted by depth, tip dummies when a group's dummy length is above 0, link batches, collider slots.
-- [ ] `step_numpy.py`: the full v1 step in Kawaii's order (decision 2), in scene units, with the Kawaii source lines each part ports cited in comments.
-- [ ] Unit tests against hand-worked cases: a single pendulum under gravity, damping decay, stiffness pull convergence, a sphere and each collider shape pushing a point out, the angle limit, length restore, a two-point XPBD link at each compliance preset.
-- [ ] `step.c` in lockstep, `native.py` loader with version check and fallback.
-- [ ] Agreement test: the same randomised scenes through numpy and C for 1000 steps; exact agreement, or within 1e-12 where a formula's evaluation order cannot match.
-- [ ] Benchmark kept in `tests/`: per-phase timings for one and five characters, so later changes are measured against today's numbers.
+- [x] `layout.py`: scene arrays from a description of chains (no bpy), points sorted by depth, tip dummies when a group's dummy length is above 0, link batches, collider slots.
+- [x] `step_numpy.py`: the full v1 step in Kawaii's order (decision 2), in scene units, with the Kawaii source lines each part ports cited in comments.
+- [x] Unit tests against hand-worked cases: a single pendulum under gravity, damping decay, stiffness pull convergence, a sphere and each collider shape pushing a point out, the angle limit, length restore, a two-point XPBD link at each compliance preset.
+- [x] `step.c` in lockstep, `native.py` loader with version check and fallback.
+- [x] Agreement test: the same randomised scenes through numpy and C for 1000 steps; exact agreement, or within 1e-12 where a formula's evaluation order cannot match.
+- [x] Benchmark kept in `tests/`: per-phase timings for one and five characters, so later changes are measured against today's numbers.
 
 ### Phase 2: Blender runtime, live mode
 
@@ -155,3 +158,4 @@ Each phase ends with its tests passing headless and, where it changes what the m
 - Garment chains are parented to `J_Scale` bones, which reintroduces inherited non-uniform scale that Unreal (no shear) will not reproduce. Decide before export: Blender's Aligned inherit-scale, or anchoring chains to core bones.
 - Collider offsets need a Blender to Unreal bone-axis conversion that depends on the skeleton import; measure with a round trip.
 - Package the physics setup into the character PNG with the rest of the metadata.
+- Run Kawaii Physics in the game from the commit this port follows (`64cbc77`, master, 2026-09-20), not the latest tagged release (v1.21.0, 2026-06-23), which is 312 commits older; otherwise the game can behave differently from the Blender preview.

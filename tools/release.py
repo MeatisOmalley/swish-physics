@@ -32,6 +32,8 @@ def build_dll():
     os.makedirs(os.path.dirname(DLL), exist_ok=True)
     build_dir = os.path.join(REPO, "build")
     os.makedirs(build_dir, exist_ok=True)
+    # /fp:precise and no /arch: SSE2 arithmetic without FMA contraction, so floats round
+    # as Kawaii's C++ does and the C step agrees with step_numpy to the bit.
     command = (f'"{VCVARS}" >nul && cl /nologo /O2 /fp:precise /LD "{SOURCE}" '
                f'/Fo"{build_dir}\\\\" /Fe"{DLL}" /link /IMPLIB:"{build_dir}\\swish_step.lib"')
     proc = subprocess.run(f'cmd /s /c "{command}"', shell=True, capture_output=True, text=True)
@@ -51,9 +53,11 @@ def blender(*args):
     return proc.returncode == 0
 
 
-def main():
+def main(argv):
     if not build_dll():
         return 1
+    if "--dll-only" in argv:
+        return 0
     if not blender("validate", PACKAGE):
         print("the manifest or package did not validate")
         return 1
@@ -64,4 +68,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

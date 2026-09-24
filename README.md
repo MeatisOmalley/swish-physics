@@ -2,7 +2,7 @@
 
 Bone-chain physics for Blender: hair, skirts, tails and accessories. The simulation is a faithful port of [Kawaii Physics](https://github.com/pafuhana1213/KawaiiPhysics), the Unreal Engine plugin, so physics tuned in Blender behaves the same in a game that runs Kawaii Physics. Around it sit the things Blender needs: keyframed settings, live playback with an optional cache, collider objects and selection-based editing.
 
-**Status:** Phase 0 of the [plan](docs/superpowers/plans/2026-09-23-swish-physics.md): the extension registers and packages; there is no solver yet.
+**Status:** Phase 1 of the [plan](docs/superpowers/plans/2026-09-23-swish-physics.md): the solver. It reproduces Kawaii Physics' own golden test bit for bit, in C (Windows) and in numpy (everywhere), and the two agree bit for bit. There is no Blender integration yet.
 
 ## Development
 
@@ -10,6 +10,7 @@ Bone-chain physics for Blender: hair, skirts, tails and accessories. The simulat
 python tools/run_tests.py            run every headless test in Blender
 python tools/run_tests.py register   run the tests whose file name contains "register"
 python tools/release.py              compile the C step (Windows), validate, build dist/swish_physics-<version>.zip
+python tools/release.py --dll-only   only compile the C step into swish_physics/bin/
 ```
 
 `SWISH_BLENDER` points the tools at a Blender executable (default: the Steam install). `SWISH_VCVARS` points the release script at `vcvars64.bat` (default: Visual Studio 2022 Build Tools).

@@ -15,10 +15,12 @@ PACKAGE = "swish_physics"
 failures = []
 
 
-def check(label, ok, detail=""):
+def check(label, ok, detail=None):
+    ok = bool(ok)
     if not ok:
         failures.append(label)
-    print(f"[{'PASS' if ok else 'FAIL'}] {label}{(' -- ' + str(detail)) if detail else ''}")
+    shown = "" if detail is None or (isinstance(detail, str) and not detail) else f" -- {detail}"
+    print(f"[{'PASS' if ok else 'FAIL'}] {label}{shown}")
 
 
 def fresh_import():
