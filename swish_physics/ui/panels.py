@@ -138,7 +138,10 @@ class _GroupPanel:
         return swish.groups[min(swish.active_group, len(swish.groups) - 1)]
 
 
-_SHORT_LABELS = {"world_damping_location": "Location", "world_damping_rotation": "Rotation"}
+# Settings shown the intuitive way round (display only: Kawaii's values are stored and exported).
+_SHOWN = {"stiffness": "stiffness_level", "world_damping_location": "movement_inertia",
+          "world_damping_rotation": "turning_inertia"}
+_SHORT_LABELS = {"world_damping_location": "Movement", "world_damping_rotation": "Turning"}
 
 
 class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
@@ -156,31 +159,36 @@ class SWISH_PT_settings(_GroupPanel, bpy.types.Panel):
             note.label(text=f"Changes apply to all {len(shared)} groups with selected bones", icon="INFO")
         column = layout.column(align=True)
         for name in curves.CURVED:
-            as_time = name == "stiffness" and context.scene.swish.stiffness_as_time
-            shown = "settle_time" if as_time else name
+            shown = _SHOWN.get(name, name)
             if name == "world_damping_location":
                 heading = column.split(factor=0.5)
-                heading.label(text="World Damping")
+                heading.label(text="Inertia")
             split = column.split(factor=0.5, align=True)
             label = split.row()
             label.alignment = "RIGHT"
             label.label(text=_SHORT_LABELS.get(name, group.bl_rna.properties[shown].name))
             row = split.row(align=True)
             row.prop(group, shown, text="")
-            if name == "stiffness":
-                row.prop(context.scene.swish, "stiffness_as_time", text="", icon="TIME")
             row.prop(group, f"use_{name}_curve", text="", icon="FCURVE")
+            if name == "world_damping_rotation":
+                column.separator(factor=0.6)             # the Inertia pair ends here
             if getattr(group, f"use_{name}_curve"):
                 node = curves.node(group, name, create=False)
                 if node is not None:
                     box = column.box()
-                    box.label(text="Along the chain, root to tip", icon="IPO_LINEAR")
+                    box.label(text=("Scales Kawaii's value along the chain, root to tip" if name in _SHOWN
+                                    else "Along the chain, root to tip"), icon="IPO_LINEAR")
                     box.template_curve_mapping(node, "mapping")
         layout.separator()
-        layout.use_property_split = True
-        layout.prop(group, "gravity")
-        layout.prop(group, "use_scene_gravity")
-        layout.prop(group, "use_world_space_gravity")
+        column = layout.column()
+        column.use_property_split = True
+        column.use_property_decorate = False
+        column.prop(group, "use_scene_gravity")
+        if group.use_scene_gravity:
+            column.prop(group, "gravity_scale")
+        else:
+            column.prop(group, "gravity")
+            column.prop(group, "use_world_space_gravity")
 
 
 class SWISH_PT_chains(_GroupPanel, bpy.types.Panel):
@@ -203,7 +211,7 @@ class SWISH_PT_chains(_GroupPanel, bpy.types.Panel):
         row = layout.row()
         row.enabled = False
         row.label(text=f"{len(chosen)} of {len(group.roots)} selected" if chosen
-                  else "Click, Shift-click, Ctrl-click, or pick bones")
+                  else "Click; Shift-click a range; Ctrl-click to add or drop one")
         row = layout.row(align=True)
         row.operator("swish.chains_show", text="", icon="RESTRICT_SELECT_OFF")
         row.operator("swish.chains_split", text="Split", icon="SPLIT_HORIZONTAL")

@@ -135,19 +135,45 @@ check("Remove Chains stops simulating them", bpy.ops.swish.chains_remove() == {"
       and "p5_0" not in [r.name for r in group.roots] and len(group.roots) == 5)
 bpy.ops.object.mode_set(mode="OBJECT")
 
-# --- stiffness as settle time
+# --- stiffness 0-10, inertia, gravity: shown the intuitive way round, Kawaii's values stored
 g = skirt_rig.swish.groups[0]
 g.stiffness = 0.05
-check("Kawaii's default stiffness settles 95% of the way in about a second",
-      abs(g.settle_time - 0.9737) < 1e-3, g.settle_time)
-g.settle_time = 3.0
-check("setting a settle time sets Kawaii's stiffness", 0.0 < g.stiffness < 0.05
-      and abs(g.settle_time - 3.0) < 1e-3, (g.stiffness, g.settle_time))
-g.settle_time = 1000.0
-check("the longest settle time turns stiffness off", g.stiffness == 0.0)
+check("Kawaii's default stiffness shows as 9.03 of 10 (10 minus its 0.97 s to settle)",
+      abs(g.stiffness_level - 9.0266) < 1e-3, g.stiffness_level)
+g.stiffness_level = 7.0
+check("setting 7 means settling in 3 s", 0.0 < g.stiffness < 0.05 and abs(g.stiffness_level - 7.0) < 1e-3,
+      (g.stiffness, g.stiffness_level))
+g.stiffness_level = 0.0
+check("0 is the loosest: ten seconds to settle, still some pull", 0.0 < g.stiffness < 0.01, g.stiffness)
+g.stiffness_level = 10.0
+check("10 snaps straight back", g.stiffness > 0.99, g.stiffness)
+g.world_damping_location = 0.8
+check("World Damping 0.8 shows as Movement Inertia 0.2", abs(g.movement_inertia - 0.2) < 1e-6)
+g.turning_inertia = 1.0
+check("Turning Inertia 1 is World Damping Rotation 0", g.world_damping_rotation == 0.0)
 serialize = sys.modules["swish_physics.data.serialize"]
-check("saved setups keep Kawaii's stiffness, not the settle time",
-      "settle_time" not in serialize.settings_to_dict(g) and "stiffness" in serialize.settings_to_dict(g))
+saved = serialize.settings_to_dict(g)
+check("saved setups keep Kawaii's values, not the display ones",
+      not {"stiffness_level", "movement_inertia", "turning_inertia"} & set(saved) and "stiffness" in saved)
+g.stiffness = 0.05
+
+# --- the right-click Move Chains to Group: from any groups, into one, or a new one
+bpy.context.view_layer.objects.active = skirt_rig
+bpy.ops.object.mode_set(mode="POSE")
+for pb in skirt_rig.pose.bones:
+    pb.select = pb.name.startswith(("p0_", "p4_"))
+before = len(skirt_rig.swish.groups)
+check("Move Chains to Group > New Group makes a group of them",
+      bpy.ops.swish.chains_to_group(index=-1) == {"FINISHED"} and len(skirt_rig.swish.groups) == before + 1
+      and sorted(r.name for r in skirt_rig.swish.groups[-1].roots) == ["p0_0", "p4_0"])
+for pb in skirt_rig.pose.bones:
+    pb.select = pb.name.startswith(("p0_", "p1_"))
+check("... and moving chains from two groups into one works in one go",
+      bpy.ops.swish.chains_to_group(index=0) == {"FINISHED"}
+      and {"p0_0", "p1_0"} <= {r.name for r in skirt_rig.swish.groups[0].roots})
+check("the menu is in the Pose Mode right-click menu",
+      any(getattr(f, "__name__", "") == "_pose_menu" for f in bpy.types.VIEW3D_MT_pose_context_menu._dyn_ui_initialize()))
+bpy.ops.object.mode_set(mode="OBJECT")
 
 # --- the simulation still runs over the reshaped groups
 scene.frame_set(1)
@@ -156,6 +182,14 @@ for f in range(2, 12):
     scene.frame_set(f)
 live = sys.modules["swish_physics.runtime.live"]
 check("the reshaped groups simulate", live.runtime(scene).system.n > 0)
+import numpy as np
+skirt_rig.swish.groups[0].gravity_scale = 2.0
+scene.frame_set(12)
+rt = live.runtime(scene)
+g_index = next(i for i, (r, k) in enumerate(rt.group_props) if rt.rigs[r].obj == skirt_rig and k == 0)
+check("Gravity Scale 2 pulls with twice the scene's gravity",
+      np.allclose(rt.system.gravity[g_index], np.array(scene.gravity) * 2.0 * rt.cm, atol=1e-4),
+      rt.system.gravity[g_index])
 scene.swish.simulate = False
 
 swish.unregister()

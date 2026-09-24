@@ -259,10 +259,13 @@ class Runtime:
             s.wind[g] = wind
             world = rig.obj.matrix_world
             s.world_to_sim[g] = np.linalg.inv(np.array(world.to_3x3()))
-            gravity = np.array(props.gravity, dtype=float)
-            if props.use_scene_gravity:
-                gravity = gravity * abs(scene.gravity[2])
-            if props.use_world_space_gravity:
+            if props.use_scene_gravity:          # the scene's gravity, in world space, scaled
+                gravity = np.array(scene.gravity, dtype=float) * props.gravity_scale
+                world_space = True
+            else:
+                gravity = np.array(props.gravity, dtype=float)
+                world_space = props.use_world_space_gravity
+            if world_space:
                 gravity = np.linalg.inv(np.array(world.to_3x3())) @ gravity
             s.gravity[g] = gravity * self.cm
             location, rotation, scale = world.decompose()

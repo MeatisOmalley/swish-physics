@@ -245,6 +245,28 @@ def _settle_set(self, value):
     self.stiffness = 1.0 - 0.05 ** (1.0 / (_step_rate() * max(value, 1.0e-4)))
 
 
+STIFFNESS_SPAN = 10.0      # seconds: the loosest a chain can be set, taking this long to settle
+
+
+def _level_get(self):
+    """Stiffness on a 0-10 scale: 10 minus the seconds to settle 95% of the way back to the pose."""
+    return max(0.0, STIFFNESS_SPAN - min(_settle_get(self), STIFFNESS_SPAN))
+
+
+def _level_set(self, value):
+    _settle_set(self, STIFFNESS_SPAN - min(max(value, 0.0), STIFFNESS_SPAN))
+
+
+def _inertia_get(name):
+    return lambda self: 1.0 - getattr(self, name)
+
+
+def _inertia_set(name):
+    def setter(self, value):
+        setattr(self, name, 1.0 - min(max(value, 0.0), 1.0))
+    return setter
+
+
 class SwishGroup(PropertyGroup):
     """One Kawaii Physics node: the chains under its root bones, and how they move."""
     name: StringProperty(name="Name", default="Group")
@@ -260,11 +282,23 @@ class SwishGroup(PropertyGroup):
                            description="How much of its velocity a point loses each step")
     stiffness: FloatProperty(name="Stiffness", default=0.05, min=0.0, max=1.0, update=_setting_changed("stiffness"),
                              description="How strongly a point is pulled back toward its animated pose")
-    settle_time: FloatProperty(
-        name="Settle Time (s)", get=_settle_get, set=_settle_set, min=0.0, max=SETTLE_OFF, soft_min=0.02,
-        soft_max=10.0, precision=2, step=10, options=set(),
-        description="Stiffness as the seconds a bone takes to get 95% of the way back to its pose. "
-                    "Shorter is stiffer. It sets Kawaii's stiffness, which is what is saved, keyed and exported")
+    stiffness_level: FloatProperty(
+        name="Stiffness", get=_level_get, set=_level_set, min=0.0, max=STIFFNESS_SPAN, precision=2, step=10,
+        options=set(),
+        description="How quickly a chain returns to its animated pose: 10 snaps straight back, 0 takes ten "
+                    "seconds to settle. (10 minus the seconds to get 95% of the way back; Kawaii's own stiffness "
+                    "is what is saved and exported)")
+    movement_inertia: FloatProperty(
+        name="Movement Inertia", get=_inertia_get("world_damping_location"),
+        set=_inertia_set("world_damping_location"), min=0.0, max=1.0, precision=2, options=set(),
+        description="How much the chains lag behind and swing when the armature object moves through the "
+                    "world (walking, jumping). 1: full inertia; 0: they move rigidly with it. Moves animated on "
+                    "bones always count in full. (Kawaii's World Damping Location is 1 minus this)")
+    turning_inertia: FloatProperty(
+        name="Turning Inertia", get=_inertia_get("world_damping_rotation"),
+        set=_inertia_set("world_damping_rotation"), min=0.0, max=1.0, precision=2, options=set(),
+        description="How much the chains lag behind and swing when the armature object turns. 1: full "
+                    "inertia; 0: they turn rigidly with it. (Kawaii's World Damping Rotation is 1 minus this)")
     world_damping_location: FloatProperty(
         name="World Damping Location", default=0.8, min=0.0, max=1.0,
         update=_setting_changed("world_damping_location"),
@@ -289,11 +323,15 @@ class SwishGroup(PropertyGroup):
     use_radius_curve: BoolProperty(name="Radius Curve", update=_curve_toggled("radius"))
     use_limit_angle_curve: BoolProperty(name="Limit Angle Curve", update=_curve_toggled("limit_angle"))
 
-    gravity: FloatVectorProperty(name="Gravity", default=(0.0, 0.0, -1.0), subtype="ACCELERATION", size=3,
+    gravity: FloatVectorProperty(name="Gravity", default=(0.0, 0.0, -9.81), subtype="ACCELERATION", size=3,
                                  update=_result_changed,
-                                 description="Gravity; with Use Scene Gravity, a direction scaled by the scene's")
+                                 description="The group's own gravity, when it does not use the scene's")
+    gravity_scale: FloatProperty(name="Gravity Scale", default=1.0, soft_min=0.0, soft_max=2.0,
+                                 update=_result_changed,
+                                 description="The scene's gravity times this: 1 is normal, 0 none, 2 double")
     use_scene_gravity: BoolProperty(name="Use Scene Gravity", default=True, update=_result_changed,
-                                    description="Scale Gravity by the scene's gravity (Kawaii: use the project's)")
+                                    description="Pull with the scene's gravity (times Gravity Scale); off, the "
+                                                "group's own Gravity")
     use_world_space_gravity: BoolProperty(name="World Space Gravity", default=True, update=_result_changed,
                                           description="Gravity is in world space, not the armature's")
     legacy_gravity: BoolProperty(name="Legacy Gravity", default=False, update=_structure_changed,
@@ -392,10 +430,6 @@ class SwishScene(PropertyGroup):
     use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
                             description="Keep each simulated frame, to scrub and render without re-simulating")
     show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
-    stiffness_as_time: BoolProperty(
-        name="Stiffness as Settle Time", default=True,
-        description="Show stiffness as the seconds to settle back to the pose; off shows Kawaii's own value, "
-                    "which is what is saved, keyed and exported")
     selected_only: BoolProperty(
         name="Selected Only", default=True,
         description="List the selected armature's groups only; off lists every armature with a group")

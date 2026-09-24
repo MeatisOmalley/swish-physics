@@ -741,7 +741,7 @@ _last_clicked = {}                   # (armature, group) -> the chain clicked la
 class SWISH_OT_chain_click(_ChainsOperator, bpy.types.Operator):
     bl_idname = "swish.chain_click"
     bl_label = "Select Chain"
-    bl_description = "Select this chain. Shift-click adds or removes it; Ctrl-click selects a range"
+    bl_description = "Select this chain. Shift-click selects a range; Ctrl-click adds or drops one chain"
     bl_options = {"REGISTER", "UNDO"}
 
     root: bpy.props.StringProperty()
@@ -749,7 +749,8 @@ class SWISH_OT_chain_click(_ChainsOperator, bpy.types.Operator):
     span: bpy.props.BoolProperty(options={"SKIP_SAVE"})
 
     def invoke(self, context, event):
-        self.extend, self.span = event.shift, event.ctrl
+        # As in a file browser: Shift selects a range, Ctrl adds or drops one.
+        self.span, self.extend = event.shift, event.ctrl
         return self.execute(context)
 
     def execute(self, context):
@@ -906,6 +907,71 @@ class SWISH_OT_chains_move(_ChainsOperator, bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _chains_everywhere(obj):
+    """(group, [roots]) for every group of the armature with chains holding selected bones."""
+    return [(group, roots) for group in obj.swish.groups for roots in [selected_chains(obj, group)] if roots]
+
+
+class SWISH_OT_chains_to_group(bpy.types.Operator):
+    bl_idname = "swish.chains_to_group"
+    bl_label = "Move Chains to Group"
+    bl_description = "Move the chains holding the selected bones, from whatever groups, into this group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: bpy.props.IntProperty(default=-1, description="The group; -1 makes a new one")
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        return obj is not None and obj.type == "ARMATURE" and context.mode == "POSE"
+
+    def execute(self, context):
+        obj = context.object
+        found = _chains_everywhere(obj)
+        if not found:
+            self.report({"WARNING"}, "Select bones of the chains to move")
+            return {"CANCELLED"}
+        if self.index < 0:
+            target = obj.swish.groups.add()
+            target.name = group_name(obj, [root for _group, roots in found for root in roots])
+            serialize.paste(target, serialize.settings_text(found[0][0]))
+        else:
+            target = obj.swish.groups[self.index]
+        name, moved, broken = target.name, 0, 0
+        for group, roots in found:
+            if group == target:
+                continue
+            broken += _move_chains(obj, group, roots, target)
+            moved += len(roots)
+        for group, _roots in found:
+            if group != target and group.name in [g.name for g in obj.swish.groups]:
+                _drop_if_empty(obj, group)
+        obj.swish.active_group = [g.name for g in obj.swish.groups].index(name)
+        live.mark_dirty(context.scene)
+        self.report({"INFO"}, f"{moved} chains to '{name}'" + (f"; {broken} links removed" if broken else ""))
+        return {"FINISHED"}
+
+
+class SWISH_MT_chains_to_group(bpy.types.Menu):
+    bl_idname = "SWISH_MT_chains_to_group"
+    bl_label = "Move Chains to Group"
+
+    def draw(self, context):
+        layout = self.layout
+        obj = context.object
+        for index, group in enumerate(obj.swish.groups if obj is not None and obj.type == "ARMATURE" else ()):
+            layout.operator("swish.chains_to_group", text=group.name, icon="BONE_DATA").index = index
+        layout.separator()
+        layout.operator("swish.chains_to_group", text="New Group", icon="ADD").index = -1
+
+
+def _pose_menu(self, context):
+    obj = context.object
+    if obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups):
+        self.layout.separator()
+        self.layout.menu("SWISH_MT_chains_to_group", icon="PHYSICS")
+
+
 class SWISH_OT_preset_apply(_GroupOperator, bpy.types.Operator):
     bl_idname = "swish.preset_apply"
     bl_label = "Apply Preset"
@@ -1012,14 +1078,17 @@ CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_gr
            SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
            SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add,
            SWISH_OT_chain_click, SWISH_OT_chains_show, SWISH_OT_chains_remove, SWISH_OT_chains_split,
-           SWISH_OT_chains_move, SWISH_OT_chains_move_here, SWISH_OT_cache_toggle, SWISH_OT_armature_activate)
+           SWISH_OT_chains_move, SWISH_OT_chains_move_here, SWISH_OT_cache_toggle, SWISH_OT_armature_activate,
+           SWISH_OT_chains_to_group, SWISH_MT_chains_to_group)
 
 
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
+    bpy.types.VIEW3D_MT_pose_context_menu.append(_pose_menu)
 
 
 def unregister():
+    bpy.types.VIEW3D_MT_pose_context_menu.remove(_pose_menu)
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
