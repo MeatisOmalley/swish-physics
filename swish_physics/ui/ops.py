@@ -404,8 +404,22 @@ class SWISH_OT_wind_field_add(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
+        # Blender makes the new field the active object; the armature stays the one being edited.
+        view_layer = context.view_layer
+        armature = view_layer.objects.active
+        mode = context.mode
+        if mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
         bpy.ops.object.effector_add(type="WIND", rotation=(-1.5707963, 0.0, 0.0))
+        field = view_layer.objects.active
+        field.select_set(False)
+        if armature is not None:
+            view_layer.objects.active = armature
+            armature.select_set(True)
+            if mode == "POSE":
+                bpy.ops.object.mode_set(mode="POSE")
         live.invalidate(context.scene)
+        self.report({"INFO"}, f"Added '{field.name}': it blows along its Z axis at its Strength")
         return {"FINISHED"}
 
 

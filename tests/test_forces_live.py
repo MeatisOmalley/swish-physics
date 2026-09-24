@@ -96,6 +96,16 @@ play(range(1, 41))
 check("the Wind force blows the chain along the field", tip(rig)[1] - rest[1] > 0.03, tip(rig) - rest)
 scene.swish.simulate = False
 
+# --- Add Wind Field keeps the armature the active object
+rig, group = build()
+bpy.context.view_layer.objects.active = rig
+bpy.ops.object.mode_set(mode="POSE")
+check("Add Wind Field adds a field", bpy.ops.swish.wind_field_add() == {"FINISHED"}
+      and any(o.field and o.field.type == "WIND" for o in scene.objects))
+check("... and leaves the armature active, in Pose Mode",
+      bpy.context.view_layer.objects.active == rig and rig.mode == "POSE")
+bpy.ops.object.mode_set(mode="OBJECT")
+
 # --- a sync bone: the thigh swinging forward carries the skirt
 def swing(rig):
     pb = rig.pose.bones["thigh"]
