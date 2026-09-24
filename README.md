@@ -18,7 +18,7 @@ Everything is in the 3D Viewport sidebar, on the **Swish** tab.
 
 Keyed bone channels are the input. The simulation starts from whatever animation the chain bones have, and unkeyed chain bones start from rest.
 
-**Playback.** Live mode simulates while the timeline plays and stores nothing. **Cache** keeps each simulated frame so you can scrub and render. **Cache All** fills the frame range. Frames the cache has not reached show the unsimulated pose until they are played, as cloth does. Any change that affects the result clears the cache.
+**Playback.** Live mode prioritizes responsiveness. It uses enough substeps for a normal frame even at 12 fps, and at scene rates above the chosen simulation rate it raises the preview rate to avoid repeated poses. **Cache** keeps frames produced during live playback so you can scrub them, but that opportunistic cache depends on playback order. **Cache All** is the deterministic bake: it samples the input animation on the chosen fixed simulation clock from the start of the range, then stores each output frame. At 120 fps, frames between solver ticks are interpolated. Equivalent animation at equivalent times gives the same baked motion at 12, 24, 30, 60 or 120 fps; changing the FPS without retiming frame-numbered keyframes changes the animation's timing. Frames outside the cache show the unsimulated pose. The cache is in memory and is cleared by changes that affect the result.
 
 **Sharing.** **Copy Settings** and **Paste Settings** move a group's settings and curves between groups. **Export Setup** and **Import Setup** save an armature's groups, links, curves and colliders to JSON and load them back. A setup moved onto another armature with the same bone names behaves identically.
 
@@ -35,10 +35,10 @@ To see the same motion in a game:
 Where Swish's defaults and conventions differ from Kawaii's:
 
 - **Gravity.** It is on by default: (0, 0, −1) scaled by the scene's gravity. Kawaii's default is zero.
-- **Steps.** Steps per second and steps per frame are scene settings, as they are project settings in Kawaii.
+- **Steps.** Steps per second and steps per frame are scene settings, as they are project settings in Kawaii. Live preview may raise the rate or the per-frame step cap to keep up with Blender's timeline; Cache All uses the configured fixed rate without dropping elapsed time.
 - **Collider sizes.** They scale with the collider object and its bone. Kawaii does not scale collider radii.
 - **Capsule axis.** Capsules run along the collider's local Y. Kawaii's capsules run along Z.
-- **Random draws.** Random force scales, the scene wind's gust and the Wind force's noise are seeded by frame, so a frame simulates the same every time. Kawaii draws them from Unreal's unseeded random stream. Procedural wind is seeded in both and matches exactly.
+- **Random draws.** Random force scales, the scene wind's gust and the Wind force's noise are seeded by timeline frame in live preview and by fixed solver tick in Cache All, so a baked motion remains reproducible across scene frame rates. Kawaii draws them from Unreal's unseeded random stream. Procedural wind is seeded in both and matches exactly.
 - **Wind sources.** A Blender Wind force field stands in for Unreal's wind sources. It blows along its local Z, and its Strength is Unreal's wind Speed.
 
 ## Development

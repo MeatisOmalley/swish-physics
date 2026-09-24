@@ -4,8 +4,8 @@ A snapshot holds everything the simulation needs to continue from a frame --
 its points, the substep clock, the pose it interpolates from, the armatures'
 previous transforms -- and the chain bones' channels as written, to replay.
 Replaying a frame writes those channels back in frame_change_pre, before
-Blender evaluates the frame, so a render sees them; frame_change_post writes
-them again, after keyed chain channels were re-evaluated.
+Blender evaluates the frame, so a render sees them. Keyed chain channels
+need a second write after their animation has been re-evaluated.
 
 The cache is cleared on any change that affects the result: a group setting
 or structure (property callbacks), keyframes (an Action update), a collider
@@ -13,6 +13,8 @@ or an armature edited by hand, a curve or collider node group edited, or the
 scene's frame range or rate. The update Blender sends for our own writes is
 recognised and ignored.
 """
+import copy
+
 import numpy as np
 
 CHANNELS = (("location", 3), ("rotation_quaternion", 4), ("rotation_euler", 3), ("rotation_axis_angle", 4))
@@ -51,11 +53,70 @@ class Snapshot:
                 bones.foreach_set(path, buffer)
             rig.obj.update_tag(refresh={"DATA"})
 
+    @classmethod
+    def between(cls, earlier, later, fraction, rt):
+        """Display pose between two canonical solver ticks, independent of scene FPS."""
+        if fraction <= 0.0:
+            return earlier
+        if fraction >= 1.0:
+            return later
+        result = copy.copy(later)
+        result.channels = []
+        for rig, a, b in zip(rt.rigs, earlier.channels, later.channels):
+            rows = np.flatnonzero(rig.chain)
+            channels = {path: values.copy() for path, values in a.items()}
+            for path, size in CHANNELS:
+                start = a[path].reshape(-1, size)[rows]
+                end = b[path].reshape(-1, size)[rows]
+                output = channels[path].reshape(-1, size)
+                if path == "rotation_quaternion":
+                    output[rows] = _slerp(start, end, fraction)
+                elif path == "rotation_axis_angle":
+                    output[rows] = _axis_angle_from_quat(_slerp(
+                        _quat_from_axis_angle(start), _quat_from_axis_angle(end), fraction))
+                elif path == "rotation_euler":
+                    delta = (end - start + np.pi) % (2 * np.pi) - np.pi
+                    output[rows] = start + fraction * delta
+                else:
+                    output[rows] = start + fraction * (end - start)
+            result.channels.append(channels)
+        return result
+
+
+def _slerp(a, b, fraction):
+    dot = np.sum(a * b, axis=1)
+    b = np.where((dot < 0.0)[:, None], -b, b)
+    dot = np.clip(np.abs(dot), 0.0, 1.0)
+    angle = np.arccos(dot)
+    sine = np.sin(angle)
+    blend = np.divide(np.sin(fraction * angle), sine,
+                      out=np.full_like(angle, fraction), where=sine > 1e-6)
+    first = np.divide(np.sin((1.0 - fraction) * angle), sine,
+                      out=np.full_like(angle, 1.0 - fraction), where=sine > 1e-6)
+    result = first[:, None] * a + blend[:, None] * b
+    norm = np.linalg.norm(result, axis=1, keepdims=True)
+    return result / np.where(norm > 0.0, norm, 1.0)
+
+
+def _quat_from_axis_angle(values):
+    half = values[:, 0] * 0.5
+    return np.column_stack((np.cos(half), values[:, 1:] * np.sin(half)[:, None]))
+
+
+def _axis_angle_from_quat(values):
+    w = np.clip(values[:, 0], -1.0, 1.0)
+    angle = 2.0 * np.arccos(w)
+    sine = np.sqrt(np.maximum(0.0, 1.0 - w * w))
+    axis = np.divide(values[:, 1:], sine[:, None],
+                     out=np.tile((0.0, 1.0, 0.0), (len(values), 1)),
+                     where=sine[:, None] > 1e-6)
+    return np.column_stack((angle, axis))
+
 
 def key(scene):
     """What a cache is only valid for: frame range and rates."""
     settings = scene.swish
-    return (scene.frame_start, scene.render.fps, scene.render.fps_base, settings.target_framerate,
+    return (scene.frame_start, scene.frame_end, scene.render.fps, scene.render.fps_base, settings.target_framerate,
             settings.max_substeps, settings.fixed_substepping)
 
 

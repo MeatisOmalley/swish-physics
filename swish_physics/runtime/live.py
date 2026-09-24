@@ -1,4 +1,4 @@
-"""Live simulation: every Swish group in the scene, stepped as frames change.
+"""Live simulation and deterministic fixed-clock Cache All baking.
 
 One System holds every group of every armature. After Blender evaluates a
 frame's animation (frame_change_post), the runtime reads each armature's
@@ -33,11 +33,17 @@ _dirty = set()                # scene pointers whose groups changed shape
 _writing = False              # our own writes are in progress (the cache ignores them)
 
 
+_building_cache = False
+
+
 def invalidate(scene=None):
     """Something that changes the result changed: drop cached frames."""
+    if _building_cache:
+        return
     for key, current in _runtimes.items():
         if scene is None or key == scene.as_pointer():
             current.cache.clear()
+            current.cache_mode = "auto"
 
 
 def mark_dirty(scene=None):
@@ -58,7 +64,7 @@ def armatures(scene):
 class Runtime:
     """The simulation of one scene."""
 
-    def __init__(self, scene):
+    def __init__(self, scene, target_framerate=None):
         self.scene_pointer = scene.as_pointer()
         self.cm = io.cm_per_unit(scene)
         self.rigs = [io.Rig(obj) for obj in armatures(scene)]
@@ -89,7 +95,9 @@ class Runtime:
         self.system = build(Skeleton(names, parents, ref_length,
                                      np.concatenate(pose) if pose else np.zeros((0, 3)),
                                      np.concatenate(rotation) if rotation else np.zeros((0, 4))),
-                            specs, target_framerate=scene_settings.target_framerate,
+                            specs, target_framerate=target_framerate or max(
+                                scene_settings.target_framerate,
+                                math.ceil(scene.render.fps / scene.render.fps_base)),
                             max_substeps=scene_settings.max_substeps,
                             fixed_substepping=scene_settings.fixed_substepping)
         s = self.system
@@ -107,6 +115,7 @@ class Runtime:
         self.last_frame = None
         self.backend = native.backend()
         self.cache = {}                   # frame -> cache.Snapshot
+        self.cache_mode = "auto"
         self.cache_key = frame_cache.key(scene)
         self.own_update = False           # the next depsgraph update is our own write
         self.collider_prints = {}
@@ -208,7 +217,7 @@ class Runtime:
         return self.rigs[r], self.rigs[r].obj.swish.groups[index]
 
     # ------------------------------------------------------------------ frames
-    def _read(self, scene):
+    def _read(self, scene, sample_number=None):
         """This frame's input pose and component movement into the system."""
         s = self.system
         poses = [rig.read() for rig in self.rigs]
@@ -219,7 +228,7 @@ class Runtime:
         s.frame_pose[self.real] = pose[:, :3, 3] * self.cm
         s.frame_pose_rot[self.real] = io.quats_from_matrices(io.unscaled(pose[:, :3, :3]))
         s.frame_pose_scale[self.real] = np.linalg.norm(pose[:, :3, :3], axis=1)
-        s.frame_number = scene.frame_current
+        s.frame_number = scene.frame_current if sample_number is None else sample_number
         wind = scene_wind(scene, self.cm)
         for g in range(len(self.group_props)):
             rig, props = self._group(g)
@@ -291,17 +300,29 @@ class Runtime:
             rows = s.group == g
             s.loc[rows], s.prev[rows] = loc, prev
 
-    def step(self, scene, frames):
-        self._read(scene)
+    def step_seconds(self, scene, seconds, sample_number=None, max_substeps=None):
+        self._read(scene, sample_number)
         s = self.system
-        dt = F32(frames * scene.render.fps_base / scene.render.fps)
-        s.step_frame(dt, self.backend)
+        old_cap = s.max_substeps
+        if max_substeps is not None:
+            s.max_substeps = max_substeps
+        try:
+            s.step_frame(F32(seconds), self.backend)
+        finally:
+            s.max_substeps = old_cap
         for g in range(len(self.group_props)):
             rig, _props = self._group(g)
             location, rotation, scale = rig.obj.matrix_world.decompose()
             self.motions[g].consume(s.consume_fraction, np.array(location) * self.cm,
                                     (rotation.x, rotation.y, rotation.z, rotation.w), tuple(scale))
         self._write()
+
+    def step(self, scene, frames):
+        seconds = frames * scene.render.fps_base / scene.render.fps
+        # A normal 12 fps frame needs five 60 Hz steps. Do not silently discard
+        # its elapsed time merely because the game-oriented default cap is four.
+        needed = math.ceil((float(self.system.accumulator) + seconds) * self.system.target_framerate)
+        self.step_seconds(scene, seconds, max_substeps=max(self.system.max_substeps, needed))
 
     def _write(self):
         """Rotations back onto every chain bone, and heads for bones Kawaii places directly."""
@@ -342,6 +363,10 @@ class Runtime:
     def cached_range(self):
         return (min(self.cache), max(self.cache)) if self.cache else None
 
+    def needs_post_replay(self):
+        return any(np.any(rig.chain & rig.keyed[kind])
+                   for rig in self.rigs for kind in ("location", "rotation", "scale"))
+
 
 def scene_wind(scene, cm):
     """The scene's wind, standing in for Unreal's wind sources: every visible Wind force field
@@ -372,7 +397,12 @@ def scene_wind(scene, cm):
 def runtime(scene, rebuild=False):
     key = scene.as_pointer()
     current = _runtimes.get(key)
-    if current is None or rebuild or key in _dirty or "all" in _dirty:
+    live_rate = max(scene.swish.target_framerate,
+                    math.ceil(scene.render.fps / scene.render.fps_base))
+    changed_clock = current is not None and current.cache_key != frame_cache.key(scene)
+    wrong_live_rate = current is not None and current.cache_mode != "canonical" \
+        and current.system.target_framerate != live_rate
+    if current is None or rebuild or changed_clock or wrong_live_rate or key in _dirty or "all" in _dirty:
         if current is not None:
             current.restore()
         _dirty.discard(key)
@@ -381,7 +411,77 @@ def runtime(scene, rebuild=False):
     return current
 
 
+def bake_cache(scene, progress=None):
+    """Bake on a scene-FPS-independent clock, sampling the input pose each tick.
+
+    Only the requested output frames are retained. The transient solver ticks
+    between them are evaluated once; later scrubbing only replays channels.
+    """
+    global _building_cache
+    if _building_cache:
+        raise RuntimeError("A Swish cache build is already running")
+    key = scene.as_pointer()
+    original = scene.frame_current
+    rate = scene.swish.target_framerate
+    fps = scene.render.fps / scene.render.fps_base
+    if rate < 1 or fps <= 0:
+        raise ValueError("Invalid simulation or scene frame rate")
+    previous = _runtimes.get(key)
+    if previous is not None:
+        previous.restore()
+    _building_cache = True
+    try:
+        rt = Runtime(scene, target_framerate=rate)
+        _runtimes[key] = rt
+        _dirty.discard(key)
+        _dirty.discard("all")
+        start, end = scene.frame_start, scene.frame_end
+        scene.frame_set(start)
+        if not scene.swish.simulate:
+            raise RuntimeError("Simulate must stay enabled while building the cache")
+        rt.reset(scene)
+        earlier = frame_cache.Snapshot(rt)
+        rt.cache[start] = earlier
+        next_frame = start + 1
+        end_tick = math.ceil((end - start) * rate / fps - 1e-10)
+        for tick in range(1, end_tick + 1):
+            position = start + tick * fps / rate
+            whole = math.floor(position + 1e-10)
+            scene.frame_set(whole, subframe=position - whole)
+            if not scene.swish.simulate:
+                raise RuntimeError("Simulate must stay enabled while building the cache")
+            if key in _dirty or "all" in _dirty:
+                raise RuntimeError("A group's structure changed while building the cache")
+            rt.step_seconds(scene, 1.0 / rate, sample_number=tick, max_substeps=1)
+            later = frame_cache.Snapshot(rt)
+            while next_frame <= end and (next_frame - start) / fps <= tick / rate + 1e-10:
+                fraction = ((next_frame - start) / fps - (tick - 1) / rate) * rate
+                rt.cache[next_frame] = frame_cache.Snapshot.between(
+                    earlier, later, min(1.0, max(0.0, fraction)), rt)
+                if progress is not None:
+                    progress(next_frame)
+                next_frame += 1
+            earlier = later
+        if next_frame <= end:
+            raise RuntimeError(f"Cache build stopped before frame {next_frame}")
+        rt.collider_prints = frame_cache.collider_prints(rt)
+        rt.cache_key = frame_cache.key(scene)
+        rt.cache_mode = "canonical"
+        rt.last_frame = None
+    except BaseException:
+        current = _runtimes.get(key)
+        if current is not None:
+            current.cache.clear()
+            current.cache_mode = "auto"
+        raise
+    finally:
+        _building_cache = False
+        scene.frame_set(original)
+
+
 def set_simulating(scene, on):
+    if _building_cache:
+        return
     if on:
         rt = runtime(scene, rebuild=True)
         rt.reset(scene)
@@ -396,11 +496,12 @@ def set_simulating(scene, on):
 def _frame_changing(scene, depsgraph=None):
     """A cached frame is written before Blender evaluates it, so renders see it."""
     settings = scene.swish
-    if not (settings.simulate and settings.use_cache):
+    if _building_cache or not (settings.simulate and settings.use_cache):
         return
     key = scene.as_pointer()
     current = _runtimes.get(key)
-    if current is None or key in _dirty or "all" in _dirty:
+    if current is None or current.cache_key != frame_cache.key(scene) \
+            or key in _dirty or "all" in _dirty:
         return
     snapshot = current.cache.get(scene.frame_current)
     if snapshot is not None:
@@ -409,6 +510,8 @@ def _frame_changing(scene, depsgraph=None):
 
 @persistent
 def _frame_changed(scene, depsgraph=None):
+    if _building_cache:
+        return
     settings = scene.swish
     if not settings.simulate:
         return
@@ -428,9 +531,16 @@ def _frame_changed(scene, depsgraph=None):
         rt.cache_key = frame_cache.key(scene)
     snapshot = rt.cache.get(frame)
     if snapshot is not None:
-        snapshot.restore_state(rt)
-        snapshot.replay(rt)
+        if rt.cache_mode != "canonical":
+            snapshot.restore_state(rt)
+        # The pre-frame write survives evaluation when the chain channels are
+        # unkeyed. Only keyed channels need a second, post-evaluation replay.
+        if rt.needs_post_replay():
+            snapshot.replay(rt)
         rt.last_frame = frame
+    elif rt.cache_mode == "canonical":
+        rt.show_unsimulated()
+        rt.last_frame = None
     elif frame == scene.frame_start:
         rt.reset(scene)
         rt.store(frame)
@@ -447,11 +557,16 @@ def _frame_changed(scene, depsgraph=None):
 
 @persistent
 def _depsgraph_updated(scene, depsgraph):
+    if _building_cache:
+        return
     current = _runtimes.get(scene.as_pointer())
     if current is None:
         return
     if frame_cache.relevant_update(current, depsgraph):
         current.cache.clear()
+        current.cache_mode = "auto"
+        for rig in current.rigs:
+            rig.refresh_keyed()
 
 
 @persistent

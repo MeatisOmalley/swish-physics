@@ -304,16 +304,12 @@ class SWISH_OT_cache_all(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         scene.swish.use_cache = True
-        original = scene.frame_current
         wm = context.window_manager
         wm.progress_begin(scene.frame_start, scene.frame_end)
         try:
-            for frame in range(scene.frame_start, scene.frame_end + 1):
-                scene.frame_set(frame)
-                wm.progress_update(frame)
+            live.bake_cache(scene, progress=wm.progress_update)
         finally:
             wm.progress_end()
-        scene.frame_set(original)
         return {"FINISHED"}
 
 
