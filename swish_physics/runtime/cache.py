@@ -23,7 +23,8 @@ class Snapshot:
         s = rt.system
         self.loc, self.prev = s.loc.copy(), s.prev.copy()
         self.prev_pose, self.prev_pose_rot = s.prev_pose.copy(), s.prev_pose_rot.copy()
-        self.scalars = (s.accumulator, s.dt_old, s.consume_fraction, s.pose_initialized)
+        self.scalars = (s.accumulator, s.dt_old, s.consume_fraction, s.pose_initialized, s.skip_known)
+        self.forces = s.force_states()
         self.motions = [None if m.previous is None else tuple(v.copy() for v in m.previous) for m in rt.motions]
         self.channels = [{path: rig._buffers[path].copy() for path, _size in CHANNELS} for rig in rt.rigs]
 
@@ -31,7 +32,8 @@ class Snapshot:
         s = rt.system
         s.loc[:], s.prev[:] = self.loc, self.prev
         s.prev_pose[:], s.prev_pose_rot[:] = self.prev_pose, self.prev_pose_rot
-        s.accumulator, s.dt_old, s.consume_fraction, s.pose_initialized = self.scalars
+        s.accumulator, s.dt_old, s.consume_fraction, s.pose_initialized, s.skip_known = self.scalars
+        s.set_force_states(self.forces)
         for motion, previous in zip(rt.motions, self.motions):
             motion.previous = None if previous is None else tuple(v.copy() for v in previous)
 
@@ -97,6 +99,8 @@ def relevant_update(rt, depsgraph):
             return True
         if isinstance(found, bpy.types.Object):
             if found.name in rig_objects and not own:
+                return True
+            if found.field is not None and found.field.type == "WIND":       # the scene's wind
                 return True
             if colliders.is_collider(found):
                 colliders_touched = True

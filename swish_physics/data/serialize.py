@@ -21,7 +21,8 @@ FORMAT = "swish_physics"
 VERSION = 1
 KAWAII_COMMIT = "64cbc77ad4d75f6eb8c8f5673b4b4452f838ec21"
 SCENE_SETTINGS = ("target_framerate", "max_substeps", "fixed_substepping")
-_NOT_SETTINGS = {"rna_type", "name", "curve_key", "active_link"}
+_NOT_SETTINGS = {"rna_type", "name", "curve_key", "active_link", "active_force", "active_sync", "active_target",
+                 "show_advanced"}
 
 
 def _plain(value):
@@ -46,12 +47,12 @@ def settings_from_dict(group, data):
             setattr(group, name, tuple(value) if isinstance(value, list) else value)
 
 
-def curve_to_dict(group, setting):
+def curve_to_dict(group, setting, required=False):
     found = curves.node(group, setting, create=False)
     if found is None:
         return None
     points = found.mapping.curves[0].points
-    sampled = curves.curve(group, setting)
+    sampled = curves.curve(group, setting, required)
     return {"points": [[p.location[0], p.location[1], p.handle_type] for p in points],
             "keys": sampled.keys() if sampled is not None else None}
 
@@ -71,6 +72,50 @@ def curve_from_dict(group, setting, data):
     mapping.update()
 
 
+FORCE_CURVES = ("rate", "force_x", "force_y", "force_z")
+
+
+def _item_to_dict(item, curve_names, collections=()):
+    """A force, sync bone or sync target: its values, its name lists and the curves it uses."""
+    data = {"name": getattr(item, "name", ""), "settings": settings_to_dict(item)}
+    for name in collections:
+        data[name] = [entry.name for entry in getattr(item, name)]
+    used = {}
+    for setting in curve_names:
+        required = not hasattr(item, f"use_{setting}_curve")
+        if required or getattr(item, f"use_{setting}_curve"):
+            found = curve_to_dict(item, setting, required)
+            if found is not None:
+                used[setting] = found
+    data["curves"] = used
+    return data
+
+
+def _item_from_dict(item, data, collections=()):
+    if "name" in data and hasattr(item, "name") and data["name"]:
+        item.name = data["name"]
+    settings_from_dict(item, data.get("settings", {}))
+    for name in collections:
+        for entry in data.get(name, ()):
+            getattr(item, name).add().name = entry
+    for setting, curve in data.get("curves", {}).items():
+        curve_from_dict(item, setting, curve)
+
+
+def forces_to_list(group):
+    return [_item_to_dict(force, FORCE_CURVES if force.kind == "CURVE" else ("rate",),
+                          ("apply_bones", "ignore_bones")) for force in group.forces]
+
+
+def sync_to_list(group):
+    out = []
+    for sync in group.sync_bones:
+        data = _item_to_dict(sync, ("distance",))
+        data["targets"] = [_item_to_dict(target, ("rate",)) for target in sync.targets]
+        out.append(data)
+    return out
+
+
 def group_to_dict(group):
     used = {setting: curve_to_dict(group, setting) for setting in curves.CURVED
             if getattr(group, f"use_{setting}_curve")}
@@ -85,6 +130,8 @@ def group_to_dict(group):
         "collider_sets": [None if item.armature == group.id_data else item.armature.name
                           for item in group.collider_sets if item.armature is not None],
         "curves": {setting: data for setting, data in used.items() if data is not None},
+        "forces": forces_to_list(group),
+        "sync_bones": sync_to_list(group),
     }
 
 
@@ -110,6 +157,13 @@ def group_from_dict(group, data):
     for setting, curve in data.get("curves", {}).items():
         if setting in curves.CURVED:
             curve_from_dict(group, setting, curve)
+    for found in data.get("forces", ()):
+        _item_from_dict(group.forces.add(), found, ("apply_bones", "ignore_bones"))
+    for found in data.get("sync_bones", ()):
+        sync = group.sync_bones.add()
+        _item_from_dict(sync, found)
+        for target in found.get("targets", ()):
+            _item_from_dict(sync.targets.add(), target)
     return missing
 
 
@@ -178,7 +232,7 @@ def armature_from_dict(obj, data, scene=None, replace=True, include_colliders=Tr
     warnings = []
     if replace:
         for group in obj.swish.groups:
-            curves.remove(group)
+            curves.remove_owned(group)
         obj.swish.groups.clear()
         if include_colliders and "colliders" in data:
             for child in [c for c in obj.children if colliders.is_collider(c)]:

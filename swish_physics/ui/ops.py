@@ -8,6 +8,7 @@ from ..data import colliders
 from ..data import links as chain_links
 from ..data import curves as group_curves
 from ..data import presets, serialize
+from ..data.props import FORCE_CHANNELS, FORCE_KINDS
 from ..runtime import live
 
 
@@ -134,7 +135,7 @@ class SWISH_OT_group_remove(bpy.types.Operator):
     def execute(self, context):
         obj = context.object
         live.set_simulating(context.scene, False)
-        group_curves.remove(obj.swish.groups[obj.swish.active_group])
+        group_curves.remove_owned(obj.swish.groups[obj.swish.active_group])
         obj.swish.groups.remove(obj.swish.active_group)
         obj.swish.active_group = max(0, obj.swish.active_group - 1)
         if context.scene.swish.simulate:
@@ -348,6 +349,171 @@ class _GroupOperator:
         return _active_group(context) is not None
 
 
+def _selected_names(context):
+    return [pb.name for pb in context.selected_pose_bones or () if pb.id_data == context.object]
+
+
+def _active_item(collection, index):
+    return collection[min(index, len(collection) - 1)] if len(collection) else None
+
+
+class SWISH_OT_force_add(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.force_add"
+    bl_label = "Add Force"
+    bl_description = "Add an external force to the active group"
+    bl_options = {"REGISTER", "UNDO"}
+
+    kind: bpy.props.EnumProperty(name="Type", items=[item[:3] for item in FORCE_KINDS])
+
+    def execute(self, context):
+        group = _active_group(context)
+        force = group.forces.add()
+        force.name = next(label for key, label, *_ in FORCE_KINDS if key == self.kind)
+        force.kind = self.kind
+        if self.kind == "CURVE":
+            for channel in FORCE_CHANNELS:
+                group_curves.node(force, channel)
+        group.active_force = len(group.forces) - 1
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_force_remove(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.force_remove"
+    bl_label = "Remove Force"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        group = _active_group(context)
+        return group is not None and len(group.forces) > 0
+
+    def execute(self, context):
+        group = _active_group(context)
+        index = min(group.active_force, len(group.forces) - 1)
+        group_curves.remove(group.forces[index], ("rate",) + FORCE_CHANNELS)
+        group.forces.remove(index)
+        group.active_force = max(0, index - 1)
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_force_filter(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.force_filter"
+    bl_label = "Set Bone Filter"
+    bl_description = "Set the force's bone filter to the selected bones, or clear it"
+    bl_options = {"REGISTER", "UNDO"}
+
+    target: bpy.props.EnumProperty(items=[("APPLY", "Only", ""), ("IGNORE", "Ignore", "")])
+    clear: bpy.props.BoolProperty()
+
+    def execute(self, context):
+        group = _active_group(context)
+        force = _active_item(group.forces, group.active_force)
+        if force is None:
+            return {"CANCELLED"}
+        collection = force.apply_bones if self.target == "APPLY" else force.ignore_bones
+        collection.clear()
+        if not self.clear:
+            names = _selected_names(context)
+            if not names:
+                self.report({"WARNING"}, "Select bones in Pose Mode")
+                return {"CANCELLED"}
+            for name in names:
+                collection.add().name = name
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_sync_add(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.sync_add"
+    bl_label = "Add Sync Bone"
+    bl_description = ("Add a sync bone to the active group, following the active bone; selected bones of the "
+                      "group become its targets")
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        obj, group = context.object, _active_group(context)
+        sync = group.sync_bones.add()
+        active = context.active_pose_bone if context.mode == "POSE" else None
+        if active is not None:
+            sync.bone = active.name
+            sync.name = active.name
+        from .selection import group_index_of_bone
+        index = list(obj.swish.groups).index(group) if group in list(obj.swish.groups) else -1
+        for name in _selected_names(context):
+            if active is not None and name == active.name:
+                continue
+            if group_index_of_bone(obj, name) == index:
+                sync.targets.add().bone = name
+        group.active_sync = len(group.sync_bones) - 1
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_sync_remove(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.sync_remove"
+    bl_label = "Remove Sync Bone"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        group = _active_group(context)
+        return group is not None and len(group.sync_bones) > 0
+
+    def execute(self, context):
+        group = _active_group(context)
+        index = min(group.active_sync, len(group.sync_bones) - 1)
+        sync = group.sync_bones[index]
+        for target in sync.targets:
+            group_curves.remove(target, ("rate",))
+        group_curves.remove(sync, ("distance",))
+        group.sync_bones.remove(index)
+        group.active_sync = max(0, index - 1)
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_sync_target_add(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "swish.sync_target_add"
+    bl_label = "Add Sync Targets"
+    bl_description = "Add the selected bones as targets of the active sync bone"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        group = _active_group(context)
+        return super().poll(context) and group is not None and len(group.sync_bones) > 0
+
+    def execute(self, context):
+        group = _active_group(context)
+        sync = _active_item(group.sync_bones, group.active_sync)
+        existing = {target.bone for target in sync.targets}
+        for name in _selected_names(context):
+            if name != sync.bone and name not in existing:
+                sync.targets.add().bone = name
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
+class SWISH_OT_sync_target_remove(_GroupOperator, bpy.types.Operator):
+    bl_idname = "swish.sync_target_remove"
+    bl_label = "Remove Sync Target"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        group = _active_group(context)
+        sync = _active_item(group.sync_bones, group.active_sync)
+        if sync is None or not len(sync.targets):
+            return {"CANCELLED"}
+        index = min(sync.active_target, len(sync.targets) - 1)
+        group_curves.remove(sync.targets[index], ("rate",))
+        sync.targets.remove(index)
+        sync.active_target = max(0, index - 1)
+        live.invalidate(context.scene)
+        return {"FINISHED"}
+
+
 class SWISH_OT_preset_apply(_GroupOperator, bpy.types.Operator):
     bl_idname = "swish.preset_apply"
     bl_label = "Apply Preset"
@@ -450,7 +616,9 @@ CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_gr
            SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove,
            SWISH_OT_link_chains, SWISH_OT_links_clear, SWISH_OT_link_remove, SWISH_OT_cache_all,
            SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_group_copy, SWISH_OT_group_paste,
-           SWISH_OT_setup_export, SWISH_OT_setup_import)
+           SWISH_OT_setup_export, SWISH_OT_setup_import, SWISH_OT_force_add, SWISH_OT_force_remove,
+           SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
+           SWISH_OT_sync_target_remove)
 
 
 def register():

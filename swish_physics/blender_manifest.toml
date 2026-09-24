@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "swish_physics"
-version = "0.1.0"
+version = "0.2.0"
 name = "Swish Physics"
 tagline = "Fast bone-chain physics for hair, skirts and accessories"
 maintainer = "MeatisOmalley"

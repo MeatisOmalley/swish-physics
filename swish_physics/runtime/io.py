@@ -198,8 +198,7 @@ class Rig:
 
         bones: the rig's bone indices; rotation: their rotations; location and
         move_location: armature-space head positions for the bones Kawaii
-        places directly (children of bones with several children), and which
-        those are. Everything is converted to local basis channels, parents
+        places directly (every bone below a group's root), and which those are. Everything is converted to local basis channels, parents
         first, and written in one call per channel array."""
         target_rot = np.zeros((self.count, 3, 3))
         target_rot[bones] = matrices_from_quats(rotation)

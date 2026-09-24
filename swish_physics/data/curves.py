@@ -33,8 +33,14 @@ def key(group):
     return group.curve_key
 
 
+# Value ranges of the curves an owner can have: (min, max, flat value). Settings multiply
+# from 0 to 2; a Curve force's channels run from -1 to 1 and scale its amplitude.
+RANGES = {"force_x": (-1.0, 1.0, 0.0), "force_y": (-1.0, 1.0, 0.0), "force_z": (-1.0, 1.0, 0.0)}
+
+
 def node(group, setting, create=True):
-    """The Float Curve node holding one setting's curve for a group."""
+    """The Float Curve node holding one of an owner's curves: a group's setting, or a force's
+    or sync bone's curve (anything with a curve_key)."""
     tree = host(create)
     if tree is None:
         return None
@@ -47,20 +53,22 @@ def node(group, setting, create=True):
         mapping = found.mapping
         # Curves multiply their setting: 0 to 2 along the chain, drawn with 1 mid-height
         # so the default flat curve is visible and easy to grab.
+        low, high, flat = RANGES.get(setting, (0.0, 2.0, 1.0))
         mapping.use_clip = True
         mapping.clip_min_x, mapping.clip_max_x = 0.0, 1.0
-        mapping.clip_min_y, mapping.clip_max_y = 0.0, 2.0
+        mapping.clip_min_y, mapping.clip_max_y = low, high
         points = mapping.curves[0].points
-        points[0].location = (0.0, 1.0)
-        points[1].location = (1.0, 1.0)
+        points[0].location = (0.0, flat)
+        points[1].location = (1.0, flat)
         mapping.reset_view()
         mapping.update()
     return found
 
 
-def curve(group, setting):
-    """The setting's curve as linear keys, or None when the group does not use one."""
-    if not getattr(group, f"use_{setting}_curve"):
+def curve(group, setting, required=False):
+    """The setting's curve as linear keys over 0..1, or None when the owner does not use one.
+    required: the owner has no use_<setting>_curve switch (a Curve force's channels)."""
+    if not required and not getattr(group, f"use_{setting}_curve"):
         return None
     found = node(group, setting, create=False)
     if found is None:
@@ -81,11 +89,22 @@ def curves(group):
     return {setting: curve(group, setting) for setting in CURVED}
 
 
-def remove(group):
+def remove_owned(group):
+    """A group's curves and those of its forces and sync bones."""
+    remove(group)
+    for force in group.forces:
+        remove(force, ("rate", "force_x", "force_y", "force_z"))
+    for sync in group.sync_bones:
+        remove(sync, ("distance",))
+        for target in sync.targets:
+            remove(target, ("rate",))
+
+
+def remove(group, settings=CURVED):
     tree = host(create=False)
     if tree is None or not group.curve_key:
         return
-    for setting in CURVED:
+    for setting in settings:
         found = tree.nodes.get(f"{group.curve_key}.{setting}")
         if found is not None:
             tree.nodes.remove(found)

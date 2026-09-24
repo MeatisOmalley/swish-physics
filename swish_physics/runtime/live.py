@@ -15,8 +15,11 @@ from bpy.app.handlers import persistent
 
 from ..data import colliders as collider_objects
 from ..data import curves as group_curves
+from ..data.props import FORCE_CHANNELS
+from ..solver import forces as frame_forces
 from ..solver import native
 from ..solver.build import Skeleton, GroupSpec, build, ComponentMotion
+from ..solver.curves import LinearCurve
 from ..solver.system import Group, COMPLIANCE_TYPES, PLANAR_NONE, PLANAR_X, PLANAR_Y, PLANAR_Z
 from . import cache as frame_cache
 from . import io
@@ -96,6 +99,10 @@ class Runtime:
         self.bone_of_point = combined - np.array(offsets)[self.rig_of_point] if len(offsets) else combined
         for r, rig in enumerate(self.rigs):
             rig.set_chain(self.bone_of_point[self.rig_of_point == r])
+        # Force filters and sync targets name bones; the points of each group by bone name.
+        for i in self.real:
+            s.bone_names[i] = names[s.bone[i]].split("|", 1)[1]
+        self.point_of = {(int(s.group[i]), s.bone_names[i]): int(i) for i in self.real}
         self.motions = [ComponentMotion() for _ in self.group_props]
         self.last_frame = None
         self.backend = native.backend()
@@ -133,6 +140,69 @@ class Runtime:
                     world_damping_rotation=props.world_damping_rotation,
                     radius=props.radius * self.cm, limit_angle=math.degrees(props.limit_angle))
 
+    def _frame_forces(self, g, rig, props):
+        """This frame's external forces, wind settings and sync bones of a group, in Kawaii's units."""
+        grp, cm = self.system.groups[g], self.cm
+        grp.forces = [self._force(f) for f in props.forces]
+        grp.sync_bones = [self._sync(g, rig, sync) for sync in props.sync_bones]
+        grp.simple_external_force = tuple(np.array(props.simple_external_force) * cm)
+        grp.world_space_simple_external_force = props.world_space_simple_external_force
+        grp.enable_wind = props.enable_wind
+        grp.wind_scale = props.wind_scale
+        grp.wind_direction_noise_angle = math.degrees(props.wind_direction_noise_angle)
+
+    def _force(self, f):
+        cm, kind = self.cm, f.kind
+        scale = (f.random_min, f.random_max)
+        if kind == "BASIC":
+            params = dict(direction=tuple(np.array(f.direction) * cm), interval=f.interval)
+        elif kind == "GRAVITY":
+            params = dict(override_direction=f.override_direction, direction=tuple(f.direction))
+            scale = (f.random_min * cm, f.random_max * cm)          # the pull's strength is an acceleration
+        elif kind == "CURVE":
+            channels = []
+            for axis, channel in enumerate(FORCE_CHANNELS):
+                found = group_curves.curve(f, channel, required=True)
+                channels.append(None if found is None else LinearCurve(
+                    found.times * F32(f.duration), found.values * F32(f.amplitude[axis] * cm)))
+            params = dict(curves=tuple(channels), max_time=f.duration, time_scale=f.time_scale,
+                          evaluate=f.evaluate, substeps=f.substeps)
+        elif kind == "WIND":
+            params = dict(noise_angle=math.degrees(f.noise_angle))
+        else:
+            params = dict(direction=tuple(f.direction), noise_angle=math.degrees(f.noise_angle),
+                          noise_period=f.noise_period, time_scale=f.time_scale, constant=f.constant * cm,
+                          sway=f.sway * cm, sway_period=f.sway_period, sway_phase=math.degrees(f.sway_phase),
+                          ripple=f.ripple * cm, ripple_period=f.ripple_period,
+                          ripple_phase=math.degrees(f.ripple_phase), ripple_delay=math.degrees(f.ripple_delay),
+                          cycle_min=f.cycle_min, cycle_max=f.cycle_max, cycle_period=f.cycle_period,
+                          cycle_phase=math.degrees(f.cycle_phase), random=f.random * cm,
+                          random_period=f.random_period, seed=f.seed)
+        return frame_forces.ForceSpec(
+            kind, enabled=f.enabled, space="WORLD" if kind in ("GRAVITY", "WIND") else f.space,
+            apply_bones=frozenset(b.name for b in f.apply_bones),
+            ignore_bones=frozenset(b.name for b in f.ignore_bones),
+            random_range=scale, rate_curve=group_curves.curve(f, "rate"), params=params)
+
+    def _sync(self, g, rig, sync):
+        cm = self.cm
+        index = rig.index.get(sync.bone, -1)
+        location = rest = None
+        if index >= 0:
+            location = rig.pose[index][:3, 3] * cm
+            rest = rig.rest[index][:3, 3] * cm
+        distance = group_curves.curve(sync, "distance")
+        if distance is not None:
+            distance = LinearCurve(distance.times * F32(sync.distance * cm), distance.values)
+        targets = [frame_forces.SyncTargetSpec(root=self.point_of.get((g, t.bone), -1),
+                                               include_children=t.include_children,
+                                               rate_curve=group_curves.curve(t, "rate")) for t in sync.targets]
+        return frame_forces.SyncSpec(
+            location=location, rest_location=rest, targets=targets, global_scale=tuple(sync.global_scale),
+            distance_curve=distance, directions=(sync.direction_x, sync.direction_y, sync.direction_z),
+            attenuation=sync.attenuation, inner_radius=sync.inner_radius * cm, outer_radius=sync.outer_radius * cm,
+            max_attenuation=sync.max_attenuation)
+
     def _group(self, g):
         r, index = self.group_props[g]
         return self.rigs[r], self.rigs[r].obj.swish.groups[index]
@@ -148,11 +218,17 @@ class Runtime:
             pose[rows] = rig_pose[self.bone_of_point[rows]]
         s.frame_pose[self.real] = pose[:, :3, 3] * self.cm
         s.frame_pose_rot[self.real] = io.quats_from_matrices(io.unscaled(pose[:, :3, :3]))
+        s.frame_pose_scale[self.real] = np.linalg.norm(pose[:, :3, :3], axis=1)
+        s.frame_number = scene.frame_current
+        wind = scene_wind(scene, self.cm)
         for g in range(len(self.group_props)):
             rig, props = self._group(g)
             s.groups[g].settings = self._settings(props)
             s.groups[g].curves = group_curves.curves(props)
+            self._frame_forces(g, rig, props)
+            s.wind[g] = wind
             world = rig.obj.matrix_world
+            s.world_to_sim[g] = np.linalg.inv(np.array(world.to_3x3()))
             gravity = np.array(props.gravity, dtype=float)
             if props.use_scene_gravity:
                 gravity = gravity * abs(scene.gravity[2])
@@ -209,7 +285,7 @@ class Runtime:
                     saved[g] = (s.loc[rows].copy(), s.prev[rows].copy())
             accumulator = s.accumulator
             s.accumulator = F32(0.0)
-            s.step_frame(fixed_dt, self.backend)
+            s.step_frame(fixed_dt, self.backend, prepare=(k == 0), call=k)
             s.accumulator = accumulator
         for g, (loc, prev) in saved.items():
             rows = s.group == g
@@ -232,10 +308,10 @@ class Runtime:
         global _writing
         s = self.system
         rotation, _turned = s.results()
-        children = np.bincount(s.parent[s.parent >= 0], minlength=s.n)
-        parent = s.parent[self.real]
-        # A bone whose parent has several children takes its simulated head (ApplySimulateResult).
-        placed = (parent >= 0) & (children[np.maximum(parent, 0)] > 1)
+        # Every bone below a group's root takes its simulated head (ApplySimulateResult sets each
+        # such bone's location). Where a parent has one child its rotation already puts the head
+        # there; sync bones and branching chains need the location itself.
+        placed = s.parent[self.real] >= 0
         _writing = True
         self.own_update = True
         try:
@@ -265,6 +341,32 @@ class Runtime:
 
     def cached_range(self):
         return (min(self.cache), max(self.cache)) if self.cache else None
+
+
+def scene_wind(scene, cm):
+    """The scene's wind, standing in for Unreal's wind sources: every visible Wind force field
+    blows along its local Z at its Strength (Unreal's wind Speed; not converted, since Kawaii
+    uses it as is). (world direction, speed), or None when nothing blows."""
+    total = np.zeros(3)
+    found = False
+    for obj in scene.objects:
+        field = obj.field
+        if field is None or field.type != "WIND" or not field.strength:
+            continue
+        try:
+            if not obj.visible_get():
+                continue
+        except RuntimeError:
+            pass
+        axis = np.array(obj.matrix_world.to_3x3().col[2])
+        length = np.linalg.norm(axis)
+        if length > 0:
+            total += axis / length * field.strength
+            found = True
+    speed = float(np.linalg.norm(total))
+    if not found or speed == 0.0:
+        return None
+    return total / speed, speed
 
 
 def runtime(scene, rebuild=False):

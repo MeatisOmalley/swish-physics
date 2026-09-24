@@ -89,6 +89,136 @@ class SwishColliderSet(PropertyGroup):
                               poll=lambda _self, obj: obj.type == "ARMATURE")
 
 
+def _force_kind_changed(self, context):
+    from . import curves
+    if self.kind == "CURVE":
+        for channel in FORCE_CHANNELS:
+            curves.node(self, channel)
+    _result_changed(self, context)
+
+
+def _item_curve_toggled(name):
+    def update(self, context):
+        from . import curves
+        if getattr(self, f"use_{name}_curve"):
+            curves.node(self, name)
+        _result_changed(self, context)
+    return update
+
+
+FORCE_CHANNELS = ("force_x", "force_y", "force_z")
+FORCE_KINDS = [
+    ("BASIC", "Basic", "A steady push, or a pulse every interval (Kawaii's Basic external force)", "FORCE_FORCE", 0),
+    ("GRAVITY", "Gravity", "Extra gravity through velocity, in world space (Kawaii's Gravity external force)",
+     "FORCE_HARMONIC", 1),
+    ("CURVE", "Curve", "A push that follows curves over time (Kawaii's Curve external force)", "FCURVE", 2),
+    ("WIND", "Wind", "The scene's wind force fields, per bone (Kawaii's Wind external force)", "FORCE_WIND", 3),
+    ("PROCEDURAL_WIND", "Procedural Wind", "Seeded sway, ripple and gusting noise (Kawaii's Procedural Wind)",
+     "MOD_WAVE", 4)]
+FORCE_SPACES = [("COMPONENT", "Armature", "In the armature's space"),
+                ("WORLD", "World", "In world space"),
+                ("BONE", "Bone", "In each bone's own space, turning with it")]
+CURVE_EVALUATE = [("SINGLE", "Single", "The curve's value at the current time"),
+                  ("AVERAGE", "Average", "The average over the frame's time, in Substeps samples"),
+                  ("MAX", "Max", "The largest value over the frame's time"),
+                  ("MIN", "Min", "The smallest value over the frame's time")]
+SYNC_DIRECTIONS = [("BOTH", "Both", "Follow movement either way along this axis"),
+                   ("POSITIVE", "Positive", "Follow only movement toward +axis"),
+                   ("NEGATIVE", "Negative", "Follow only movement toward -axis"),
+                   ("NONE", "None", "Ignore movement along this axis")]
+
+
+class SwishForce(PropertyGroup):
+    """One Kawaii external force. Velocities are in Blender units a second; everything is animatable."""
+    name: StringProperty(name="Name", default="Force")
+    enabled: BoolProperty(name="Enabled", default=True, update=_result_changed)
+    kind: EnumProperty(name="Type", items=FORCE_KINDS, default="BASIC", update=_force_kind_changed)
+    space: EnumProperty(name="Space", items=FORCE_SPACES, default="WORLD", update=_result_changed)
+    apply_bones: CollectionProperty(type=SwishBoneName)
+    ignore_bones: CollectionProperty(type=SwishBoneName)
+    random_min: FloatProperty(name="Scale Min", default=1.0, update=_result_changed,
+                              description="Each frame the force is scaled by a random value in this range; "
+                                          "for Gravity it is the acceleration (Blender units a second squared)")
+    random_max: FloatProperty(name="Scale Max", default=1.0, update=_result_changed)
+    curve_key: StringProperty(options={"HIDDEN"})
+    use_rate_curve: BoolProperty(name="Rate Curve", update=_item_curve_toggled("rate"),
+                                 description="Scale the force along each chain, root to tip")
+
+    direction: FloatVectorProperty(name="Direction", default=(0.0, 0.0, 0.0), size=3, update=_result_changed,
+                                   description="Basic: the push, in Blender units a second. Gravity and "
+                                               "Procedural Wind: a direction")
+    interval: FloatProperty(name="Interval", default=0.0, min=0.0, subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE",
+                            update=_result_changed, description="Push once every this long; 0 pushes constantly")
+    override_direction: BoolProperty(name="Override Direction", update=_result_changed,
+                                     description="Pull along Direction instead of straight down")
+    duration: FloatProperty(name="Duration", default=1.0, min=0.001, subtype="TIME_ABSOLUTE",
+                            unit="TIME_ABSOLUTE", update=_result_changed,
+                            description="How long the curves run before repeating")
+    amplitude: FloatVectorProperty(name="Amplitude", default=(1.0, 1.0, 1.0), size=3, update=_result_changed,
+                                   description="The push at a curve value of 1, per axis, in Blender units a second")
+    time_scale: FloatProperty(name="Time Scale", default=1.0, update=_result_changed)
+    evaluate: EnumProperty(name="Evaluate", items=CURVE_EVALUATE, default="SINGLE", update=_result_changed)
+    substeps: IntProperty(name="Substeps", default=10, min=1, max=100, update=_result_changed)
+    noise_angle: FloatProperty(name="Direction Noise", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
+                               update=_result_changed, description="Random turn of the wind's direction")
+    noise_period: FloatProperty(name="Noise Period", default=1.0, min=0.01, update=_result_changed)
+    constant: FloatProperty(name="Constant", default=0.0, update=_result_changed,
+                            description="Steady wind, in Blender units a second")
+    sway: FloatProperty(name="Sway", default=0.0, update=_result_changed,
+                        description="Back-and-forth wind, in Blender units a second")
+    sway_period: FloatProperty(name="Sway Period", default=1.0, min=0.01, update=_result_changed)
+    sway_phase: FloatProperty(name="Sway Phase", default=0.0, subtype="ANGLE", update=_result_changed)
+    ripple: FloatProperty(name="Ripple", default=0.0, update=_result_changed,
+                          description="A wave running root to tip, in Blender units a second")
+    ripple_period: FloatProperty(name="Ripple Period", default=1.0, min=0.01, update=_result_changed)
+    ripple_phase: FloatProperty(name="Ripple Phase", default=0.0, subtype="ANGLE", update=_result_changed)
+    ripple_delay: FloatProperty(name="Ripple Tip Delay", default=math.pi, subtype="ANGLE", update=_result_changed,
+                                description="How far behind the root the tip's wave runs")
+    cycle_min: FloatProperty(name="Strength Min", default=1.0, update=_result_changed)
+    cycle_max: FloatProperty(name="Strength Max", default=1.0, update=_result_changed)
+    cycle_period: FloatProperty(name="Strength Period", default=10.0, min=0.01, update=_result_changed)
+    cycle_phase: FloatProperty(name="Strength Phase", default=0.0, subtype="ANGLE", update=_result_changed)
+    random: FloatProperty(name="Random", default=0.0, update=_result_changed,
+                          description="Seeded noise, in Blender units a second")
+    random_period: FloatProperty(name="Random Period", default=0.5, min=0.01, update=_result_changed)
+    seed: IntProperty(name="Seed", default=0, update=_result_changed)
+    show_advanced: BoolProperty(name="Advanced", default=False)
+
+
+class SwishSyncTarget(PropertyGroup):
+    bone: StringProperty(name="Bone", update=_result_changed)
+    include_children: BoolProperty(name="Children", default=True, update=_result_changed,
+                                   description="Move the bones under it too")
+    curve_key: StringProperty(options={"HIDDEN"})
+    use_rate_curve: BoolProperty(name="Rate Curve", update=_item_curve_toggled("rate"),
+                                 description="Scale the movement from this bone (0) to its chain's tip (1)")
+
+
+class SwishSyncBone(PropertyGroup):
+    """Kawaii's SyncBone: a bone outside the chains (a thigh) whose movement carries chain bones' poses."""
+    name: StringProperty(name="Name", default="Sync")
+    bone: StringProperty(name="Source Bone", update=_result_changed,
+                         description="The bone whose movement from its rest position the targets follow")
+    targets: CollectionProperty(type=SwishSyncTarget)
+    active_target: IntProperty()
+    global_scale: FloatVectorProperty(name="Scale", default=(1.0, 1.0, 1.0), size=3, update=_result_changed)
+    curve_key: StringProperty(options={"HIDDEN"})
+    use_distance_curve: BoolProperty(name="Distance Curve", update=_item_curve_toggled("distance"),
+                                     description="Scale by how far the source has moved, from 0 to Distance")
+    distance: FloatProperty(name="Distance", default=0.3, min=0.001, subtype="DISTANCE", update=_result_changed,
+                            description="The movement the distance curve's right end stands for")
+    direction_x: EnumProperty(name="X", items=SYNC_DIRECTIONS, default="BOTH", update=_result_changed)
+    direction_y: EnumProperty(name="Y", items=SYNC_DIRECTIONS, default="BOTH", update=_result_changed)
+    direction_z: EnumProperty(name="Z", items=SYNC_DIRECTIONS, default="BOTH", update=_result_changed)
+    attenuation: BoolProperty(name="Distance Attenuation", update=_result_changed,
+                              description="Weaken the effect on bones far from the source")
+    inner_radius: FloatProperty(name="Inner Radius", default=0.0, min=0.0, subtype="DISTANCE",
+                                update=_result_changed)
+    outer_radius: FloatProperty(name="Outer Radius", default=0.0, min=0.0, subtype="DISTANCE",
+                                update=_result_changed)
+    max_attenuation: FloatProperty(name="Max Attenuation", default=1.0, min=0.0, update=_result_changed)
+
+
 class SwishGroup(PropertyGroup):
     """One Kawaii Physics node: the chains under its root bones, and how they move."""
     name: StringProperty(name="Name", default="Group")
@@ -175,6 +305,21 @@ class SwishGroup(PropertyGroup):
     warm_up_frames: IntProperty(name="Warm Up Frames", default=0, min=0, max=500, update=_result_changed,
                                 description="Steps simulated before the first frame, so chains start settled")
 
+    forces: CollectionProperty(type=SwishForce)
+    active_force: IntProperty()
+    sync_bones: CollectionProperty(type=SwishSyncBone)
+    active_sync: IntProperty()
+    simple_external_force: FloatVectorProperty(
+        name="Simple Force", default=(0.0, 0.0, 0.0), size=3, subtype="VELOCITY", update=_result_changed,
+        description="A constant push on every bone, in Blender units a second (Kawaii's SimpleExternalForce)")
+    world_space_simple_external_force: BoolProperty(name="World Space", default=True, update=_result_changed)
+    enable_wind: BoolProperty(name="Scene Wind", default=False, update=_result_changed,
+                              description="Blow with the scene's wind force fields, gusting at random "
+                                          "(Kawaii's Enable Wind); a field's Strength is its speed")
+    wind_scale: FloatProperty(name="Wind Scale", default=1.0, update=_result_changed)
+    wind_direction_noise_angle: FloatProperty(name="Wind Direction Noise", default=0.0, min=0.0, max=math.pi,
+                                              subtype="ANGLE", update=_result_changed)
+
 
 class SwishCollider(PropertyGroup):
     """Marks a mesh object as a Swish collider (its shape lives on its Swish Collider modifier)."""
@@ -212,7 +357,8 @@ def _simulate_changed(settings):
     live.set_simulating(bpy.context.scene, settings.simulate)
 
 
-CLASSES = (SwishBoneName, SwishLink, SwishColliderSet, SwishGroup, SwishCollider, SwishArmature, SwishScene)
+CLASSES = (SwishBoneName, SwishLink, SwishColliderSet, SwishForce, SwishSyncTarget, SwishSyncBone, SwishGroup,
+           SwishCollider, SwishArmature, SwishScene)
 SETTING_NAMES = ("damping", "stiffness", "world_damping_location", "world_damping_rotation", "radius", "limit_angle")
 
 

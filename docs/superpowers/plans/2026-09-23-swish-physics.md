@@ -142,7 +142,18 @@ Each phase ends with its tests passing headless and, where it changes what the m
 
 ### Phase 8 (v1.1)
 
-- [ ] Procedural wind, sync bones, external forces, from the pinned Kawaii commit.
+- [x] Procedural wind, sync bones, external forces, from the pinned Kawaii commit.
+- [x] Tests: Kawaii's procedural-wind checks (hash snapshot values, noise, sway, ripple, strength cycle, seeds); each force's effect; sync bones; C and numpy agreeing to the bit with every force on; the cache resuming procedural wind exactly; saved setups carrying forces and sync bones.
+
+Decisions made while porting phase 8:
+
+- **Forces run once a frame, the step adds `vector * dt`.** Kawaii's forces prepare in PreApply once per SimulateModifyBones and add a frame-constant vector per bone in each substep, so `solver/forces.py` evaluates them in Python and the step only adds them at Kawaii's hook points (scene wind after damping, velocity forces after gravity, the simple force after integration, position forces after world-movement follow). The C and numpy steps still agree to the bit.
+- **Randomness is seeded by frame.** Kawaii draws RandomForceScaleRange, the scene wind's gust and the Wind force's direction noise from Unreal's unseeded global stream. Swish uses Unreal's FRandomStream seeded by the frame number, so a frame simulates the same every time (the cache and renders need that). Procedural wind is seeded in Kawaii too and matches it exactly, sinf from the C runtime included.
+- **Wind sources are Blender Wind force fields.** A field blows along its local Z; its Strength is Unreal's wind Speed, used as is. Only directional wind: field shape and falloff are ignored.
+- **Gravity force strength is an acceleration.** Its direction is a unit vector, so the random scale range carries the magnitude, converted like any length. Character gravity direction and scale are not ported (there is no character).
+- **Sync bones follow Kawaii's game build.** A target without children keeps a scale of 1 even with a length-rate curve (the editor build re-evaluates it at 0).
+- **Every bone below a root is placed at its simulated head**, as ApplySimulateResult sets each such bone's location. Sync bones show only through that translation, because rotations are measured against the synced pose. Connected bones ignore location in Blender and will not show sync movement.
+- **Not ported:** gust requests, shared wind publishers, transient and one-shot forces, custom (Blueprint) external forces, animation notifies.
 
 ## Open items
 

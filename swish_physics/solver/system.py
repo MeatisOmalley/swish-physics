@@ -409,8 +409,8 @@ class System:
         return [[force.state() for force in group] for group in self._forces]
 
     def set_force_states(self, states):
-        for group, group_states in zip(self._forces, states):
-            for force, state in zip(group, group_states):
+        for g, group_states in enumerate(states):
+            for force, state in zip(self._force_state(g), group_states):
                 force.set_state(state)
 
     def pre_apply(self, frame_dt, call):

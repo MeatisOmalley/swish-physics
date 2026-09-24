@@ -2,7 +2,7 @@
 
 Bone-chain physics for Blender: hair, skirts, tails and accessories. The simulation is a faithful port of [Kawaii Physics](https://github.com/pafuhana1213/KawaiiPhysics), the Unreal Engine plugin, so physics tuned in Blender behaves the same in a game that runs Kawaii Physics. Around it sit the things Blender needs: keyframed settings, live playback with an optional cache, collider objects and selection-based editing.
 
-**Status:** v1 (phases 0–7 of the [plan](docs/superpowers/plans/2026-09-23-swish-physics.md)). Procedural wind, sync bones and external forces are planned for v1.1.
+**Status:** v1.1, every phase of the [plan](docs/superpowers/plans/2026-09-23-swish-physics.md) done: the simulation, colliders, links, the cache, saved setups, external forces, wind and sync bones.
 
 ## Using it
 
@@ -13,6 +13,8 @@ Everything is in the 3D Viewport sidebar, on the **Swish** tab.
 3. Tune in the **Physics** panel. Every setting can be keyframed. The curve button next to a setting varies it from root to tip. With **Edit Selected Groups** on, a change reaches every group that holds a selected bone.
 4. For skirts and capes, select the panels' chains and click **Link as Loop** or **Link as Strip** in **Links**. Linked chains keep their spacing.
 5. Add colliders in **Colliders**. A collider is a real object parented to a bone. Move, rotate and scale it like any object, and set its shape on its modifier.
+6. Push chains around in **Forces and Wind**. There are Kawaii's five external forces: Basic, Gravity, Curve, Wind and Procedural Wind. There is also a simple constant force, and scene wind that gusts. Blender's Wind force fields are the scene's wind.
+7. Keep a skirt out of the legs with **Sync Bones**. Make a thigh the active bone, select skirt bones, and click **+**. The skirt's pose then follows the thigh's movement.
 
 Keyed bone channels are the input. The simulation starts from whatever animation the chain bones have, and unkeyed chain bones start from rest.
 
@@ -36,6 +38,8 @@ Where Swish's defaults and conventions differ from Kawaii's:
 - **Steps.** Steps per second and steps per frame are scene settings, as they are project settings in Kawaii.
 - **Collider sizes.** They scale with the collider object and its bone. Kawaii does not scale collider radii.
 - **Capsule axis.** Capsules run along the collider's local Y. Kawaii's capsules run along Z.
+- **Random draws.** Random force scales, the scene wind's gust and the Wind force's noise are seeded by frame, so a frame simulates the same every time. Kawaii draws them from Unreal's unseeded random stream. Procedural wind is seeded in both and matches exactly.
+- **Wind sources.** A Blender Wind force field stands in for Unreal's wind sources. It blows along its local Z, and its Strength is Unreal's wind Speed.
 
 ## Development
 
