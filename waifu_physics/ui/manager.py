@@ -21,6 +21,8 @@ MIN_WIDTH, MAX_WIDTH, MIN_HEIGHT = 200, 700, 120
 EDGE = 5                   # the grab margin of the resizable edges
 BAR = 10                   # the scroll bar's width
 DRAG_START = 5             # pixels the mouse moves before a press becomes a drag
+NAV_DEFAULT, NAV_MAX = 90, 150   # the armature pane's width: it is not the star, and can close entirely
+NAV_NAMES = 24             # narrower than this, the pane shows no names (it is closed, or nearly)
 
 _open = set()              # areas (as_pointer) showing the manager
 _places = {}               # area -> (left, top) in region pixels, once dragged by its title
@@ -30,6 +32,8 @@ _drags = {}                # area -> Drag, while one is on
 _sizes = {}                # area -> (width, height) at a UI scale of 1, once resized; height None fits the rows
 _pressed = {}              # area -> the kind of item held down, for its pressed look
 _boxes = {}                # area -> (x0, y0, x1, y1), the box select being dragged
+_shown = {}                # area -> session_uid of the armature the manager shows
+_navs = {}                 # area -> the armature pane's width, at a UI scale of 1
 _pan = {}                  # area -> trackpad scrolling not yet a whole row
 
 
@@ -70,11 +74,13 @@ class Item:
 class Layout:
     """Where everything is, top to bottom. Hit-testing and drawing both read this, so they always agree."""
 
-    def __init__(self, obj, region_size, scale, place=None, scroll=0, drag=None, size=None):
+    def __init__(self, obj, region_size, scale, place=None, scroll=0, drag=None, size=None, armatures=(), nav=0):
         self.obj, self.scale = obj, scale
         unit = ROW * scale
         width_unscaled, height_unscaled = size if size is not None else (WIDTH, None)
-        width = min(max(width_unscaled, MIN_WIDTH), MAX_WIDTH) * scale
+        self.main_width = min(max(width_unscaled, MIN_WIDTH), MAX_WIDTH)
+        nav_width = min(max(nav, 0.0), NAV_MAX) * scale
+        width = self.main_width * scale + nav_width
         region_w, region_h = region_size
         left, top = place if place is not None else (10 * scale, region_h - 110 * scale)
         left = min(max(left, 0.0), max(region_w - width, 0.0))
@@ -86,8 +92,10 @@ class Layout:
         self.chosen_groups = chosen_groups
         x0, x1 = left, left + width
         pad, edge = 4 * scale, EDGE * scale
+        frame_x0, x0 = x0, x0 + nav_width                     # the groups' side starts after the pane
+        self.nav_x0, self.nav_x1 = frame_x0, x0
 
-        title = Item("title", x0, top - unit * 1.2, x1, top,
+        title = Item("title", frame_x0, top - unit * 1.2, x1, top,
                      text=f"Chains  ·  {obj.name}" if obj is not None else "Chains")
         close = Item("close", x1 - unit, title.y0, x1, title.y1)
         self.title = title
@@ -95,7 +103,7 @@ class Layout:
         tools = y - unit
         buttons = []
         if obj is not None:
-            third = (width - 2 * pad - 2 * pad) / 3
+            third = (self.main_width * scale - 2 * pad - 2 * pad) / 3          # the groups' side, not the pane
             new = Item("new", x0 + pad, tools, x0 + pad + third * 1.25, y, text="New Group",
                        enabled=bool(self.chosen))
             merge = Item("merge", new.x1 + pad, tools, new.x1 + pad + third * 1.1, y, text="Merge",
@@ -148,13 +156,26 @@ class Layout:
         if height_unscaled is None:
             bottom = y - spare
         self.empty = Item("empty", x0, bottom, x1, y)       # below the rows: drop chains here for a new group
-        self.frame = Item("frame", x0, bottom, x1, top)
+        self.frame = Item("frame", frame_x0, bottom, x1, top)
+
+        # The armature pane: a row per armature, and the divider that sizes it (it can close to nothing).
+        self.nav_rows = []
+        if nav_width >= NAV_NAMES * scale:
+            names = pane_names([armature.name for armature in armatures])
+            ny = title.y0 - pad
+            for armature in armatures:
+                if ny - unit < bottom:
+                    break
+                self.nav_rows.append(Item("nav", frame_x0 + pad, ny - unit, x0 - edge, ny, root=armature.name,
+                                          text=names[armature.name], enabled=armature == obj))
+                ny -= unit
+        self.divider = Item("divider", x0 - edge * 0.5, bottom, x0 + edge * 0.5, title.y0)
 
         # The edges that resize it, and the scroll bar: checked first, they sit over the rows' ends.
         self.bottom_edge = Item("edge_bottom", x0, bottom, x1, bottom + edge)
         self.right_edge = Item("edge_right", x1 - edge, bottom, x1, title.y0)
         corner = Item("corner", x1 - 3 * edge, bottom, x1, bottom + 3 * edge)
-        self.items += [corner, self.bottom_edge, self.right_edge]
+        self.items += [corner, self.bottom_edge, self.right_edge, self.divider] + self.nav_rows
         self.track = self.thumb = None
         self.rows_per_pixel = 0.0
         if self.overflow:
@@ -203,6 +224,18 @@ class Layout:
         return None
 
 
+def pane_names(names):
+    """The pane's short names: what the armatures' names share at the front is dropped (VRoid names its rigs
+    "WS Rig | <character>'s hair", "... dress"), back to a word boundary."""
+    if len(names) < 2:
+        return {name: name for name in names}
+    import os
+    shared = os.path.commonprefix(names)
+    cut = max(shared.rfind(" "), shared.rfind("|"), shared.rfind("_"), shared.rfind("."))
+    shared = shared[:cut + 1] if cut >= 0 else ""
+    return {name: (name[len(shared):].strip() or name) for name in names}
+
+
 class Drag:
     __slots__ = ("kind", "group", "count", "x", "y")
 
@@ -219,6 +252,27 @@ def active_armature(context):
     return obj if obj is not None and obj.type == "ARMATURE" else None
 
 
+def listed(context):
+    """The armatures the pane lists: every one in the scene with a group, and the active one."""
+    found = [obj for obj in context.scene.objects if obj.type == "ARMATURE" and len(obj.waifu_physics.groups)]
+    active = active_armature(context)
+    if active is not None and active not in found:
+        found.insert(0, active)
+    return found
+
+
+def shown(context):
+    """The armature the manager shows: the one picked in its pane, else the active armature, else the first
+    armature with a group. It need not be selected or active."""
+    armatures = listed(context)
+    picked = _shown.get(context.area.as_pointer()) if context.area is not None else None
+    for obj in armatures:
+        if obj.session_uid == picked:
+            return obj
+    active = active_armature(context)
+    return active if active is not None else armatures[0] if armatures else None
+
+
 def layout_for(context):
     area, region = context.area, context.region
     key = area.as_pointer()
@@ -228,8 +282,8 @@ def layout_for(context):
         tools = next((r for r in area.regions if r.type == "TOOLS"), None)
         inset = tools.width if tools is not None and context.preferences.system.use_region_overlap else 0
         place = (inset + 10 * scale, region.height - 110 * scale)       # under the view's name
-    return Layout(active_armature(context), (region.width, region.height), scale, place,
-                  _scroll.get(key, 0), _drags.get(key), _sizes.get(key))
+    return Layout(shown(context), (region.width, region.height), scale, place, _scroll.get(key, 0),
+                  _drags.get(key), _sizes.get(key), armatures=listed(context), nav=_navs.get(key, NAV_DEFAULT))
 
 
 def scroll(context, rows):
@@ -367,6 +421,16 @@ def draw(context):
         target = None                                   # onto itself
 
     label(title, title.text, title.x0 + 8 * s, colours["text"], room=title.x1 - title.x0 - unit - 12 * s)
+    if layout.nav_x1 > layout.nav_x0:                            # the armature pane
+        canvas.rect(layout.nav_x0 + 2 * s, frame.y0 + 2 * s, layout.nav_x1 - 1 * s, title.y0 - 2 * s,
+                    colours["title"], radius=3 * s)
+        for row in layout.nav_rows:
+            if row.enabled:
+                canvas.rect(row.x0, row.y0 + 1, row.x1, row.y1 - 1, colours["sel"], radius=3 * s)
+            elif hovered is row:
+                canvas.rect(row.x0, row.y0 + 1, row.x1, row.y1 - 1, colours["hover"], radius=3 * s)
+            label(row, row.text, row.x0 + 5 * s, colours["text_sel"] if row.enabled else colours["text"],
+                  room=row.x1 - row.x0 - 8 * s)
     close = next(i for i in layout.items if i.kind == "close")
     _cross(canvas, (close.x0 + close.x1) / 2, (close.y0 + close.y1) / 2, s,
            colours["text"] if hovered is close else colours["dim"])
@@ -438,15 +502,18 @@ def draw(context):
                     radius=4 * s)
 
     # The resizable edges show a thin bar under the mouse, brighter while held.
-    grabbed = held if held in ("edge_bottom", "edge_right", "corner") else None
+    grabbed = held if held in ("edge_bottom", "edge_right", "corner", "divider") else None
     over = hovered.kind if hovered is not None and drag is None and hovered.kind in (
-        "edge_bottom", "edge_right", "corner") else None
+        "edge_bottom", "edge_right", "corner", "divider") else None
     for kind in {grabbed or over} - {None}:
         colour = colours["edge_held"] if grabbed else colours["edge"]
         if kind in ("edge_bottom", "corner"):
             canvas.rect(frame.x0 + 5 * s, frame.y0, frame.x1 - 5 * s, frame.y0 + 3 * s, colour, radius=1.5 * s)
         if kind in ("edge_right", "corner"):
             canvas.rect(frame.x1 - 3 * s, frame.y0 + 5 * s, frame.x1, title.y0 - 2 * s, colour, radius=1.5 * s)
+        if kind == "divider":
+            middle = (layout.divider.x0 + layout.divider.x1) / 2
+            canvas.rect(middle - 1.5 * s, frame.y0 + 5 * s, middle + 1.5 * s, title.y0 - 2 * s, colour, radius=1.5 * s)
 
     if box is not None:                                         # the box select
         x0, x1 = sorted((box[0], box[2]))
@@ -477,8 +544,14 @@ def draw(context):
 # --------------------------------------------------------------------------- input: the gizmo over the manager
 
 def _call(name, **properties):
-    """Run one of Waifu Physics' operators as one undo step (from Python, bpy.ops pushes none unless asked)."""
-    getattr(bpy.ops.waifu_physics, name)("EXEC_DEFAULT", True, **properties)
+    """Run one of the add-on's operators on the armature the manager shows (which need not be the active object),
+    as one undo step (from Python, bpy.ops pushes none unless asked)."""
+    operator = getattr(bpy.ops.waifu_physics, name)
+    obj = shown(bpy.context)
+    if obj is None:
+        return
+    with bpy.context.temp_override(object=obj, active_object=obj):
+        operator("EXEC_DEFAULT", True, **properties)
 
 
 class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
@@ -505,8 +578,8 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         item = layout.hit(x, y)
         self.press, self.item, self.dragging, self.pending, self.box = (x, y), item, False, None, None
         self.origin = (layout.frame.x0, layout.title.y1)
-        self.size = ((layout.frame.x1 - layout.frame.x0) / layout.scale,
-                     (layout.frame.y1 - layout.frame.y0) / layout.scale)
+        self.size = (layout.main_width, (layout.frame.y1 - layout.frame.y0) / layout.scale)
+        self.nav_start = _navs.get(context.area.as_pointer(), NAV_DEFAULT)
         self.first = layout.first
         if item is None:
             return {"FINISHED"}
@@ -517,6 +590,11 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
             scroll(context, -page if y > layout.thumb.y1 else page)
         elif kind == "close":
             toggle(context.area)
+        elif kind == "nav":
+            found = bpy.data.objects.get(item.root)
+            if found is not None:
+                _shown[context.area.as_pointer()] = found.session_uid
+                _scroll[context.area.as_pointer()] = 0
         elif kind in ("new", "merge", "delete") and item.enabled:
             if kind == "new":
                 _call("chains_to_group", index=-1)
@@ -556,6 +634,11 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         kind = self.item.kind
         if kind == "title":
             _places[key] = (self.origin[0] + dx, self.origin[1] + dy)
+            context.area.tag_redraw()
+            return {"RUNNING_MODAL"}
+        if kind == "divider":
+            width = min(max(self.nav_start + dx / _scale(context), 0.0), NAV_MAX)
+            _navs[key] = 0.0 if width < NAV_NAMES * 0.5 else width        # nearly closed snaps shut
             context.area.tag_redraw()
             return {"RUNNING_MODAL"}
         if kind in ("edge_bottom", "edge_right", "corner"):
@@ -611,7 +694,7 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         drag = _drags.pop(key, None)
         if drag is not None and not cancel:
             target = layout_for(context).drop_target(drag.x, drag.y)
-            obj = active_armature(context)
+            obj = shown(context)
             if drag.kind == "chains" and target is not None:
                 chosen = ops.selected_chain_keys(obj)
                 if target[0] == "new" or any(group != target[1] for group, _root in chosen):
@@ -646,10 +729,10 @@ class WAIFU_PHYSICS_GGT_chain_manager(bpy.types.GizmoGroup):
         items.new("waifu_physics.manager_scroll", "WHEELUPMOUSE", "PRESS", any=True).properties.rows = -2
         items.new("waifu_physics.manager_scroll", "WHEELDOWNMOUSE", "PRESS", any=True).properties.rows = 2
         items.new("waifu_physics.manager_scroll", "TRACKPADPAN", "ANY", any=True)
-        items.new("waifu_physics.chains_remove", "X", "PRESS")
-        items.new("waifu_physics.chains_remove", "DEL", "PRESS")
-        items.new("waifu_physics.chains_select", "A", "PRESS").properties.action = "ALL"
-        items.new("waifu_physics.chains_select", "A", "PRESS", alt=True).properties.action = "NONE"
+        items.new("waifu_physics.manager_key", "X", "PRESS").properties.action = "DELETE"
+        items.new("waifu_physics.manager_key", "DEL", "PRESS").properties.action = "DELETE"
+        items.new("waifu_physics.manager_key", "A", "PRESS").properties.action = "ALL"
+        items.new("waifu_physics.manager_key", "A", "PRESS", alt=True).properties.action = "NONE"
         return keymap
 
     def setup(self, context):
@@ -700,6 +783,26 @@ class WAIFU_PHYSICS_OT_manager_scroll(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class WAIFU_PHYSICS_OT_manager_key(bpy.types.Operator):
+    bl_idname = "waifu_physics.manager_key"
+    bl_label = "Chain Manager Key"
+    bl_options = {"UNDO", "INTERNAL"}
+
+    action: bpy.props.EnumProperty(items=(("DELETE", "Delete", ""), ("ALL", "All", ""), ("NONE", "None", "")))
+
+    @classmethod
+    def poll(cls, context):
+        return is_open(context.area) and shown(context) is not None
+
+    def execute(self, context):
+        if self.action == "DELETE":
+            _call("chains_remove")
+        else:
+            _call("chains_select", action=self.action)
+        context.area.tag_redraw()
+        return {"FINISHED"}
+
+
 class WAIFU_PHYSICS_OT_group_rename(bpy.types.Operator):
     bl_idname = "waifu_physics.group_rename"
     bl_label = "Rename Group"
@@ -711,10 +814,10 @@ class WAIFU_PHYSICS_OT_group_rename(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return active_armature(context) is not None
+        return shown(context) is not None
 
     def invoke(self, context, event):
-        obj = active_armature(context)
+        obj = shown(context)
         if self.index < 0:
             if not is_open(context.area):
                 return {"PASS_THROUGH"}
@@ -728,21 +831,22 @@ class WAIFU_PHYSICS_OT_group_rename(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self, title="Rename Group")
 
     def execute(self, context):
-        obj = active_armature(context)
+        obj = shown(context)
         if not 0 <= self.index < len(obj.waifu_physics.groups) or not self.name.strip():
             return {"CANCELLED"}
         obj.waifu_physics.groups[self.index].name = self.name.strip()
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIFU_PHYSICS_OT_group_rename, WAIFU_PHYSICS_GT_chain_manager,
+CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIFU_PHYSICS_OT_manager_key,
+           WAIFU_PHYSICS_OT_group_rename, WAIFU_PHYSICS_GT_chain_manager,
            WAIFU_PHYSICS_GGT_chain_manager)
 
 
 @bpy.app.handlers.persistent
 def _file_loaded(_dummy):
     """A new file brings new areas: the manager starts closed."""
-    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes):
+    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes, _shown, _navs):
         state.clear()
 
 

@@ -64,6 +64,15 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
 
         obj = context.object
         armatures = _tree_armatures(context)
+        from . import manager
+        if manager.listed(context):              # any armature with a group, selected or not
+            showing = manager.is_open(context.area)
+            layout.operator("waifu_physics.chain_manager", icon="OUTLINER", depress=showing,
+                            text="Hide Chain Manager" if showing else "Chain Manager")
+            if showing and not context.space_data.show_gizmo:
+                note = layout.row()
+                note.alert = True
+                note.label(text="Turn on Gizmos in the header to see it", icon="ERROR")
         box = layout.box()
         header = box.row(align=True)
         header.label(text="Groups")
@@ -102,14 +111,6 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
                                 rows=len(rig.waifu_physics.groups), maxrows=len(rig.waifu_physics.groups))
         if obj is None or obj.type != "ARMATURE":
             return
-        from . import manager
-        showing = manager.is_open(context.area)
-        layout.operator("waifu_physics.chain_manager", icon="OUTLINER", depress=showing,
-                        text="Hide Chain Manager" if showing else "Chain Manager")
-        if showing and not context.space_data.show_gizmo:
-            note = layout.row()
-            note.alert = True
-            note.label(text="Turn on Gizmos in the header to see it", icon="ERROR")
         row = layout.row(align=True)
         row.operator("waifu_physics.group_add", icon="PLUS")
         row.operator("waifu_physics.exclude", icon="X")

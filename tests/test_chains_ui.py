@@ -206,6 +206,18 @@ for position in (0, 99):
           and compact.drop_target(zone.x0 + 20, (zone.y0 + zone.y1) / 2) == ("new", -1))
 check("the manager edits one armature: nothing on it names another",
       all(item.group < len(skirt_rig.waifu_physics.groups) for item in layout.items))
+panes = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other], nav=100)
+check("the armature pane lists the armatures, the shown one marked",
+      [(r.text, r.enabled) for r in panes.nav_rows] == [("skirt", True), ("other", False)])
+check("... and the groups start after it", abs(panes.rows[0].x0 - (layout.rows[0].x0 + 100)) < 1e-6
+      and abs(panes.frame.x1 - panes.frame.x0 - (layout.frame.x1 - layout.frame.x0) - 100) < 1e-6)
+check("the divider between them is where the mouse grabs it",
+      panes.hit(panes.nav_x1, (panes.divider.y0 + panes.divider.y1) / 2).kind == "divider")
+check("clicking a name in the pane hits it",
+      panes.hit(panes.nav_rows[1].x0 + 10, (panes.nav_rows[1].y0 + panes.nav_rows[1].y1) / 2).root == "other")
+closed = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other], nav=0)
+check("closed, the pane shows no names, but its divider stays to open it again",
+      closed.nav_rows == [] and closed.divider.x0 < closed.rows[0].x0 + 5)
 
 # --- merge: the button merges the selected chains' groups; dragging a folder onto another merges it
 skirt_rig.waifu_physics.active_group = 0
