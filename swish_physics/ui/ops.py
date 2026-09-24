@@ -1,6 +1,7 @@
 """Operators: make and edit groups from the bones selected in Pose Mode."""
 import bpy
 
+from ..data import colliders
 from ..data import curves as group_curves
 from ..runtime import live
 
@@ -147,7 +148,61 @@ class SWISH_OT_reset(bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_group_remove, SWISH_OT_reset)
+class SWISH_OT_collider_add(bpy.types.Operator):
+    bl_idname = "swish.collider_add"
+    bl_label = "Add Collider"
+    bl_description = "Add a collider on the active bone: centred on it and, as a capsule, along it"
+    bl_options = {"REGISTER", "UNDO"}
+
+    shape: bpy.props.EnumProperty(name="Shape", items=[(s, s, "") for s in colliders.SHAPES], default="Capsule")
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        return obj is not None and obj.type == "ARMATURE" and context.mode == "POSE"             and context.active_pose_bone is not None
+
+    def execute(self, context):
+        colliders.add(context.object, context.active_pose_bone.name, self.shape, context)
+        return {"FINISHED"}
+
+
+class SWISH_OT_collider_set_add(bpy.types.Operator):
+    bl_idname = "swish.collider_set_add"
+    bl_label = "Add Collider Set"
+    bl_description = "Collide the active group with another armature's colliders (a character's body)"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.object
+        return obj is not None and obj.type == "ARMATURE" and len(obj.swish.groups) > 0
+
+    def execute(self, context):
+        obj = context.object
+        group = obj.swish.groups[obj.swish.active_group]
+        if not len(group.collider_sets):
+            group.collider_sets.add().armature = obj      # its own colliders stay in
+        group.collider_sets.add()
+        return {"FINISHED"}
+
+
+class SWISH_OT_collider_set_remove(bpy.types.Operator):
+    bl_idname = "swish.collider_set_remove"
+    bl_label = "Remove Collider Set"
+    bl_options = {"REGISTER", "UNDO"}
+
+    index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        obj = context.object
+        group = obj.swish.groups[obj.swish.active_group]
+        group.collider_sets.remove(self.index)
+        live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_group_remove, SWISH_OT_reset,
+           SWISH_OT_collider_add, SWISH_OT_collider_set_add, SWISH_OT_collider_set_remove)
 
 
 def register():

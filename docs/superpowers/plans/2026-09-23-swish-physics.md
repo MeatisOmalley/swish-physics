@@ -114,10 +114,10 @@ Each phase ends with its tests passing headless and, where it changes what the m
 
 ### Phase 4: Colliders
 
-- [ ] The collider node group: shape menu and dimensions; draws the solver's interpretation of object scale.
-- [ ] Add Collider on the active bone; collider sets per armature; groups choose sets, including other armatures'.
-- [ ] Collider transforms read in bulk each step.
-- [ ] Tests: each shape pushes points out where its drawing says; object scale and bone scale change the collision the way the drawing shows.
+- [x] The collider node group: shape menu and dimensions; draws the solver's interpretation of object scale.
+- [x] Add Collider on the active bone; collider sets per armature; groups choose sets, including other armatures'.
+- [x] Collider transforms read in bulk each step.
+- [x] Tests: each shape pushes points out where its drawing says; object scale and bone scale change the collision the way the drawing shows.
 
 ### Phase 5: Links
 

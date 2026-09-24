@@ -1,7 +1,7 @@
 """The Swish sidebar tab in the 3D viewport."""
 import bpy
 
-from ..data import curves
+from ..data import colliders, curves
 from ..solver import native
 
 
@@ -138,7 +138,48 @@ class SWISH_PT_advanced(_GroupPanel, bpy.types.Panel):
         sub.prop(settings, "max_substeps")
 
 
-CLASSES = (SWISH_UL_groups, SWISH_PT_main, SWISH_PT_settings, SWISH_PT_chains, SWISH_PT_advanced)
+class SWISH_PT_colliders(_GroupPanel, bpy.types.Panel):
+    bl_idname = "SWISH_PT_colliders"
+    bl_label = "Colliders"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+        group = self.group(context)
+        layout = self.layout
+        layout.operator_menu_enum("swish.collider_add", "shape", icon="MESH_UVSPHERE")
+        box = layout.box()
+        box.label(text="Collides with the colliders of:")
+        if not len(group.collider_sets):
+            box.label(text=context.object.name + " (its own)", icon="ARMATURE_DATA")
+        for index, item in enumerate(group.collider_sets):
+            row = box.row(align=True)
+            row.prop(item, "armature", text="")
+            row.operator("swish.collider_set_remove", text="", icon="X").index = index
+        box.operator("swish.collider_set_add", icon="ADD")
+        sources = [item.armature for item in group.collider_sets if item.armature] or [context.object]
+        for armature in sources:
+            for obj in armature.children:
+                if not colliders.is_collider(obj):
+                    continue
+                found = colliders.values(obj)
+                col = layout.box().column(align=True)
+                row = col.row(align=True)
+                row.prop(obj.swish_collider, "enabled", text="")
+                row.label(text=f"{obj.name}  ({obj.parent_bone})", icon="MESH_UVSPHERE")
+                if found is None:
+                    continue
+                md, ident = colliders.input_path(obj, "Shape")
+                col.prop(getattr(md.properties.inputs, ident), "value", text="Shape")
+                shape = found["Shape"]
+                names = {"Box": ("Extent",), "Plane": ("Radius",),
+                         "Capsule": ("Radius", "Length"), "Tapered Capsule": ("Radius", "Radius 1", "Length")}
+                for name in names.get(shape, ("Radius",)):
+                    md, ident = colliders.input_path(obj, name)
+                    col.prop(getattr(md.properties.inputs, ident), "value", text=name)
+
+
+CLASSES = (SWISH_UL_groups, SWISH_PT_main, SWISH_PT_settings, SWISH_PT_chains, SWISH_PT_colliders,
+           SWISH_PT_advanced)
 
 
 def register():

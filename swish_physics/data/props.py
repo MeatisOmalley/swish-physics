@@ -165,6 +165,12 @@ class SwishGroup(PropertyGroup):
                                 description="Steps simulated before the first frame, so chains start settled")
 
 
+class SwishCollider(PropertyGroup):
+    """Marks a mesh object as a Swish collider (its shape lives on its Swish Collider modifier)."""
+    is_collider: BoolProperty(options={"HIDDEN"})
+    enabled: BoolProperty(name="Enabled", default=True, description="This collider pushes chains")
+
+
 class SwishArmature(PropertyGroup):
     groups: CollectionProperty(type=SwishGroup)
     active_group: IntProperty()
@@ -192,7 +198,7 @@ def _simulate_changed(settings):
     live.set_simulating(bpy.context.scene, settings.simulate)
 
 
-CLASSES = (SwishBoneName, SwishLink, SwishColliderSet, SwishGroup, SwishArmature, SwishScene)
+CLASSES = (SwishBoneName, SwishLink, SwishColliderSet, SwishGroup, SwishCollider, SwishArmature, SwishScene)
 SETTING_NAMES = ("damping", "stiffness", "world_damping_location", "world_damping_rotation", "radius", "limit_angle")
 
 
@@ -200,11 +206,13 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.types.Object.swish = PointerProperty(type=SwishArmature)
+    bpy.types.Object.swish_collider = PointerProperty(type=SwishCollider)
     bpy.types.Scene.swish = PointerProperty(type=SwishScene)
 
 
 def unregister():
     del bpy.types.Scene.swish
+    del bpy.types.Object.swish_collider
     del bpy.types.Object.swish
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)

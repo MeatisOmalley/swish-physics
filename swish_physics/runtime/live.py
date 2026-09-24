@@ -13,6 +13,7 @@ import bpy
 import numpy as np
 from bpy.app.handlers import persistent
 
+from ..data import colliders as collider_objects
 from ..data import curves as group_curves
 from ..solver import native
 from ..solver.build import Skeleton, GroupSpec, build, ComponentMotion
@@ -155,7 +156,21 @@ class Runtime:
             s.frame_move[g] = move
             s.frame_move_rot[g] = move_rot
             s.teleport[g] = teleport
+        s.set_shapes([self._shapes(g) for g in range(len(self.group_props))])
         s.resolve_settings()
+
+    def _shapes(self, g):
+        """This frame's colliders for a group: its own armature's, or those of its collider sets,
+        in its armature's space (Kawaii's Update*Limits, once a frame)."""
+        rig, props = self._group(g)
+        sources = [item.armature for item in props.collider_sets if item.armature is not None] or [rig.obj]
+        shapes = []
+        for armature in sources:
+            for obj in collider_objects.colliders_of(armature):
+                shape = collider_objects.shape_of(obj, rig.obj, self.cm)
+                if shape is not None:
+                    shapes.append(shape)
+        return shapes
 
     def reset(self, scene):
         """Points back at the pose; warm-up steps if a group asks for them."""
