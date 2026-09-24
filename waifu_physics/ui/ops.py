@@ -374,6 +374,22 @@ class WAIFU_PHYSICS_OT_collider_remove(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class WAIFU_PHYSICS_OT_collider_pick(bpy.types.Operator):
+    bl_idname = "waifu_physics.collider_pick"
+    bl_label = "Pick Collider"
+    bl_description = "Select this collider (in Pose Mode, its bone) to edit it"
+    bl_options = {"REGISTER", "UNDO"}
+
+    name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = bpy.data.objects.get(self.name)
+        if not colliders.is_collider(obj):
+            return {"CANCELLED"}
+        context.scene.waifu_physics.active_collider = bpy.data.objects.find(obj.name)      # picks it
+        return {"FINISHED"}
+
+
 class WAIFU_PHYSICS_MT_collider_add(bpy.types.Menu):
     """Add one collider: on the active bone, in the Generate shape, or in the scene, at the 3D cursor."""
     bl_idname = "WAIFU_PHYSICS_MT_collider_add"
@@ -1372,7 +1388,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_MT_collider_add, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_pick, WAIFU_PHYSICS_MT_collider_add, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_scene_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,
