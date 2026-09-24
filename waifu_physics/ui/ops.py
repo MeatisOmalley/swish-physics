@@ -421,6 +421,34 @@ class WAIFU_PHYSICS_OT_cache_toggle(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class WAIFU_PHYSICS_OT_bake(bpy.types.Operator):
+    bl_idname = "waifu_physics.bake"
+    bl_label = "Bake"
+    bl_description = ("Write the cached simulation as keyframes into a copy of each armature's action, so it plays, "
+                      "renders and exports without the add-on. The original action is kept; Simulate turns off")
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        if not live.is_cached(context.scene):
+            cls.poll_message_set("Cache the simulation first")
+            return False
+        return True
+
+    def execute(self, context):
+        from ..runtime import bake
+        scene = context.scene
+        frames, found = bake.collect(live.runtime(scene))
+        settings = scene.waifu_physics
+        settings.use_cache = False
+        settings.simulate = False            # the chains let go and their keys unmuted, before the actions are copied
+        actions = bake.write(frames, found)
+        scene.frame_set(scene.frame_current)
+        self.report({"INFO"}, f"Baked frames {int(frames[0])}-{int(frames[-1])} into "
+                              + ", ".join(f"'{action.name}'" for action in actions))
+        return {"FINISHED"}
+
+
 class WAIFU_PHYSICS_OT_cache_clear(bpy.types.Operator):
     bl_idname = "waifu_physics.cache_clear"
     bl_label = "Clear Cache"
@@ -1204,7 +1232,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,

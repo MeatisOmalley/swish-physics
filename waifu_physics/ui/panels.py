@@ -55,8 +55,10 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
         row.operator("waifu_physics.reset", text="", icon="FILE_REFRESH")
         current = live._runtimes.get(scene.as_pointer())
         span = current.cached_range() if live.is_cached(scene) else None
-        layout.operator("waifu_physics.cache_toggle", text=f"Cached  {span[0]}-{span[1]}" if span else "Cache",
-                        icon="DISK_DRIVE", depress=span is not None)
+        row = layout.row(align=True)
+        row.operator("waifu_physics.cache_toggle", text=f"Cached  {span[0]}-{span[1]}" if span else "Cache",
+                     icon="DISK_DRIVE", depress=span is not None)
+        row.operator("waifu_physics.bake", icon="KEYFRAME")          # greyed until cached (its poll)
         if native.backend() is native.step_numpy:
             layout.label(text=f"Using the slower numpy step: {native.reason()}", icon="INFO")
 
@@ -133,6 +135,7 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
             box.label(text="Start the group below them: " + ", ".join(constrained[:3])
                            + (" ..." if len(constrained) > 3 else ""))
         row = layout.row(align=True)
+        row.enabled = span is None                  # a cache plays what was simulated: settings wait for it to clear
         from ..data import presets
         row.menu("WAIFU_PHYSICS_MT_presets", text=presets.matching(group) or "Preset", icon="PRESET")
         row.operator("waifu_physics.preset_save", text="", icon="ADD")
@@ -156,6 +159,16 @@ class _GroupPanel:
         found = context.object.waifu_physics
         return found.groups[min(found.active_group, len(found.groups) - 1)]
 
+    def draw(self, context):
+        """Every settings panel: greyed while a cache plays, since changing settings could not change what it
+        shows. The panels draw their own contents in draw_settings."""
+        from ..runtime import live
+        cached = live.is_cached(context.scene)
+        if cached and self.bl_idname == "WAIFU_PHYSICS_PT_settings":
+            self.layout.label(text="Cached: clear the cache to edit", icon="LOCKED")
+        self.layout.enabled = not cached
+        self.draw_settings(context)
+
 
 # Settings shown the intuitive way round (display only: Kawaii's values are stored and exported).
 _SHOWN = {"stiffness": "stiffness_level", "damping": "damping_level", "world_damping_location": "world_location_inertia",
@@ -167,7 +180,7 @@ class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
     bl_idname = "WAIFU_PHYSICS_PT_settings"
     bl_label = "Physics"
 
-    def draw(self, context):
+    def draw_settings(self, context):
         from .selection import groups_of_selected
         group = self.group(context)
         layout = self.layout
@@ -215,7 +228,7 @@ class WAIFU_PHYSICS_PT_advanced(_GroupPanel, bpy.types.Panel):
     bl_label = "Advanced"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw(self, context):
+    def draw_settings(self, context):
         group = self.group(context)
         layout = self.layout
         layout.use_property_split = True
@@ -262,7 +275,7 @@ class WAIFU_PHYSICS_PT_links(_GroupPanel, bpy.types.Panel):
     bl_label = "Links"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw(self, context):
+    def draw_settings(self, context):
         group = self.group(context)
         layout = self.layout
         row = layout.row(align=True)
@@ -288,7 +301,7 @@ class WAIFU_PHYSICS_PT_colliders(_GroupPanel, bpy.types.Panel):
     bl_label = "Colliders"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw(self, context):
+    def draw_settings(self, context):
         group = self.group(context)
         layout = self.layout
         layout.operator_menu_enum("waifu_physics.collider_add", "shape", icon="MESH_UVSPHERE")
@@ -358,7 +371,7 @@ class WAIFU_PHYSICS_PT_forces(_GroupPanel, bpy.types.Panel):
     bl_label = "Forces and Wind"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw(self, context):
+    def draw_settings(self, context):
         group = self.group(context)
         layout = self.layout
         col = layout.column()
@@ -464,7 +477,7 @@ class WAIFU_PHYSICS_PT_sync(_GroupPanel, bpy.types.Panel):
     bl_label = "Sync Bones"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw(self, context):
+    def draw_settings(self, context):
         group = self.group(context)
         layout = self.layout
         layout.label(text="Chains follow a bone, as a skirt a thigh", icon="INFO")
