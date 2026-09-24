@@ -54,45 +54,37 @@ def play(frames):
 
 rig, group = build()
 scene.frame_set(1)
-scene.swish.use_cache = True
 scene.swish.simulate = True
+check("Cache bakes the whole frame range", bpy.ops.swish.cache_toggle() == {"FINISHED"}
+      and live.is_cached(scene) and live.runtime(scene).cached_range() == (1, 40), live.runtime(scene).cached_range())
 played = play(range(1, 41))
-rt = live.runtime(scene)
-check("playing fills the cache frame by frame", sorted(rt.cache) == list(range(1, 41)), len(rt.cache))
 bpy.context.view_layer.update()
-check("... and our own writes do not clear it", len(rt.cache) == 40, len(rt.cache))
+check("... and our own writes do not clear it", live.is_cached(scene))
 replayed = {f: (scene.frame_set(f), tip(rig))[1] for f in (25, 7, 33, 40)}
-check("scrubbing back replays exactly what was simulated",
+check("scrubbing replays the bake exactly",
       all(np.array_equal(replayed[f], played[f]) for f in replayed), {f: replayed[f] - played[f] for f in replayed})
-resumed = play(range(41, 46))
+check("clicking Cache again clears the bake and plays live",
+      bpy.ops.swish.cache_toggle() == {"FINISHED"} and not live.is_cached(scene) and not scene.swish.use_cache)
+play(range(1, 11))
+check("... simulating each frame as it plays", not live.runtime(scene).cache and live.runtime(scene).last_frame == 10)
 
 rig, group = build()
+scene.frame_end = 20
 scene.frame_set(1)
-scene.swish.use_cache = False
-scene.swish.simulate = True
-straight = play(range(1, 46))
-check("playing on past the cache continues exactly as an uninterrupted run",
-      all(np.array_equal(resumed[f], straight[f]) for f in resumed), {f: resumed[f] - straight[f] for f in resumed})
-
-rig, group = build()
-scene.frame_set(1)
-scene.swish.use_cache = True
 scene.swish.simulate = True
 rest = tip(rig)
-play(range(1, 21))
+bpy.ops.swish.cache_toggle()
 scene.frame_set(35)
-check("a frame the cache has not reached shows the unsimulated pose", np.allclose(tip(rig), rest, atol=1e-6),
+check("a frame past the baked range shows the unsimulated pose", np.allclose(tip(rig), rest, atol=1e-6),
       (tip(rig), rest))
-
-rt = live.runtime(scene)
-check("the cache holds frames 1-20", rt.cached_range() == (1, 20), rt.cached_range())
+check("the bake holds frames 1-20", live.runtime(scene).cached_range() == (1, 20), live.runtime(scene).cached_range())
 group.damping = 0.3
-check("changing a setting clears the cache", len(rt.cache) == 0, len(rt.cache))
-play(range(1, 11))
+check("changing a setting drops the bake: back to live", not live.is_cached(scene))
+bpy.ops.swish.cache_toggle()
 pb = rig.pose.bones["anchor"]
 pb.keyframe_insert("rotation_quaternion", frame=1)
 bpy.context.view_layer.update()
-check("inserting a keyframe clears the cache", len(live.runtime(scene).cache) == 0, len(live.runtime(scene).cache))
+check("inserting a keyframe drops the bake", not live.is_cached(scene))
 rig.pose.bones["c1"].keyframe_insert("rotation_quaternion", frame=1)
 bpy.context.view_layer.update()
 rt = live.runtime(scene)
@@ -103,9 +95,8 @@ check("a newly keyed chain bone's curves are taken over (muted), so no post-fram
 scene.swish.simulate = False
 check("... and handed back when simulation stops", all(not c.mute for c in chain_curves))
 scene.swish.simulate = True
-play(range(1, 11))
 ball = colliders.add(rig, "anchor", "Sphere")
-play(range(1, 11))
+bpy.ops.swish.cache_toggle()
 ball.location.x += 0.1
 bpy.context.view_layer.update()
 check("moving a collider clears the cache", len(live.runtime(scene).cache) == 0, len(live.runtime(scene).cache))

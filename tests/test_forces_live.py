@@ -176,41 +176,28 @@ def windy():
 
 rig, group = windy()
 scene.frame_set(1)
-scene.swish.use_cache = True
 scene.swish.simulate = True
-play(range(1, 21))
-scene.frame_set(8)
-scene.frame_set(20)                                   # back to the cache's end, then play on
-resumed = {}
-for f in range(21, 31):
-    scene.frame_set(f)
-    resumed[f] = tip(rig)
-check("the cache resumed at frame 20 after scrubbing", live.runtime(scene).cached_range() == (1, 30),
-      live.runtime(scene).cached_range())
-scene.swish.simulate = False
-scene.swish.use_cache = False
-rig, group = windy()
-scene.frame_set(1)
-scene.swish.simulate = True
-straight = {}
+bpy.ops.swish.cache_toggle()
+baked = {}
 for f in range(1, 31):
     scene.frame_set(f)
-    straight[f] = tip(rig)
-check("procedural wind played on from the cache matches an uninterrupted run to the bit",
-      all(np.array_equal(resumed[f], straight[f]) for f in resumed),
-      max(float(np.abs(resumed[f] - straight[f]).max()) for f in resumed))
-check("... and the wind moved it", float(np.abs(straight[30] - rest).max()) > 0.01)
-scene.swish.use_cache = True
-play(range(1, 11))
-count = len(live.runtime(scene).cache)
+    baked[f] = tip(rig)
+scene.frame_set(8)
+again = {f: (scene.frame_set(f), tip(rig))[1] for f in (25, 12, 30)}
+check("procedural wind bakes into the cache and scrubs back exactly",
+      live.is_cached(scene) and all(np.array_equal(again[f], baked[f]) for f in again))
+check("... and the wind moved it", float(np.abs(baked[30] - rest).max()) > 0.01)
 group.forces[0].sway = 0.5
-check("changing a force setting clears the cache", count == 10 and len(live.runtime(scene).cache) == 0,
-      (count, len(live.runtime(scene).cache)))
+check("changing a force setting drops the bake", not live.is_cached(scene))
+bpy.ops.swish.cache_toggle()
 bpy.ops.object.effector_add(type="WIND")
-play(range(1, 11))
-bpy.context.object.location.x += 1.0
 bpy.context.view_layer.update()
-check("moving a wind field clears the cache", len(live.runtime(scene).cache) == 0, len(live.runtime(scene).cache))
+bpy.ops.swish.cache_toggle()
+check("baked again", live.is_cached(scene))
+field = [o for o in scene.objects if o.field and o.field.type == "WIND"][-1]
+field.location.x += 1.0
+bpy.context.view_layer.update()
+check("moving a wind field drops the bake", not live.is_cached(scene))
 scene.swish.simulate = False
 scene.swish.use_cache = False
 

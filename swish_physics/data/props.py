@@ -45,7 +45,7 @@ def _setting_changed(name):
         global _propagating
         from ..runtime import live
         live.invalidate()
-        if _propagating or context is None or not context.scene.swish.edit_selected_groups:
+        if _propagating or context is None:
             return
         from ..ui.selection import groups_of_selected
         value = getattr(self, name)
@@ -359,9 +359,17 @@ class SwishCollider(PropertyGroup):
     enabled: BoolProperty(name="Enabled", default=True, description="This collider pushes chains")
 
 
+def _group_picked(self, context):
+    """Picking a group in another armature's list makes that armature the one the panels edit."""
+    obj = self.id_data
+    view_layer = getattr(context, "view_layer", None)
+    if view_layer is not None and view_layer.objects.active != obj and obj.name in view_layer.objects:
+        view_layer.objects.active = obj
+
+
 class SwishArmature(PropertyGroup):
     groups: CollectionProperty(type=SwishGroup)
-    active_group: IntProperty()
+    active_group: IntProperty(update=_group_picked)
     expanded: BoolProperty(name="Expanded", default=True, description="Show this armature's groups")
 
 

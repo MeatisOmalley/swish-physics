@@ -57,10 +57,10 @@ scene.swish.selected_only = False
 listed = panels._tree_armatures(bpy.context)
 check("without it, every armature with a group, and not one without",
       set(listed) == {skirt_rig, other} and bare not in listed, [o.name for o in listed])
-check("clicking a group in another armature makes it the active object and group",
-      bpy.ops.swish.group_activate(armature="other", index=0) == {"FINISHED"}
-      and bpy.context.view_layer.objects.active == other)
-bpy.ops.swish.group_activate(armature="skirt", index=0)
+other.swish.active_group = 0                       # a click in the other armature's list
+check("picking a group in another armature's list makes that armature active",
+      bpy.context.view_layer.objects.active == other)
+skirt_rig.swish.active_group = 0
 group = skirt_rig.swish.groups[0]
 
 # --- links around the skirt, then split two chains off

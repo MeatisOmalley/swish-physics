@@ -339,6 +339,30 @@ class SWISH_OT_cache_all(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class SWISH_OT_cache_toggle(bpy.types.Operator):
+    bl_idname = "swish.cache_toggle"
+    bl_label = "Cache"
+    bl_description = ("Bake the whole frame range, to scrub and render; click again to clear it and play "
+                      "live. A change to the setup clears the bake too")
+
+    def execute(self, context):
+        scene = context.scene
+        if live.is_cached(scene):
+            scene.swish.use_cache = False
+            live.invalidate(scene)
+            return {"FINISHED"}
+        if not scene.swish.simulate:
+            scene.swish.simulate = True
+        scene.swish.use_cache = True
+        wm = context.window_manager
+        wm.progress_begin(scene.frame_start, scene.frame_end)
+        try:
+            live.bake_cache(scene, progress=wm.progress_update)
+        finally:
+            wm.progress_end()
+        return {"FINISHED"}
+
+
 class SWISH_OT_cache_clear(bpy.types.Operator):
     bl_idname = "swish.cache_clear"
     bl_label = "Clear Cache"
@@ -582,32 +606,6 @@ class SWISH_OT_sync_target_remove(_GroupOperator, bpy.types.Operator):
         sync.targets.remove(index)
         sync.active_target = max(0, index - 1)
         live.invalidate(context.scene)
-        return {"FINISHED"}
-
-
-class SWISH_OT_group_activate(bpy.types.Operator):
-    bl_idname = "swish.group_activate"
-    bl_label = "Show Group"
-    bl_description = "Make this the group the panels edit (and its armature the active object)"
-    bl_options = {"REGISTER", "UNDO"}
-
-    armature: bpy.props.StringProperty()
-    index: bpy.props.IntProperty()
-
-    def execute(self, context):
-        obj = bpy.data.objects.get(self.armature)
-        if obj is None or obj.type != "ARMATURE" or not 0 <= self.index < len(obj.swish.groups):
-            return {"CANCELLED"}
-        obj.swish.active_group = self.index
-        view_layer = context.view_layer
-        if view_layer.objects.active != obj:
-            mode = context.mode
-            if mode != "OBJECT" and obj.mode != "POSE":
-                bpy.ops.object.mode_set(mode="OBJECT")
-            view_layer.objects.active = obj
-            obj.select_set(True)
-            if mode == "POSE" and obj.mode != "POSE":
-                bpy.ops.object.mode_set(mode="POSE")
         return {"FINISHED"}
 
 
@@ -973,9 +971,9 @@ CLASSES = (SWISH_OT_group_new, SWISH_OT_group_add, SWISH_OT_exclude, SWISH_OT_gr
            SWISH_OT_cache_clear, SWISH_OT_preset_apply, SWISH_OT_group_copy, SWISH_OT_group_paste,
            SWISH_OT_setup_export, SWISH_OT_setup_import, SWISH_OT_force_add, SWISH_OT_force_remove,
            SWISH_OT_force_filter, SWISH_OT_sync_add, SWISH_OT_sync_remove, SWISH_OT_sync_target_add,
-           SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add, SWISH_OT_group_activate,
+           SWISH_OT_sync_target_remove, SWISH_OT_wind_preset, SWISH_OT_wind_field_add,
            SWISH_OT_chain_click, SWISH_OT_chains_show, SWISH_OT_chains_remove, SWISH_OT_chains_split,
-           SWISH_OT_chains_move, SWISH_OT_chains_move_here)
+           SWISH_OT_chains_move, SWISH_OT_chains_move_here, SWISH_OT_cache_toggle)
 
 
 def register():

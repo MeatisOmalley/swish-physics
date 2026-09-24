@@ -47,6 +47,13 @@ def invalidate(scene=None):
             current.cache_mode = "auto"
 
 
+def is_cached(scene):
+    """The scene plays a baked cache (Cache on and the bake still valid); otherwise it plays live."""
+    current = _runtimes.get(scene.as_pointer())
+    return bool(scene.swish.simulate and scene.swish.use_cache and current is not None
+                and current.cache_mode == "canonical" and current.cache)
+
+
 def mark_dirty(scene=None):
     """A group's structure changed: rebuild before the next step."""
     if scene is None:
@@ -615,7 +622,8 @@ def _frame_changing(scene, depsgraph=None):
     current.stepped_ahead = None
     dirty = key in _dirty or "all" in _dirty
     frame = scene.frame_current
-    if not _building_cache and settings.use_cache and current.cache_key == frame_cache.key(scene) and not dirty:
+    cached = settings.use_cache and current.cache_mode == "canonical"
+    if not _building_cache and cached and current.cache_key == frame_cache.key(scene) and not dirty:
         snapshot = current.cache.get(frame)
         if snapshot is not None:
             snapshot.replay(current)
@@ -626,16 +634,9 @@ def _frame_changing(scene, depsgraph=None):
         last = current.last_frame
         frames = None if last is None else frame - last
         if frames is not None and 1 <= frames <= MAX_FRAME_STEP:
-            if not settings.use_cache:
-                current.step(scene, frames, ahead=True)
-                current.stepped_ahead = frame
-                return
-            if last in current.cache:
-                current.cache[last].restore_state(current)
-                current.step(scene, frames, ahead=True)
-                current.store(frame)
-                current.stepped_ahead = frame
-                return
+            current.step(scene, frames, ahead=True)
+            current.stepped_ahead = frame
+            return
     current.restore(frame_of(scene))
 
 
@@ -653,7 +654,7 @@ def _frame_changed(scene, depsgraph=None):
         return
     frames = None if rt.last_frame is None else frame - rt.last_frame
     playing_on = frames is not None and 1 <= frames <= MAX_FRAME_STEP
-    if not settings.use_cache:
+    if not (settings.use_cache and rt.cache_mode == "canonical"):          # live
         if not playing_on or frame == scene.frame_start:
             rt.reset(scene)
         else:

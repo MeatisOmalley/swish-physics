@@ -126,11 +126,8 @@ for name in ("c0_1", "c1_1"):
 found = selection.groups_of_selected(bpy.context)
 check("the selected bones' groups are both found", len(found) == 2, len(found))
 groups[0].damping = 0.37
-check("with Edit Selected Groups, a change reaches every selected bone's group",
+check("a change reaches every selected bone's group",
       abs(groups[1].damping - 0.37) < 1e-6, groups[1].damping)
-scene.swish.edit_selected_groups = False
-groups[0].damping = 0.5
-check("... and only the edited group with it off", abs(groups[1].damping - 0.37) < 1e-6, groups[1].damping)
 
 bpy.ops.object.mode_set(mode="OBJECT")
 swish.unregister()
