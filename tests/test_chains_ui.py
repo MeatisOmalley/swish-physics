@@ -206,18 +206,30 @@ for position in (0, 99):
           and compact.drop_target(zone.x0 + 20, (zone.y0 + zone.y1) / 2) == ("new", -1))
 check("the manager edits one armature: nothing on it names another",
       all(item.group < len(skirt_rig.waifu_physics.groups) for item in layout.items))
-panes = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other], nav=100)
+panes = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other])
+pane_width = panes.nav_x1 - panes.nav_x0
 check("the armature pane lists the armatures, the shown one marked",
       [(r.text, r.enabled) for r in panes.nav_rows] == [("skirt", True), ("other", False)])
-check("... and the groups start after it", abs(panes.rows[0].x0 - (layout.rows[0].x0 + 100)) < 1e-6
-      and abs(panes.frame.x1 - panes.frame.x0 - (layout.frame.x1 - layout.frame.x0) - 100) < 1e-6)
-check("the divider between them is where the mouse grabs it",
-      panes.hit(panes.nav_x1, (panes.divider.y0 + panes.divider.y1) / 2).kind == "divider")
+check("... and the groups start after it", abs(panes.rows[0].x0 - (layout.rows[0].x0 + pane_width)) < 1e-6
+      and abs(panes.frame.x1 - panes.frame.x0 - (layout.frame.x1 - layout.frame.x0) - pane_width) < 1e-6)
 check("clicking a name in the pane hits it",
       panes.hit(panes.nav_rows[1].x0 + 10, (panes.nav_rows[1].y0 + panes.nav_rows[1].y1) / 2).root == "other")
-closed = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other], nav=0)
-check("closed, the pane shows no names, but its divider stays to open it again",
-      closed.nav_rows == [] and closed.divider.x0 < closed.rows[0].x0 + 5)
+check("its arrow sits in a strip of its own on the left, clear of the names",
+      panes.hit(panes.nav_x0 + 4, panes.nav_rows[0].y0 + 5).kind == "nav_toggle"
+      and panes.nav_toggle.x1 <= panes.nav_rows[0].x0)
+wide = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other],
+                      measure=lambda text: 150.0 if text == "other" else 40.0)
+check("open, the pane is as wide as its longest name",
+      abs(wide.nav_rows[1].x1 - wide.nav_rows[1].x0 - (150.0 + 20 - 4)) < 1e-6
+      and wide.nav_x1 - wide.nav_x0 > pane_width)
+widest = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other],
+                        measure=lambda text: 5000.0)
+check("... within a limit", abs(widest.nav_x1 - widest.nav_x0 - (manager.NAV_GUTTER + manager.NAV_MAX)) < 1e-6)
+closed = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), armatures=[skirt_rig, other], nav_open=False)
+check("collapsed, only the arrow's strip is left, and the groups start after it",
+      closed.nav_rows == [] and closed.nav_toggle is not None
+      and abs(closed.rows[0].x0 - (layout.rows[0].x0 + manager.NAV_GUTTER)) < 1e-6
+      and closed.nav_toggle.x1 <= closed.rows[0].x0)
 
 # --- merge: the button merges the selected chains' groups; dragging a folder onto another merges it
 skirt_rig.waifu_physics.active_group = 0

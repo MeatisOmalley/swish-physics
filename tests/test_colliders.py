@@ -214,7 +214,9 @@ check("removing one of the defaults keeps the other: the list now names what is 
 bpy.ops.waifu_physics.collider_set_add()
 check("adding makes an empty slot to pick an armature in", len(skirt.collider_sets) == 2)
 skirt.collider_sets.clear()
-check("with the list cleared, the defaults are back", colliders.sources(skirt) == [garment, peach])
+check("with the edited list emptied, the group collides with no armature", colliders.sources(skirt) == [])
+skirt.custom_collider_sets = False
+check("... and unmarked as edited, the defaults are back", colliders.sources(skirt) == [garment, peach])
 for other in list(scene.objects):
     other.select_set(False)
 hip.select_set(True)
@@ -286,6 +288,37 @@ check("skin shaped like a block fits a box of its half sizes", collider_fit.fit(
       (collider_fit.fit(block).shape, collider_fit.fit(block).extent))
 check("a shape asked for is the shape fitted", collider_fit.fit(ball, "Box").shape == "Box")
 check("too little skin fits nothing", collider_fit.fit(ball[:5]) is None)
+
+# --- a group's collider list, once edited, stands even empty: its own armature can be removed
+own = armature("own_rig")
+own_group = own.waifu_physics.groups.add()
+own_group.roots.add().name = "c0"
+check("by default a group collides with its own armature's colliders", colliders.sources(own_group) == [own])
+bpy.context.view_layer.objects.active = own
+check("removing its own armature from the list ...",
+      bpy.ops.waifu_physics.collider_set_remove(index=0) == {"FINISHED"})
+check("... leaves it colliding with no armature (the defaults do not come back)",
+      colliders.sources(own_group) == [] and own_group.custom_collider_sets, colliders.sources(own_group))
+
+# --- no collider on a bone a chain simulates: it would chase the chain it pushes
+check("the simulated bones are the chains below their roots",
+      colliders.simulated_bones(own) == {"c1", "c2", "c3"}, colliders.simulated_bones(own))
+bpy.ops.object.mode_set(mode="POSE")
+own.data.bones.active = own.data.bones["c2"]
+try:
+    bpy.ops.waifu_physics.collider_add(shape="Sphere")
+    refusal = None
+except RuntimeError as error:                   # an ERROR report raises from bpy.ops
+    refusal = str(error)
+check("Add Collider refuses a bone in a chain, saying why", refusal is not None and "in a chain" in refusal
+      and not colliders.all_of(own), refusal)
+made = colliders.from_bones(own, ["anchor", "c0", "c1", "c2"], "Capsule")
+check("Colliders from Bones skips the chains' bones (a root keeps its animation, so it may carry one)",
+      sorted(obj.parent_bone for obj in made) == ["anchor", "c0"], [obj.parent_bone for obj in made])
+bpy.ops.object.mode_set(mode="OBJECT")
+late = colliders.add(own, "c3", "Sphere")
+check("a collider that ends up on a chain bone is flagged", colliders.on_simulated_bone(late)
+      and not colliders.on_simulated_bone(made[0]))
 
 addon.unregister()
 finish()

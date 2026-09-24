@@ -279,8 +279,9 @@ def default_sources(armature):
 
 
 def sources(group):
-    """The armatures whose colliders a group collides with: the ones it names, else the defaults."""
-    if len(group.collider_sets):
+    """The armatures whose colliders a group collides with: its list once edited (it may be empty; older files
+    mark an edited list only by its entries), else the defaults."""
+    if group.custom_collider_sets or len(group.collider_sets):
         return [item.armature for item in group.collider_sets if item.armature is not None]
     return default_sources(group.id_data)
 
@@ -396,10 +397,32 @@ def has_collider(armature, bone_name):
     return any(is_collider(obj) and obj.parent_bone == bone_name for obj in armature.children)
 
 
+def simulated_bones(armature):
+    """The bones the armature's groups simulate: their chains below the roots (a root keeps its animation).
+    A collider on one would follow the simulation and push the chain that moves it, chasing it for ever (Kawaii's
+    follow the animation instead), so none is added there."""
+    from . import links
+    found = set()
+    for group in armature.waifu_physics.groups:
+        excluded = [bone.name for bone in group.excluded]
+        for root in group.roots:
+            found.update(links.chain_subtree(armature, root.name, excluded)[1:])
+    return found
+
+
+def on_simulated_bone(obj):
+    parent = obj.parent
+    return (parent is not None and parent.type == "ARMATURE" and obj.parent_type == "BONE"
+            and obj.parent_bone in simulated_bones(parent))
+
+
 def from_bones(armature, bone_names, shape="AUTO", context=None):
-    """A collider fitted to the skin of each bone; bones with a collider already are skipped. Returns them."""
+    """A collider fitted to the skin of each bone; bones with a collider already, and simulated bones, are
+    skipped. Returns them."""
     points = skin_points(armature)
-    return [add(armature, name, shape, context, points) for name in bone_names if not has_collider(armature, name)]
+    skipped = simulated_bones(armature)
+    return [add(armature, name, shape, context, points) for name in bone_names
+            if name not in skipped and not has_collider(armature, name)]
 
 
 def _new(name, context=None):

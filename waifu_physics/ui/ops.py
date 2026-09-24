@@ -257,7 +257,12 @@ class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
                 and context.active_pose_bone is not None)
 
     def execute(self, context):
-        colliders.add(context.object, context.active_pose_bone.name, self.shape, context)
+        name = context.active_pose_bone.name
+        if name in colliders.simulated_bones(context.object):
+            self.report({"ERROR"}, f"{name} is in a chain: a collider there would chase the chain it pushes. "
+                                   "Put it on a bone the chain hangs from")
+            return {"CANCELLED"}
+        colliders.add(context.object, name, self.shape, context)
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
@@ -297,10 +302,12 @@ class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
     def execute(self, context):
         obj = context.object
         names = [pb.name for pb in context.selected_pose_bones if pb.id_data == obj]
+        in_chains = len(set(names) & colliders.simulated_bones(obj))
         made = colliders.from_bones(obj, names, self.shape, context)
         live.mark_dirty(context.scene)
-        skipped = len(names) - len(made)
-        self.report({"INFO"}, f"Added {len(made)} colliders" + (f"; {skipped} bones had one" if skipped else ""))
+        had = len(names) - len(made) - in_chains
+        notes = ([f"{had} bones had one"] if had else []) + ([f"{in_chains} bones are in chains"] if in_chains else [])
+        self.report({"INFO"}, f"Added {len(made)} colliders" + (f"; skipped: {', '.join(notes)}" if notes else ""))
         return {"FINISHED"}
 
 
@@ -324,10 +331,12 @@ class WAIFU_PHYSICS_OT_collider_set_add(bpy.types.Operator):
 
 
 def _name_sources(group):
-    """Write the default collider armatures into the group's list, so it can be edited from there."""
-    if not len(group.collider_sets):
+    """Write the default collider armatures into the group's list, so it can be edited from there; from then
+    on the list stands, even emptied."""
+    if not group.custom_collider_sets and not len(group.collider_sets):
         for armature in colliders.default_sources(group.id_data):
             group.collider_sets.add().armature = armature
+    group.custom_collider_sets = True
 
 
 class WAIFU_PHYSICS_OT_collider_set_remove(bpy.types.Operator):

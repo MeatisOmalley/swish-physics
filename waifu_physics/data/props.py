@@ -345,6 +345,8 @@ class WaifuPhysicsGroup(PropertyGroup):
     excluded: CollectionProperty(type=WaifuPhysicsBoneName)
     links: CollectionProperty(type=WaifuPhysicsLink)
     collider_sets: CollectionProperty(type=WaifuPhysicsColliderSet)
+    custom_collider_sets: BoolProperty(options={"HIDDEN"}, update=_structure_changed,
+                                       description="The collider sets were edited: the list stands, even empty")
     use_scene_colliders: BoolProperty(
         name="Scene Colliders", default=True, update=_structure_changed,
         description="Collide with the scene's colliders: those on no armature, like a ground")

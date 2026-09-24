@@ -21,8 +21,8 @@ MIN_WIDTH, MAX_WIDTH, MIN_HEIGHT = 200, 700, 120
 EDGE = 5                   # the grab margin of the resizable edges
 BAR = 10                   # the scroll bar's width
 DRAG_START = 5             # pixels the mouse moves before a press becomes a drag
-NAV_DEFAULT, NAV_MAX = 90, 150   # the armature pane's width: it is not the star, and can close entirely
-NAV_NAMES = 24             # narrower than this, the pane shows no names (it is closed, or nearly)
+NAV_GUTTER = 16            # the strip on the left holding the armature pane's arrow, open or closed
+NAV_MIN, NAV_MAX = 60, 260 # an open pane is as wide as its longest name, within these
 
 _open = set()              # areas (as_pointer) showing the manager
 _places = {}               # area -> (left, top) in region pixels, once dragged by its title
@@ -33,7 +33,7 @@ _sizes = {}                # area -> (width, height) at a UI scale of 1, once re
 _pressed = {}              # area -> the kind of item held down, for its pressed look
 _boxes = {}                # area -> (x0, y0, x1, y1), the box select being dragged
 _shown = {}                # area -> session_uid of the armature the manager shows
-_navs = {}                 # area -> the armature pane's width, at a UI scale of 1
+_nav_closed = set()        # areas whose armature pane is collapsed to its arrow
 _pan = {}                  # area -> trackpad scrolling not yet a whole row
 
 
@@ -74,12 +74,23 @@ class Item:
 class Layout:
     """Where everything is, top to bottom. Hit-testing and drawing both read this, so they always agree."""
 
-    def __init__(self, obj, region_size, scale, place=None, scroll=0, drag=None, size=None, armatures=(), nav=0):
+    def __init__(self, obj, region_size, scale, place=None, scroll=0, drag=None, size=None, armatures=(),
+                 nav_open=True, measure=None):
+        """armatures: the ones the pane on the left lists (with none, there is no pane); nav_open: the pane shows
+        them, else only its arrow; measure: a text's width in pixels (the drawing's font), else estimated."""
         self.obj, self.scale = obj, scale
         unit = ROW * scale
         width_unscaled, height_unscaled = size if size is not None else (WIDTH, None)
         self.main_width = min(max(width_unscaled, MIN_WIDTH), MAX_WIDTH)
-        nav_width = min(max(nav, 0.0), NAV_MAX) * scale
+        names = pane_names([armature.name for armature in armatures])
+        gutter = NAV_GUTTER * scale if armatures else 0.0
+        pane = 0.0
+        if armatures and nav_open:
+            measure = measure or (lambda text: len(text) * 7.0 * scale)
+            longest = max(measure(name) for name in names.values())
+            pane = min(max(longest + 20 * scale, NAV_MIN * scale), NAV_MAX * scale)
+        nav_width = gutter + pane
+        self.nav_open = pane > 0
         width = self.main_width * scale + nav_width
         region_w, region_h = region_size
         left, top = place if place is not None else (10 * scale, region_h - 110 * scale)
@@ -158,24 +169,25 @@ class Layout:
         self.empty = Item("empty", x0, bottom, x1, y)       # below the rows: drop chains here for a new group
         self.frame = Item("frame", frame_x0, bottom, x1, top)
 
-        # The armature pane: a row per armature, and the divider that sizes it (it can close to nothing).
+        # The armature pane: its arrow in a strip of its own, then (open) a row per armature.
+        self.nav_toggle = Item("nav_toggle", frame_x0, bottom, frame_x0 + gutter, title.y0) if gutter else None
         self.nav_rows = []
-        if nav_width >= NAV_NAMES * scale:
-            names = pane_names([armature.name for armature in armatures])
+        if pane:
             ny = title.y0 - pad
             for armature in armatures:
                 if ny - unit < bottom:
                     break
-                self.nav_rows.append(Item("nav", frame_x0 + pad, ny - unit, x0 - edge, ny, root=armature.name,
+                self.nav_rows.append(Item("nav", frame_x0 + gutter, ny - unit, x0 - pad, ny, root=armature.name,
                                           text=names[armature.name], enabled=armature == obj))
                 ny -= unit
-        self.divider = Item("divider", x0 - edge * 0.5, bottom, x0 + edge * 0.5, title.y0)
 
         # The edges that resize it, and the scroll bar: checked first, they sit over the rows' ends.
         self.bottom_edge = Item("edge_bottom", x0, bottom, x1, bottom + edge)
         self.right_edge = Item("edge_right", x1 - edge, bottom, x1, title.y0)
         corner = Item("corner", x1 - 3 * edge, bottom, x1, bottom + 3 * edge)
-        self.items += [corner, self.bottom_edge, self.right_edge, self.divider] + self.nav_rows
+        self.items += [corner, self.bottom_edge, self.right_edge] + self.nav_rows
+        if self.nav_toggle is not None:
+            self.items.append(self.nav_toggle)
         self.track = self.thumb = None
         self.rows_per_pixel = 0.0
         if self.overflow:
@@ -273,17 +285,28 @@ def shown(context):
     return active if active is not None else armatures[0] if armatures else None
 
 
+def _font(context, scale):
+    """The manager's font, at the sidebar's widget size: set before measuring or drawing text."""
+    blf.size(0, context.preferences.ui_styles[0].widget.points * scale)
+
+
+def _measure(text):
+    return blf.dimensions(0, text)[0]
+
+
 def layout_for(context):
     area, region = context.area, context.region
     key = area.as_pointer()
     scale = _scale(context)
+    _font(context, scale)
     place = _places.get(key)
     if place is None:
         tools = next((r for r in area.regions if r.type == "TOOLS"), None)
         inset = tools.width if tools is not None and context.preferences.system.use_region_overlap else 0
         place = (inset + 10 * scale, region.height - 110 * scale)       # under the view's name
     return Layout(shown(context), (region.width, region.height), scale, place, _scroll.get(key, 0),
-                  _drags.get(key), _sizes.get(key), armatures=listed(context), nav=_navs.get(key, NAV_DEFAULT))
+                  _drags.get(key), _sizes.get(key), armatures=listed(context), nav_open=key not in _nav_closed,
+                  measure=_measure)
 
 
 def scroll(context, rows):
@@ -371,6 +394,10 @@ def _arrow(canvas, x, y, s, open_, colour):
         canvas.poly([(x - 2 * s, y - 4 * s), (x - 2 * s, y + 4 * s), (x + 3.5 * s, y)], colour)
 
 
+def _arrow_left(canvas, x, y, s, colour):
+    canvas.poly([(x + 2 * s, y - 4 * s), (x - 3.5 * s, y), (x + 2 * s, y + 4 * s)], colour)
+
+
 def _folder(canvas, x, y, s, colour):
     canvas.rect(x, y - 4.5 * s, x + 13 * s, y + 3.5 * s, colour, radius=1.2 * s)
     canvas.rect(x, y + 2.5 * s, x + 5.5 * s, y + 5 * s, colour, radius=1 * s)
@@ -405,7 +432,7 @@ def draw(context):
             width = blf.dimensions(0, text)[0]
         texts.append((x - width if right else x, (item.y0 + item.y1) / 2 - text_mid, text, colour))
 
-    blf.size(0, context.preferences.ui_styles[0].widget.points * s)
+    _font(context, s)
     text_mid = blf.dimensions(0, "Xg")[1] * 0.38
     frame, title = layout.frame, layout.title
     canvas.rect(frame.x0, frame.y0, frame.x1, frame.y1, colours["back"], radius=5 * s)
@@ -421,8 +448,19 @@ def draw(context):
         target = None                                   # onto itself
 
     label(title, title.text, title.x0 + 8 * s, colours["text"], room=title.x1 - title.x0 - unit - 12 * s)
-    if layout.nav_x1 > layout.nav_x0:                            # the armature pane
-        canvas.rect(layout.nav_x0 + 2 * s, frame.y0 + 2 * s, layout.nav_x1 - 1 * s, title.y0 - 2 * s,
+    toggle_item = layout.nav_toggle
+    if toggle_item is not None:                                  # the armature pane: its arrow, then its names
+        if hovered is toggle_item:
+            canvas.rect(toggle_item.x0 + 2 * s, frame.y0 + 2 * s, toggle_item.x1 - 1 * s, title.y0 - 2 * s,
+                        colours["hover"], radius=3 * s)
+        arrow_x, arrow_y = (toggle_item.x0 + toggle_item.x1) / 2 + 1 * s, title.y0 - 4 * s - unit / 2
+        lit = colours["text"] if hovered is toggle_item else colours["dim"]
+        if layout.nav_open:
+            _arrow_left(canvas, arrow_x, arrow_y, s, lit)
+        else:
+            _arrow(canvas, arrow_x, arrow_y, s, False, lit)
+    if layout.nav_open:
+        canvas.rect(toggle_item.x1, frame.y0 + 2 * s, layout.nav_x1 - 1 * s, title.y0 - 2 * s,
                     colours["title"], radius=3 * s)
         for row in layout.nav_rows:
             if row.enabled:
@@ -502,18 +540,15 @@ def draw(context):
                     radius=4 * s)
 
     # The resizable edges show a thin bar under the mouse, brighter while held.
-    grabbed = held if held in ("edge_bottom", "edge_right", "corner", "divider") else None
+    grabbed = held if held in ("edge_bottom", "edge_right", "corner") else None
     over = hovered.kind if hovered is not None and drag is None and hovered.kind in (
-        "edge_bottom", "edge_right", "corner", "divider") else None
+        "edge_bottom", "edge_right", "corner") else None
     for kind in {grabbed or over} - {None}:
         colour = colours["edge_held"] if grabbed else colours["edge"]
         if kind in ("edge_bottom", "corner"):
             canvas.rect(frame.x0 + 5 * s, frame.y0, frame.x1 - 5 * s, frame.y0 + 3 * s, colour, radius=1.5 * s)
         if kind in ("edge_right", "corner"):
             canvas.rect(frame.x1 - 3 * s, frame.y0 + 5 * s, frame.x1, title.y0 - 2 * s, colour, radius=1.5 * s)
-        if kind == "divider":
-            middle = (layout.divider.x0 + layout.divider.x1) / 2
-            canvas.rect(middle - 1.5 * s, frame.y0 + 5 * s, middle + 1.5 * s, title.y0 - 2 * s, colour, radius=1.5 * s)
 
     if box is not None:                                         # the box select
         x0, x1 = sorted((box[0], box[2]))
@@ -579,7 +614,6 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         self.press, self.item, self.dragging, self.pending, self.box = (x, y), item, False, None, None
         self.origin = (layout.frame.x0, layout.title.y1)
         self.size = (layout.main_width, (layout.frame.y1 - layout.frame.y0) / layout.scale)
-        self.nav_start = _navs.get(context.area.as_pointer(), NAV_DEFAULT)
         self.first = layout.first
         if item is None:
             return {"FINISHED"}
@@ -590,6 +624,8 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
             scroll(context, -page if y > layout.thumb.y1 else page)
         elif kind == "close":
             toggle(context.area)
+        elif kind == "nav_toggle":
+            _nav_closed.symmetric_difference_update({context.area.as_pointer()})
         elif kind == "nav":
             found = bpy.data.objects.get(item.root)
             if found is not None:
@@ -634,11 +670,6 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         kind = self.item.kind
         if kind == "title":
             _places[key] = (self.origin[0] + dx, self.origin[1] + dy)
-            context.area.tag_redraw()
-            return {"RUNNING_MODAL"}
-        if kind == "divider":
-            width = min(max(self.nav_start + dx / _scale(context), 0.0), NAV_MAX)
-            _navs[key] = 0.0 if width < NAV_NAMES * 0.5 else width        # nearly closed snaps shut
             context.area.tag_redraw()
             return {"RUNNING_MODAL"}
         if kind in ("edge_bottom", "edge_right", "corner"):
@@ -846,7 +877,7 @@ CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIF
 @bpy.app.handlers.persistent
 def _file_loaded(_dummy):
     """A new file brings new areas: the manager starts closed."""
-    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes, _shown, _navs):
+    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes, _shown, _nav_closed):
         state.clear()
 
 
