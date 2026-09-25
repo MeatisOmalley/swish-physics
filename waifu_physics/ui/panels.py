@@ -164,6 +164,10 @@ def _draw_group_tools(layout, context, span):
     from ..data import presets
     row.menu("WAIFU_PHYSICS_MT_presets", text=presets.matching(group) or "Preset", icon="PRESET")
     row.operator("waifu_physics.preset_save", text="", icon="ADD")
+    current = presets.matching(group)
+    trash = row.row(align=True)
+    trash.enabled = bool(current) and current in presets.user_presets()     # built-in presets stay
+    trash.operator("waifu_physics.preset_delete", text="", icon="TRASH").name = current or ""
     row.operator("waifu_physics.group_copy", text="", icon="COPYDOWN")
     row.operator("waifu_physics.group_paste", text="", icon="PASTEDOWN")
 
@@ -506,14 +510,20 @@ def _add_to_bones(layout, context, settings):
     split.prop(settings, "collider_shape", text="")
     bones = (context.selected_pose_bones or ()) if context.mode == "POSE" else ()
     again = any(colliders.has_collider(bone.id_data, bone.name) for bone in bones)
+    # Bones a group simulates take no collider (it would chase the chain it pushes): with one selected, the
+    # buttons wait.
+    grouped = [bone for bone in bones if bone.name in colliders.simulated_bones(bone.id_data)]
     row = layout.row()
     row.scale_y = 1.3
+    row.enabled = not grouped
     row.operator("waifu_physics.collider_add", text="Active Bone", icon="ADD").shape = settings.collider_shape
     generate = row.row()
     generate.active_default = True
     generate.operator("waifu_physics.colliders_from_bones", text="Regenerate" if again else "Generate",
                       icon="FILE_REFRESH" if again else "MOD_PHYSICS").shape = settings.collider_shape
-    if bones:
+    if grouped:
+        _caption(layout, "Bones in a group can't have colliders.", "Select body bones instead.")
+    elif bones:
         _caption(layout, "Each selected bone gets one collider,", "fitted to the skin weighted to it.")
     else:
         _caption(layout, "Select bones in Pose Mode. Each one gets", "a collider fitted to the skin weighted to it.")
