@@ -81,6 +81,16 @@ def in_a_row(obj, roots):
     return [roots[i] for i in np.argsort(spread @ direction, kind="stable")]
 
 
+def neighbours(obj, names, loop):
+    """[(name, name)] of bones side by side: round their centre, the last closing on the first, when loop (and
+    three or more); else along their row."""
+    ring = ordered(obj, names) if loop else in_a_row(obj, names)
+    found = list(zip(ring, ring[1:]))
+    if loop and len(ring) > 2:
+        found.append((ring[-1], ring[0]))
+    return found
+
+
 def pairs(obj, roots, loop, excluded=()):
     """[(bone, bone)] linking each chain to its neighbour, at every depth below the roots (the roots do not
     move): a ladder's rungs between neighbouring chains. A loop orders the chains round their centre and closes

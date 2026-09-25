@@ -102,7 +102,7 @@ group = skirt_rig.waifu_physics.groups[0]
 bpy.ops.object.mode_set(mode="POSE")
 for pb in skirt_rig.pose.bones:
     pb.select = pb.name.endswith("_1")
-bpy.ops.waifu_physics.link_chains(mode="LOOP")
+bpy.ops.waifu_physics.link_chains(loop=True)
 links_before = len(group.links)
 ops = sys.modules["waifu_physics.ui.ops"]
 chosen = lambda: sorted(root for _g, root in ops.selected_chain_keys(skirt_rig))

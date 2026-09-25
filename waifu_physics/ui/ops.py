@@ -398,15 +398,55 @@ def _chain_root(obj, group, name):
     return None
 
 
-class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
-    bl_idname = "waifu_physics.link_chains"
-    bl_label = "Link Chains"
-    bl_description = ("Link neighbouring chains: a loop for skirts, a strip for capes")
+def _add_links(group, found):
+    """Add these (bone, bone) links to the group, leaving out any it has. Returns how many were added."""
+    existing = {frozenset((link.bone_a, link.bone_b)) for link in group.links}
+    added = 0
+    for a, b in found:
+        if a != b and frozenset((a, b)) not in existing:
+            link = group.links.add()
+            link.bone_a, link.bone_b = a, b
+            existing.add(frozenset((a, b)))
+            added += 1
+    return added
+
+
+class WAIFU_PHYSICS_OT_link_bones(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.link_bones"
+    bl_label = "Link Selected Bones"
+    bl_description = "Link the selected bones to each other. Two bones make one link"
     bl_options = {"REGISTER", "UNDO"}
 
-    mode: bpy.props.EnumProperty(name="Mode", items=[
-        ("LOOP", "Loop", "Link the last chain back to the first, all the way round (a skirt)"),
-        ("STRIP", "Strip", "Link neighbours only, leaving the ends open (a cape)")], default="LOOP")
+    loop: bpy.props.BoolProperty(name="Close the Loop", default=False)
+
+    @classmethod
+    def poll(cls, context):
+        return super().poll(context) and len(context.object.waifu_physics.groups) > 0
+
+    def execute(self, context):
+        obj = context.object
+        group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
+        excluded = {bone.name for bone in group.excluded}
+        names = [pb.name for pb in context.selected_pose_bones if pb.id_data == obj]
+        inside = [name for name in names if name not in excluded and _chain_root(obj, group, name) is not None]
+        if len(inside) < 2:
+            self.report({"WARNING"}, "Select at least two bones of the active group's chains")
+            return {"CANCELLED"}
+        added = _add_links(group, chain_links.neighbours(obj, inside, self.loop))
+        live.mark_dirty(context.scene)
+        outside = len(names) - len(inside)
+        self.report({"INFO"}, f"Added {added} link{'' if added == 1 else 's'}"
+                              + (f"; {outside} selected bones are not in the group" if outside else ""))
+        return {"FINISHED"}
+
+
+class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
+    bl_idname = "waifu_physics.link_chains"
+    bl_label = "Link Whole Chains"
+    bl_description = "Link the selected chains to their neighbours at every bone, like the rungs of a ladder"
+    bl_options = {"REGISTER", "UNDO"}
+
+    loop: bpy.props.BoolProperty(name="Close the Loop", default=False)
 
     @classmethod
     def poll(cls, context):
@@ -424,16 +464,9 @@ class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
             self.report({"WARNING"}, "Select bones in at least two chains of the active group")
             return {"CANCELLED"}
         excluded = {bone.name for bone in group.excluded}
-        existing = {frozenset((link.bone_a, link.bone_b)) for link in group.links}
-        added = 0
-        for a, b in chain_links.pairs(obj, roots, self.mode == "LOOP", excluded):
-            if frozenset((a, b)) in existing:
-                continue
-            link = group.links.add()
-            link.bone_a, link.bone_b = a, b
-            added += 1
+        added = _add_links(group, chain_links.pairs(obj, roots, self.loop, excluded))
         live.mark_dirty(context.scene)
-        self.report({"INFO"}, f"{added} links between {len(roots)} chains")
+        self.report({"INFO"}, f"Added {added} links between {len(roots)} chains")
         return {"FINISHED"}
 
 
@@ -1363,7 +1396,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
 
 CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_pick, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_scene_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
-           WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
+           WAIFU_PHYSICS_OT_link_bones, WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,
            WAIFU_PHYSICS_OT_setup_export, WAIFU_PHYSICS_OT_setup_import, WAIFU_PHYSICS_OT_force_add, WAIFU_PHYSICS_OT_force_remove,
            WAIFU_PHYSICS_OT_force_filter, WAIFU_PHYSICS_OT_sync_add, WAIFU_PHYSICS_OT_sync_remove, WAIFU_PHYSICS_OT_sync_target_add,

@@ -535,6 +535,8 @@ class WaifuPhysicsScene(PropertyGroup):
     use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
                             description="Store simulated frames for scrubbing and rendering")
     show_links: BoolProperty(name="Show Links", default=True, description="Show links in the viewport")
+    link_loop: BoolProperty(name="Close the Loop", default=False,
+                            description="Also link the last to the first, all the way round, as for a skirt")
     show_colliders: BoolProperty(
         name="Show Colliders", default=True, update=lambda self, context: _colliders().apply_shown(self.id_data),
         description="Show colliders and the chains' collision spheres in the viewport. Hidden, they still collide")

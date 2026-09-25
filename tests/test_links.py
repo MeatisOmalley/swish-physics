@@ -51,7 +51,7 @@ def link(obj, mode, selection_order):
         pb.select = False
     for k in selection_order:
         obj.pose.bones[f"panel{k}_2"].select = True        # any bone of a chain selects the chain
-    result = bpy.ops.waifu_physics.link_chains(mode=mode)
+    result = bpy.ops.waifu_physics.link_chains(loop=mode == "LOOP")
     bpy.ops.object.mode_set(mode="OBJECT")
     return result
 
@@ -133,6 +133,35 @@ x_of = {f"cape{i}_1": x for i, x in enumerate((0.1, -0.2, 0.2, -0.1, 0.0))}
 steps = sorted(round(abs(x_of[a] - x_of[b]), 3) for a, b in row)
 check("a strip links each chain of a flat row to its neighbour, and not its two edges together",
       len(row) == 4 and steps == [0.1] * 4, row)
+
+# --- Link Selected Bones links only the bones selected
+def link_bones(obj, names, loop=False):
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode="POSE")
+    for pb in obj.pose.bones:
+        pb.select = pb.name in names
+    try:
+        result = bpy.ops.waifu_physics.link_bones(loop=loop)
+    except RuntimeError:
+        result = {"CANCELLED"}
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return result
+
+
+obj, group = skirt("single")
+check("two selected bones make exactly one link, not their whole chains",
+      link_bones(obj, ["panel0_2", "panel1_2"]) == {"FINISHED"} and len(group.links) == 1
+      and {group.links[0].bone_a, group.links[0].bone_b} == {"panel0_2", "panel1_2"},
+      [(l.bone_a, l.bone_b) for l in group.links])
+group.links.clear()
+check("three bones with Close the Loop make three links, round the ring",
+      link_bones(obj, ["panel0_1", "panel2_1", "panel4_1"], loop=True) == {"FINISHED"} and len(group.links) == 3)
+group.links.clear()
+check("... and without it two, leaving the ends open",
+      link_bones(obj, ["panel0_1", "panel2_1", "panel4_1"]) == {"FINISHED"} and len(group.links) == 2)
+group.links.clear()
+check("a bone outside the group's chains is not linked",
+      link_bones(obj, ["panel0_1", "hips"]) == {"CANCELLED"} and len(group.links) == 0)
 
 addon.unregister()
 check("... and stops when unregistered", draw._handle is None)

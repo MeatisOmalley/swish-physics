@@ -308,9 +308,15 @@ class WAIFU_PHYSICS_PT_links(_GroupPanel, bpy.types.Panel):
     def draw_settings(self, context):
         group = self.group(context)
         layout = self.layout
-        row = layout.row(align=True)
-        row.operator("waifu_physics.link_chains", text="Link as Loop", icon="MESH_CIRCLE").mode = "LOOP"
-        row.operator("waifu_physics.link_chains", text="Link as Strip", icon="IPO_LINEAR").mode = "STRIP"
+        settings = context.scene.waifu_physics
+        row = layout.column(align=True)
+        row.scale_y = 1.2
+        row.operator("waifu_physics.link_bones", text="Link Selected Bones", icon="LINKED").loop = settings.link_loop
+        row.operator("waifu_physics.link_chains", text="Link Whole Chains",
+                     icon="OUTLINER_DATA_ARMATURE").loop = settings.link_loop
+        loop = layout.row()
+        loop.active = len(context.selected_pose_bones or ()) > 2 if context.mode == "POSE" else False
+        loop.prop(settings, "link_loop")
         layout.template_list("WAIFU_PHYSICS_UL_links", "", group, "links", group, "active_link", rows=3)
         row = layout.row(align=True)
         row.prop(context.scene.waifu_physics, "show_links")
