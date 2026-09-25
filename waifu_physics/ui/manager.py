@@ -452,6 +452,26 @@ def _folder(canvas, x, y, s, colour):
     canvas.rect(x, y + 2.5 * s, x + 5.5 * s, y + 5 * s, colour, radius=1 * s)
 
 
+def _chain_icon(canvas, x, y, s, colour):
+    """A chain: three joints on a zig-zag."""
+    joints = [(x + 1 * s, y + 4 * s), (x + 5 * s, y - 1 * s), (x + 9 * s, y + 3 * s)]
+    canvas.line(joints, colour)
+    for jx, jy in joints:
+        canvas.rect(jx - 1.6 * s, jy - 1.6 * s, jx + 1.6 * s, jy + 1.6 * s, colour, radius=1.6 * s)
+
+
+def _bone_icon(canvas, x, y, s, colour):
+    """A bone, as Blender draws one: a long diamond from its head."""
+    canvas.poly([(x, y), (x + 3 * s, y + 2.6 * s), (x + 10 * s, y), (x + 3 * s, y - 2.6 * s)], colour)
+
+
+def _link_icon(canvas, x, y, s, colour):
+    """A link: two rings joined."""
+    for cx in (x + 2 * s, x + 8 * s):
+        canvas.outline(cx - 2 * s, y - 2 * s, cx + 2 * s, y + 2 * s, colour)
+    canvas.line([(x + 4 * s, y), (x + 6 * s, y)], colour)
+
+
 def _cross(canvas, x, y, s, colour):
     canvas.line([(x - 4 * s, y - 4 * s), (x + 4 * s, y + 4 * s)], colour)
     canvas.line([(x - 4 * s, y + 4 * s), (x + 4 * s, y - 4 * s)], colour)
@@ -605,19 +625,22 @@ def draw(context):
         elif row.kind == "chain":
             lit = hovered is not None and hovered.kind == "chain_fold" and hovered.root == row.root
             _arrow(canvas, row.x0 + 28 * s, mid, s, row.root in opened, colours["text"] if lit else colours["dim"])
-            label(row, row.text, row.x0 + 41 * s, text_colour, room=row.x1 - row.x0 - 75 * s)
+            _chain_icon(canvas, row.x0 + 38 * s, mid, s, text_colour if picked else colours["dim"])
+            label(row, row.text, row.x0 + 54 * s, text_colour, room=row.x1 - row.x0 - 88 * s)
             label(row, row.count, count_right, colours["dim"] if not picked else text_colour, right=True)
         elif row.kind == "bone":
-            label(row, row.text, row.x0 + 55 * s, text_colour, room=row.x1 - row.x0 - 95 * s)
+            _bone_icon(canvas, row.x0 + 54 * s, mid, s, text_colour if picked else colours["dim"])
+            label(row, row.text, row.x0 + 68 * s, text_colour, room=row.x1 - row.x0 - 108 * s)
             label(row, row.count, count_right, colours["dim"] if not picked else text_colour, right=True)
         elif row.kind == "links":
             group = obj.waifu_physics.groups[row.group]
             lit = hovered is not None and hovered.y0 == row.y0
             _arrow(canvas, row.x0 + 28 * s, mid, s, group.list_links, colours["text"] if lit else colours["dim"])
-            label(row, row.text, row.x0 + 41 * s, colours["dim"])
+            _link_icon(canvas, row.x0 + 38 * s, mid, s, colours["dim"])
+            label(row, row.text, row.x0 + 54 * s, colours["dim"])
             label(row, row.count, count_right, colours["dim"], right=True)
         else:                                          # a link: its two bones, and an x to remove it
-            label(row, row.text, row.x0 + 55 * s, text_colour, room=row.x1 - row.x0 - 80 * s)
+            label(row, row.text, row.x0 + 68 * s, text_colour, room=row.x1 - row.x0 - 93 * s)
             if hovered is not None and hovered.y0 == row.y0 and drag is None:
                 over = hovered.kind == "link_remove"
                 _cross(canvas, row.x1 - unit / 2, mid, s * 0.8,
