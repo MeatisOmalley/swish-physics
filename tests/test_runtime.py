@@ -177,6 +177,39 @@ scene.frame_set(10)
 check("jumping backwards starts over from the pose", np.allclose(heads(rig), rest, atol=1e-6), heads(rig))
 
 scene.waifu_physics.simulate = False
+# --- under a parent with uneven scale (VRoid hair under a slider-scaled head), the bones land on the simulation
+scene.waifu_physics.simulate = False
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj)
+skew_data = bpy.data.armatures.new("skew")
+skew = bpy.data.objects.new("skew", skew_data)
+scene.collection.objects.link(skew)
+bpy.context.view_layer.objects.active = skew
+bpy.ops.object.mode_set(mode="EDIT")
+head_bone = skew_data.edit_bones.new("head")
+head_bone.head, head_bone.tail = (0, 0, 1.5), (0, 0, 1.7)
+parent, at = head_bone, Vector((0.05, 0.0, 1.6))
+for i in range(5):
+    bone = skew_data.edit_bones.new(f"strand{i}")
+    bone.head, bone.tail = at, at + Vector((0.06, 0.02, -0.07))
+    bone.parent = parent
+    parent, at = bone, bone.tail.copy()
+bpy.ops.object.mode_set(mode="OBJECT")
+skew.pose.bones["head"].scale = (1.32, 1.28, 1.32)
+skew.waifu_physics.groups.add().roots.add().name = "strand0"
+scene.frame_set(1)
+scene.waifu_physics.simulate = True
+for frame in range(2, 21):
+    scene.frame_set(frame)
+bpy.context.view_layer.update()
+rt = live.runtime(scene)
+s = rt.system
+off = [np.linalg.norm(np.array(skew.pose.bones[s.bone_names[i]].head) - s.loc[i] / rt.cm) * 1000
+       for i in range(len(s.loc)) if s.bone_names[i]]
+check("under a parent scaled unevenly, every bone's head lands on its simulated point (was 22 cm off at a tip)",
+      max(off) < 0.5, max(off))
+scene.waifu_physics.simulate = False
+
 addon.unregister()
 check("unregistering removes the frame handler", live._frame_changed not in bpy.app.handlers.frame_change_post)
 finish()

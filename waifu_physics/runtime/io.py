@@ -64,6 +64,31 @@ def animated_channels(obj, owned=frozenset()):
     return found
 
 
+def _nearest_rotations(m):
+    """The rotation nearest each 3x3 matrix (its polar factor)."""
+    u, _singular, vt = np.linalg.svd(m)
+    flip = np.linalg.det(u @ vt) < 0
+    u[flip, :, -1] *= -1
+    return u @ vt
+
+
+def _aimed(local, frame, direction):
+    """Local rotations turned (the shortest way) so the bone's Y axis, through its frame, points along
+    direction (armature space). Where the frame has no skew this changes nothing."""
+    want = np.linalg.solve(frame, direction[:, :, None])[:, :, 0]
+    want /= np.maximum(np.linalg.norm(want, axis=1, keepdims=True), 1e-12)
+    have = local[:, :, 1]
+    axis = np.cross(have, want)
+    cos = np.einsum("ni,ni->n", have, want)
+    turn = np.tile(np.eye(3), (len(local), 1, 1))
+    ok = cos > -0.999999                        # opposite directions have no shortest turn: left as they are
+    k = np.zeros((len(local), 3, 3))
+    k[:, 0, 1], k[:, 0, 2], k[:, 1, 2] = -axis[:, 2], axis[:, 1], -axis[:, 0]
+    k[:, 1, 0], k[:, 2, 0], k[:, 2, 1] = axis[:, 2], -axis[:, 1], axis[:, 0]
+    turn[ok] += k[ok] + (k[ok] @ k[ok]) / (1.0 + cos[ok])[:, None, None]
+    return turn @ local
+
+
 def unscaled(m):
     """The rotation of matrices that may carry scale: columns normalised."""
     return m / np.linalg.norm(m, axis=1, keepdims=True)
@@ -273,6 +298,12 @@ class Rig:
             frame = parent_out @ self.rest_rel[level]                   # where the bone's basis starts
             frame_rot = unscaled(frame[:, :3, :3])
             local = np.einsum("nji,njk->nik", frame_rot, target_rot[level])
+            # Under a parent with uneven scale the frame is skewed, so that is no rotation either. Blender
+            # makes a rotation of whatever the channel holds: predicting the pose from anything else puts
+            # every child's frame, and the head placed through it, off (measured: 22 cm at the tip of a
+            # VRoid hair strand under a 1.32 x 1.28 head scale). So: the nearest rotation, turned so the
+            # bone points where the simulation aimed it, through the skewed frame.
+            local = _aimed(_nearest_rotations(local), frame[:, :3, :3], target_rot[level][:, :, 1])
             basis = self.basis[level].copy()
             scale = np.linalg.norm(basis[:, :3, :3], axis=1)
             basis[:, :3, :3] = local * scale[:, None, :]
