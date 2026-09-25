@@ -551,7 +551,7 @@ class WaifuPhysicsScene(PropertyGroup):
         name="Shape", items=_colliders().SHAPE_CHOICES, default="AUTO",
         description="Shape for new bone colliders. Auto picks the best fit per bone")
     selected_only: BoolProperty(
-        name="Selected Only", default=True,
+        name="Selected Only", default=False,
         description="Only list the selected armatures")
 
 

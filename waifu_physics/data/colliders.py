@@ -241,25 +241,26 @@ def visible(scene):
     return settings.tab == "COLLIDERS" or settings.always_show_colliders
 
 
-def _apply_shown(obj, hidden, view_layer):
-    """Right after linking, view_layer.objects does not list a new object yet, but hide_set syncs the layer
-    itself; only an object that is not in the layer at all is skipped."""
-    try:
-        if obj.hide_get(view_layer=view_layer) != hidden:
-            obj.hide_set(hidden, view_layer=view_layer)
-    except RuntimeError:
-        pass
+def _layer_collection(view_layer):
+    """The view layer's entry for the colliders' collection, or None."""
+    pending = [view_layer.layer_collection]
+    while pending:
+        found = pending.pop()
+        if found.collection.name == COLLECTION:
+            return found
+        pending += found.children
+    return None
 
 
 def apply_shown(scene):
-    """Every collider in the scene shown or hidden as visible() says, by its own eye: that costs no rebuild of
-    the scene's dependency graph (a collection's eye tags the view layer for a resync), and a hidden collider
-    still follows its bone and collides. The eyes are saved with the file, as they are."""
-    hidden = not visible(scene)
-    view_layer = _view_layer(scene)
-    for obj in scene.objects:
-        if is_collider(obj):
-            _apply_shown(obj, hidden, view_layer)
+    """Show or hide the colliders as visible() says, by their collection's eye: one switch, which new
+    colliders join by being made in the collection. A collider's own eye stays the user's, and one moved out
+    of the collection leaves the switch. Nothing is made when there are no colliders. The eye only hides:
+    hidden colliders still follow their bones and collide (the monitor toggle, hide_viewport on the
+    collection itself, would stop their evaluation)."""
+    found = _layer_collection(_view_layer(scene))
+    if found is not None and found.hide_viewport == visible(scene):
+        found.hide_viewport = not visible(scene)
 
 
 def remove(obj):
@@ -520,7 +521,7 @@ def _new(name, context=None):
     obj.hide_render = True
     md = obj.modifiers.new(MODIFIER, "NODES")
     md.node_group = node_group()
-    _apply_shown(obj, not visible(scene), _view_layer(scene))
+    apply_shown(scene)                       # the collection may be new, or linked into this scene just now
     return obj
 
 

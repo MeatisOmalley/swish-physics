@@ -172,8 +172,9 @@ g.use_scene_colliders = True
 scene.waifu_physics.tab = "COLLIDERS"
 check("on the Colliders tab the colliders show", ground.visible_get())
 scene.waifu_physics.tab = "PHYSICS"
-check("on the Physics tab they are hidden (each one's own eye, not their collection's) ...", not ground.visible_get()
-      and not bpy.context.view_layer.layer_collection.children[colliders.COLLECTION].hide_viewport)
+check("on the Physics tab they are hidden, by their collection's eye (their own eyes stay the user's) ...",
+      not ground.visible_get() and not ground.hide_get()
+      and bpy.context.view_layer.layer_collection.children[colliders.COLLECTION].hide_viewport)
 scene.frame_set(61)
 check("... and hidden, they still collide", len(live.runtime(scene).system.shape_type) == 2)
 scene.waifu_physics.always_show_colliders = True
@@ -181,6 +182,12 @@ check("Always Show Colliders shows them on the Physics tab too", ground.visible_
 scene.waifu_physics.always_show_colliders = False
 extra = colliders.add_to_scene("Sphere")
 check("a collider made on the Physics tab is hidden like the rest", not extra.visible_get() and not ground.visible_get())
+ground.hide_set(True)
+scene.waifu_physics.tab = "COLLIDERS"
+check("a collider the user hid by its own eye stays hidden on the Colliders tab", not ground.visible_get()
+      and extra.visible_get())
+ground.hide_set(False)
+scene.waifu_physics.tab = "PHYSICS"
 scene.waifu_physics.simulate = False
 for obj in colliders.scene_colliders(scene, enabled_only=False):
     bpy.data.objects.remove(obj)
