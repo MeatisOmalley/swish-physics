@@ -31,7 +31,8 @@ jobs:
           # Run outside the repo, and with the repo last on the path, so the stand-in is what imports.
           ROOT="$PWD"
           (cd /tmp && PYTHONPATH="$ROOT/ci" $PY -c "from waifu_physics.solver import native; b = native.backend(); assert type(b).__name__ == 'CBackend', native.reason(); print('C step loaded')")
-          PYTHONPATH="$ROOT/ci:$ROOT" $PY tests/test_solver_agreement.py
+          # glibc and numpy may round sin, pow and acos's last bit differently: agreement within 1e-6 cm.
+          WAIFU_PHYSICS_AGREEMENT_TOLERANCE=1e-6 PYTHONPATH="$ROOT/ci:$ROOT" $PY tests/test_solver_agreement.py
       - uses: actions/upload-artifact@v4
         with:
           name: waifu_physics_step-linux-x64
