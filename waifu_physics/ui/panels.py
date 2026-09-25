@@ -413,11 +413,12 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
 
 def _draw_colliders(layout, context):
     """The Colliders panel, in sections that keep their places whatever is picked: Armature Colliders (with a
-    group's armature active, first how its chains collide: the radius and what they collide against; then the
-    Collider Type and its buttons, for the active bone or Generate for the selected ones; then a folder per
-    armature with colliders), Scene Colliders (a button per shape, then the scene's colliders), and last the
-    picked collider's settings, with its Remove. Both sections put their buttons above their colliders.
-    Picking a collider here is selecting it in the viewport, and the other way round."""
+    group's armature active, first its chains' collision radius; then the Collider Type and its buttons, for
+    the active bone or Generate for the selected ones; then a folder per armature with colliders), Scene
+    Colliders (a button per shape, then the scene's colliders), Collides Against (with a group's armature
+    active: what its chains collide with), and last the picked collider's settings, with its Remove. Both
+    collider sections put their buttons above their colliders. Picking a collider here is selecting it in the
+    viewport, and the other way round."""
     from ..runtime import live
     settings = context.scene.waifu_physics
     layout = layout.column()
@@ -427,12 +428,13 @@ def _draw_colliders(layout, context):
     picked = picked if colliders.is_collider(picked) else None
     obj = context.object
     groups = obj.waifu_physics.groups if obj is not None and obj.type == "ARMATURE" else ()
+    group = groups[min(obj.waifu_physics.active_group, len(groups) - 1)] if len(groups) else None
 
     header, body = layout.panel("waifu_physics_colliders", default_closed=False)
     header.label(text="Armature Colliders", icon="ARMATURE_DATA")
     if body is not None:
-        if len(groups):
-            _chain_collision(body, context, obj, groups[min(obj.waifu_physics.active_group, len(groups) - 1)])
+        if group is not None:
+            _chain_radius(body, context, group)
             body.separator()
         _add_to_bones(body, context, settings)
         armatures = _collider_armatures(context)
@@ -468,6 +470,12 @@ def _draw_colliders(layout, context):
             for collider in found:
                 _collider_row(listed, collider, picked, indent=False)
 
+    if group is not None:
+        header, body = layout.panel("waifu_physics_collides_against", default_closed=False)
+        header.label(text="Collides Against", icon="PHYSICS")
+        if body is not None:
+            _collides_against(body, obj, group)
+
     if picked is not None:
         header, body = layout.panel("waifu_physics_collider", default_closed=False)
         header.label(text=picked.name, icon=colliders.SHAPE_ICONS.get(
@@ -502,11 +510,19 @@ def _add_to_bones(layout, context, settings):
         _caption(layout, "Select bones in Pose Mode. Each one gets", "a collider fitted to the skin weighted to it.")
 
 
-def _chain_collision(layout, context, armature, group):
-    """How the active group's chains collide: how big their points are (the radius, with its curve; the
-    spheres the viewport draws on this tab), and the colliders they collide against."""
+def _chain_radius(layout, context, group):
+    """How big the active group's chain points are when they collide: the radius, with its curve (the spheres
+    the viewport draws while colliders show)."""
     from .selection import groups_of_selected
     _setting_row(layout.column(align=True), group, "radius")
+    shared = groups_of_selected(context)
+    if len(shared) > 1:
+        _dim(layout, f"Changes apply to all {len(shared)} selected groups.", "INFO")
+
+
+def _collides_against(layout, armature, group):
+    """What the active group's chains collide with: every collider, or the colliders of chosen armatures
+    (its own and the one it hangs from, until the list is edited) and, if wanted, the scene's."""
     layout.prop(group, "use_all_colliders")
     if not group.use_all_colliders:
         layout.label(text="Collides with colliders on these armatures:")
@@ -526,9 +542,6 @@ def _chain_collision(layout, context, armature, group):
                 row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
         layout.operator("waifu_physics.collider_set_add", text="Add Armature", icon="ADD")
         layout.prop(group, "use_scene_colliders")
-    shared = groups_of_selected(context)
-    if len(shared) > 1:
-        _dim(layout, f"Changes apply to all {len(shared)} selected groups.", "INFO")
 
 
 def _caption(layout, *lines):
