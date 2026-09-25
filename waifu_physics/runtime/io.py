@@ -14,6 +14,9 @@ from . import keys as chain_keys
 
 EULER_ORDERS = {1: "XYZ", 2: "XZY", 3: "YXZ", 4: "YZX", 5: "ZXY", 6: "ZYX"}   # rotation_mode as foreach_get reads it
 QUATERNION, AXIS_ANGLE = 0, -1
+INHERIT_SCALE = {"FULL": 0, "FIX_SHEAR": 1, "ALIGNED": 2, "AVERAGE": 3, "NONE": 4, "NONE_LEGACY": 5}
+FULL, FIX_SHEAR, ALIGNED, AVERAGE, NONE, NONE_LEGACY = range(6)
+FLT_EPSILON = 1.1920929e-07
 
 
 def cm_per_unit(scene):
@@ -89,6 +92,75 @@ def _aimed(local, frame, direction):
     return turn @ local
 
 
+def _distorted(frame):
+    """Frames that are not a rotation and one scale: skewed, scaled unevenly or mirrored. There a local
+    rotation needs _nearest_rotations and _aimed; everywhere else they change nothing, so they are skipped."""
+    gram = np.einsum("nji,njk->nik", frame, frame)
+    size = np.trace(gram, axis1=1, axis2=2) / 3.0
+    even = gram / np.where(size > 0.0, size, 1.0)[:, None, None]
+    return (np.abs(even - np.eye(3)).max(axis=(1, 2)) > 1e-6) | (np.linalg.det(frame) < 0)
+
+
+def _normalized(v):
+    """Blender's normalize_v3_v3: unit vectors and their lengths; zero for (near) zero vectors."""
+    length = np.linalg.norm(v, axis=1)
+    ok = length > 1e-35
+    return np.where(ok[:, None], v / np.where(ok, length, 1.0)[:, None], 0.0), np.where(ok, length, 0.0)
+
+
+def _orthogonalized(m, normalize):
+    """Blender's orthogonalize_m4_stable(m, 1, normalize) on 3x3 matrices (axes as columns): X and Z made
+    square to Y, then to each other by turning both by the same angle. Unnormalized, they keep their area."""
+    y, x, z = m[:, :, 1].copy(), m[:, :, 0].copy(), m[:, :, 2].copy()
+    len_sq = np.einsum("ni,ni->n", y, y)
+    ok = len_sq > 0.0
+    safe = np.where(ok, len_sq, 1.0)
+    x -= y * np.where(ok, np.einsum("ni,ni->n", x, y) / safe, 0.0)[:, None]
+    z -= y * np.where(ok, np.einsum("ni,ni->n", z, y) / safe, 0.0)[:, None]
+    if normalize:
+        y = np.where(ok[:, None], y / np.sqrt(safe)[:, None], y)
+    norm_x, length_x = _normalized(x)
+    norm_z, length_z = _normalized(z)
+    cos = np.einsum("ni,ni->n", norm_x, norm_z)
+    fix = (np.abs(cos) > 1e-4) & (np.abs(cos) < 1.0 - FLT_EPSILON)
+    if fix.any():
+        c, nx, nz = cos[fix], norm_x[fix], norm_z[fix]
+        angle = np.arccos(np.clip(c, -1.0, 1.0))
+        target = angle + (np.pi / 2 - angle) / 2
+        nx = nx - nz * c[:, None]
+        nx = nx * (np.sin(target) / np.linalg.norm(nx, axis=1))[:, None] + nz * np.cos(target)[:, None]
+        nz, _length = _normalized(np.cross(np.cross(nx, nz), nx))
+        norm_x[fix], norm_z[fix] = nx, nz
+        if not normalize:
+            area = np.sqrt(np.sin(angle))
+            x[fix] = nx * (length_x[fix] * area)[:, None]
+            z[fix] = nz * (length_z[fix] * area)[:, None]
+    if normalize:
+        x, z = norm_x, norm_z
+    out = np.empty_like(m)
+    out[:, :, 0], out[:, :, 1], out[:, :, 2] = x, y, z
+    return out
+
+
+def _size_fix_shear(m):
+    """Blender's mat4_to_size_fix_shear on 3x3 matrices: the axes' lengths, evened out to the true volume."""
+    size = np.linalg.norm(m, axis=1)
+    volume = size.prod(axis=1)
+    ok = volume != 0.0
+    factor = np.cbrt(np.abs(np.linalg.det(m) / np.where(ok, volume, 1.0)))
+    return size * np.where(ok, factor, 1.0)[:, None]
+
+
+def _placed(rotscale, loc, post, basis):
+    """Blender's BKE_bone_parent_transform_apply: bones' pose matrices from their parent transforms and
+    basis matrices."""
+    out = rotscale @ basis
+    out[:, :3, 3] = np.einsum("nij,nj->ni", loc[:, :3, :3], basis[:, :3, 3]) + loc[:, :3, 3]
+    if post is not None:
+        out[:, :3, :3] *= post[:, None, :]
+    return out
+
+
 def unscaled(m):
     """The rotation of matrices that may carry scale: columns normalised."""
     return m / np.linalg.norm(m, axis=1, keepdims=True)
@@ -139,7 +211,13 @@ class Rig:
         rest = np.array([np.array(pb.bone.matrix_local) for pb in bones]).reshape(self.count, 4, 4)
         self.rest = rest
         parent_rest = np.where((self.parents >= 0)[:, None, None], rest[np.maximum(self.parents, 0)], np.eye(4))
+        self.parent_rest = parent_rest
         self.rest_rel = np.linalg.inv(parent_rest) @ rest              # rest offset from the parent
+        self.inheritance = self._inheritance()
+        flags = np.array(self.inheritance, dtype=int).reshape(-1, 3)
+        self.inherit_scale, self.hinge, self.no_local_location = flags[:, 0], flags[:, 1] == 1, flags[:, 2] == 1
+        # Bones that take all of their parent's pose (Blender's default): parent pose @ rest offset @ basis.
+        self.plain = (self.inherit_scale == FULL) & ~self.hinge & ~self.no_local_location
         self._matrices = np.empty(self.count * 16, dtype=np.float32)
         self._modes = np.empty(self.count, dtype=np.int32)
         self._buffers = {path: np.empty(self.count * size, dtype=np.float32) for path, size in
@@ -162,6 +240,15 @@ class Rig:
                     and len(obj.pose.bones) == self.count)
         except ReferenceError:
             return False
+
+    def _inheritance(self):
+        """Per bone: its Inherit Scale, and whether Inherit Rotation and Local Location are off."""
+        return [(INHERIT_SCALE[pb.bone.inherit_scale], not pb.bone.use_inherit_rotation,
+                 not pb.bone.use_local_location) for pb in self.obj.pose.bones]
+
+    def same_inheritance(self):
+        """The bones still take their parents' pose the way this rig was built for."""
+        return self.alive() and self._inheritance() == self.inheritance
 
     def same_bones(self):
         """Bones by the same names in the same order: renames too mean rebuilding."""
@@ -243,11 +330,60 @@ class Rig:
         for level in self.chain_levels:
             parent = self.parents[level]
             parent_pose = np.where((parent >= 0)[:, None, None], pose[np.maximum(parent, 0)], np.eye(4))
-            rebuilt = parent_pose @ self.rest_rel[level] @ basis[level]
+            rebuilt = _placed(*self._parent_transforms(level, parent_pose), basis[level])
             pose[level] = np.where(self.constrained[level][:, None, None], evaluated[level], rebuilt)
         self.basis = basis
         self.pose = pose
         return pose
+
+    def _parent_transforms(self, level, parent_pose):
+        """Blender's BKE_bone_parent_transform_calc_from_matrices for a level of bones: the matrix their basis
+        rotation and scale go through, the one their location goes through, and the scale put on their own
+        axes after (Aligned; None when no bone has it). parent_pose: the parents' pose (identity for roots).
+        The same rule Blender evaluates bones by, for every Inherit Scale, Inherit Rotation and Local Location."""
+        offs = self.rest_rel[level]
+        rotscale = parent_pose @ offs
+        if self.plain[level].all():
+            return rotscale, rotscale, None
+        mode, hinge, no_local = self.inherit_scale[level], self.hinge[level], self.no_local_location[level]
+        parented = self.parents[level] >= 0
+        loc = rotscale.copy()
+        post = np.ones((len(level), 3))
+        partial = parented & (hinge | (mode != FULL))
+        if partial.any():
+            pose3 = parent_pose[:, :3, :3]
+            tmat = np.where(hinge[:, None, None], self.parent_rest[level], parent_pose)
+            t3 = tmat[:, :3, :3].copy()
+            turned = partial & ~hinge
+            pick = turned & ((mode == NONE) | (mode == AVERAGE))
+            t3[pick] = _orthogonalized(t3[pick], True)
+            pick = turned & (mode == ALIGNED)
+            if pick.any():
+                square = _orthogonalized(t3[pick], False)
+                size = np.linalg.norm(square, axis=1)
+                t3[pick] = square / np.where(size != 0.0, size, 1.0)[:, None, :]
+                post[pick] = size
+            pick = turned & (mode == NONE_LEGACY)
+            size = np.linalg.norm(t3[pick], axis=1)
+            t3[pick] /= np.where(size != 0.0, size, 1.0)[:, None, :]
+            pick = partial & hinge & (mode == FULL)
+            t3[pick] *= np.linalg.norm(pose3[pick], axis=1)[:, None, :]
+            pick = partial & hinge & (mode == FIX_SHEAR)
+            t3[pick] *= _size_fix_shear(pose3[pick])[:, None, :]
+            pick = partial & hinge & (mode == ALIGNED)
+            post[pick] = _size_fix_shear(pose3[pick])
+            pick = partial & (mode == AVERAGE)
+            t3[pick] *= np.cbrt(np.abs(np.linalg.det(pose3[pick])))[:, None, None]
+            tmat[:, :3, :3] = t3
+            made = tmat @ offs
+            pick = partial & (mode == FIX_SHEAR)
+            made[pick, :3, :3] = _orthogonalized(made[pick, :3, :3], False)
+            rotscale[partial] = made[partial]
+        pick = no_local & parented                      # location along the parent's pose axes, not the bone's
+        loc[pick, :3, :3] = parent_pose[pick, :3, :3]
+        pick = no_local & ~parented                     # a root's: along the armature's axes
+        loc[pick, :3, :3] = np.eye(3)
+        return rotscale, loc, (post if (post != 1.0).any() else None)
 
     def _basis(self):
         """The chain bones' local basis matrices from their keyed channels (rest where unkeyed)."""
@@ -281,7 +417,8 @@ class Rig:
         bones: the rig's bone indices; rotation: their rotations; location and
         move_location: armature-space head positions for the bones Kawaii
         places directly (every bone below a group's root), and which those are. Everything is converted to local basis channels, parents
-        first, and written in one call per channel array."""
+        first, through each bone's parent transform as Blender evaluates it (_parent_transforms), and written
+        in one call per channel array."""
         target_rot = np.zeros((self.count, 3, 3))
         target_rot[bones] = matrices_from_quats(rotation)
         placed = np.zeros(self.count, dtype=bool)
@@ -295,24 +432,28 @@ class Rig:
         for level in self.chain_levels:
             parent = self.parents[level]
             parent_out = np.where((parent >= 0)[:, None, None], out[np.maximum(parent, 0)], np.eye(4))
-            frame = parent_out @ self.rest_rel[level]                   # where the bone's basis starts
-            frame_rot = unscaled(frame[:, :3, :3])
+            rotscale, loc, post = self._parent_transforms(level, parent_out)
+            frame = rotscale[:, :3, :3]                                 # where the bone's basis starts
+            frame_rot = unscaled(frame)
             local = np.einsum("nji,njk->nik", frame_rot, target_rot[level])
-            # Under a parent with uneven scale the frame is skewed, so that is no rotation either. Blender
-            # makes a rotation of whatever the channel holds: predicting the pose from anything else puts
-            # every child's frame, and the head placed through it, off (measured: 22 cm at the tip of a
-            # VRoid hair strand under a 1.32 x 1.28 head scale). So: the nearest rotation, turned so the
-            # bone points where the simulation aimed it, through the skewed frame.
-            local = _aimed(_nearest_rotations(local), frame[:, :3, :3], target_rot[level][:, :, 1])
+            # Under a parent with uneven scale the frame is skewed or stretched, so that is no rotation, or
+            # not the one aimed. Blender makes a rotation of whatever the channel holds: predicting the pose
+            # from anything else puts every child's frame, and the head placed through it, off (measured:
+            # 22 cm at the tip of a VRoid hair strand under a 1.32 x 1.28 head scale). So: the nearest
+            # rotation, turned so the bone points where the simulation aimed it, through the frame.
+            distorted = _distorted(frame)
+            if distorted.any():
+                local[distorted] = _aimed(_nearest_rotations(local[distorted]), frame[distorted],
+                                          target_rot[level][distorted][:, :, 1])
             basis = self.basis[level].copy()
             scale = np.linalg.norm(basis[:, :3, :3], axis=1)
             basis[:, :3, :3] = local * scale[:, None, :]
             moved = placed[level]
             if moved.any():
-                inverse = np.linalg.inv(frame[moved])
+                inverse = np.linalg.inv(loc[moved])
                 point = np.concatenate([head[level[moved]], np.ones((moved.sum(), 1))], axis=1)
                 basis[moved, :3, 3] = np.einsum("nij,nj->ni", inverse, point)[:, :3]
-            out[level] = frame @ basis
+            out[level] = _placed(rotscale, loc, post, basis)
             for k, i in enumerate(level):
                 local_rot[i] = local[k]
                 if moved[k]:

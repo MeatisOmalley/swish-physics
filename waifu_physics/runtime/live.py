@@ -785,6 +785,8 @@ def _armature_changes(scene, depsgraph):
         return
     if not all(rig.same_bones() for rig in current.rigs):
         mark_dirty(scene)
+    elif depsgraph.id_type_updated("ARMATURE") and not all(rig.same_inheritance() for rig in current.rigs):
+        mark_dirty(scene)                      # a bone's Inherit Scale, Inherit Rotation or Local Location
     elif depsgraph.id_type_updated("COLLECTION") or depsgraph.id_type_updated("SCENE") \
             or depsgraph.id_type_updated("OBJECT"):
         if [obj.session_uid for obj in armatures(scene)] != [rig.uid for rig in current.rigs]:

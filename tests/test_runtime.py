@@ -210,6 +210,104 @@ check("under a parent scaled unevenly, every bone's head lands on its simulated 
       max(off) < 0.5, max(off))
 scene.waifu_physics.simulate = False
 
+# --- every Inherit Scale, Inherit Rotation and Local Location: the pose predicted is the pose Blender evaluates
+io = sys.modules["waifu_physics.runtime.io"]
+MODES = ("FULL", "FIX_SHEAR", "ALIGNED", "AVERAGE", "NONE", "NONE_LEGACY")
+strand = [f"strand{i}" for i in range(5)]
+rng = np.random.default_rng(7)
+skew.pose.bones["head"].rotation_mode = "XYZ"
+skew.pose.bones["head"].rotation_euler = (0.3, -0.2, 0.5)
+for name in strand:
+    pb = skew.pose.bones[name]
+    pb.rotation_mode = "XYZ"
+    pb.rotation_euler = rng.uniform(-0.6, 0.6, 3)
+    pb.location = rng.uniform(-0.03, 0.03, 3)
+    pb.scale = rng.uniform(0.8, 1.25, 3)
+
+
+def predicted_error(settings):
+    """settings: (inherit scale, inherit rotation, local location) per strand bone. The largest distance (mm)
+    between an axis end or head Blender evaluates and the one the rig predicts from the parent's pose."""
+    for name, (mode, rotation, local) in zip(strand, settings):
+        bone = skew.data.bones[name]
+        bone.inherit_scale, bone.use_inherit_rotation, bone.use_local_location = mode, rotation, local
+    bpy.context.view_layer.update()
+    rig = io.Rig(skew)
+    evaluated = np.array([np.array(pb.matrix) for pb in skew.pose.bones])
+    worst = 0.0
+    for name in strand:
+        i = rig.index[name]
+        level = np.array([i])
+        basis = np.array(skew.pose.bones[name].matrix_basis)[None]
+        made = io._placed(*rig._parent_transforms(level, evaluated[rig.parents[level]]), basis)[0]
+        worst = max(worst, np.abs(made - evaluated[i])[:3].max() * 1000)
+    return worst
+
+
+combos = [(mode, rotation, local) for mode in MODES for rotation in (True, False) for local in (True, False)]
+errors = {combo: predicted_error([combo] * 5) for combo in combos}
+worst = max(errors, key=errors.get)
+check("each Inherit Scale, with Inherit Rotation and Local Location on or off, is predicted as Blender evaluates it",
+      errors[worst] < 0.01, (worst, errors[worst]))
+mixed = [combos[int(k)] for k in rng.integers(0, len(combos), 5)]
+check("a chain mixing them too", predicted_error(mixed) < 0.01, mixed)
+
+# --- ... and under each, simulated bones land on their points and point where the solver turned them
+def y_axis(name):
+    """The bone's Y axis, from the pose matrix that deforms the mesh."""
+    axis = np.array(skew.pose.bones[name].matrix)[:3, 1]
+    return axis / np.linalg.norm(axis)
+
+
+written = {}
+plain_write = io.Rig.write
+
+
+def recording_write(self, bones, rotation, location=None, move_location=None):
+    """The rotations the last write was given, by bone name."""
+    written.update(zip((self.names[i] for i in bones), io.matrices_from_quats(rotation)))
+    return plain_write(self, bones, rotation, location, move_location)
+
+
+io.Rig.write = recording_write
+for name in strand:
+    pb = skew.pose.bones[name]
+    pb.rotation_euler, pb.location, pb.scale = (0, 0, 0), (0, 0, 0), (1, 1, 1)
+skew.pose.bones["head"].rotation_euler = (0, 0, 0)
+for mode, rotation, local in [("FULL", True, True), ("ALIGNED", True, True), ("FIX_SHEAR", True, True),
+                              ("AVERAGE", True, True), ("NONE", True, True), ("NONE_LEGACY", True, True),
+                              ("FULL", False, True), ("ALIGNED", True, False)]:
+    for name in strand:
+        bone = skew.data.bones[name]
+        bone.inherit_scale, bone.use_inherit_rotation, bone.use_local_location = mode, rotation, local
+    scene.frame_set(1)
+    scene.waifu_physics.simulate = True
+    for frame in range(2, 21):
+        scene.frame_set(frame)
+    bpy.context.view_layer.update()
+    rt = live.runtime(scene)
+    s = rt.system
+    point = {s.bone_names[i]: s.loc[i] / rt.cm for i in range(len(s.loc)) if s.bone_names[i]}
+    off = max(np.linalg.norm(np.array(skew.pose.bones[name].head) - point[name]) * 1000 for name in strand)
+    aim = max(np.degrees(np.arctan2(np.linalg.norm(np.cross(y_axis(name), written[name][:, 1])),
+                                    np.dot(y_axis(name), written[name][:, 1]))) for name in strand)
+    check(f"Inherit Scale {mode}, Inherit Rotation {rotation}, Local Location {local}: heads land on the "
+          f"simulation and bones point where it turned them", off < 0.5 and aim < 0.001, (off, aim))
+    scene.waifu_physics.simulate = False
+
+scene.frame_set(1)
+scene.waifu_physics.simulate = True
+scene.frame_set(2)
+before = live.runtime(scene)
+skew.data.bones["strand2"].inherit_scale = "FULL"
+bpy.context.view_layer.update()
+scene.frame_set(3)
+check("changing a chain bone's Inherit Scale rebuilds the rig it was read into",
+      live.runtime(scene) is not before and live.runtime(scene).rigs[0].inherit_scale[
+          live.runtime(scene).rigs[0].index["strand2"]] == io.FULL)
+scene.waifu_physics.simulate = False
+io.Rig.write = plain_write
+
 addon.unregister()
 check("unregistering removes the frame handler", live._frame_changed not in bpy.app.handlers.frame_change_post)
 finish()
