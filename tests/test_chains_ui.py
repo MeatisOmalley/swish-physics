@@ -103,6 +103,12 @@ bpy.ops.object.mode_set(mode="POSE")
 for pb in skirt_rig.pose.bones:
     pb.select = pb.name.endswith("_1")
 bpy.ops.waifu_physics.link_chains()
+panel_of = lambda bone: bone[:bone.index("_")]
+touches = [panel_of(n) for l in group.links if l.bone_a.endswith("_1") for n in (l.bone_a, l.bone_b)]
+ends = [name for name in sorted(set(touches)) if touches.count(name) == 1]
+for pb in skirt_rig.pose.bones:                          # close the ring: link its two end chains
+    pb.select = pb.name in {f"{end}_1" for end in ends}
+bpy.ops.waifu_physics.link_chains()
 links_before = len(group.links)
 ops = sys.modules["waifu_physics.ui.ops"]
 chosen = lambda: sorted(root for _g, root in ops.selected_chain_keys(skirt_rig))
