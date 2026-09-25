@@ -338,13 +338,19 @@ def _damping_level_set(self, value):
     self.damping = DAMPING_FLOOR * (DAMPING_CEILING / DAMPING_FLOOR) ** fraction
 
 
+# Inertia on a 0-10 scale, like stiffness and damping: 10 times 1 - Kawaii's world damping, the share of the
+# armature's movement the chains lag behind. The lag grows in proportion to it, so the scale is linear.
+# Kawaii's default world damping, 0.8, is 2.
+INERTIA_SPAN = 10.0
+
+
 def _inertia_get(name):
-    return lambda self: 1.0 - getattr(self, name)
+    return lambda self: INERTIA_SPAN * (1.0 - getattr(self, name))
 
 
 def _inertia_set(name):
     def setter(self, value):
-        setattr(self, name, 1.0 - min(max(value, 0.0), 1.0))
+        setattr(self, name, 1.0 - min(max(value, 0.0), INERTIA_SPAN) / INERTIA_SPAN)
     return setter
 
 
@@ -391,12 +397,14 @@ class WaifuPhysicsGroup(PropertyGroup):
         description="How quickly chains return to their pose. 10 snaps back, 0 takes ~10 s")
     world_location_inertia: FloatProperty(
         name="Moving Inertia", get=_inertia_get("world_damping_location"),
-        set=_inertia_set("world_damping_location"), min=0.0, max=1.0, precision=2, options=set(),
-        description="How much chains lag and swing when the armature moves. 0 moves rigidly with it")
+        set=_inertia_set("world_damping_location"), min=0.0, max=INERTIA_SPAN, precision=2, step=10,
+        options=set(),
+        description="How much chains lag and swing when the armature moves. 0 moves rigidly with it, 10 lags fully")
     world_rotation_inertia: FloatProperty(
         name="Rotating Inertia", get=_inertia_get("world_damping_rotation"),
-        set=_inertia_set("world_damping_rotation"), min=0.0, max=1.0, precision=2, options=set(),
-        description="How much chains lag and swing when the armature turns. 0 turns rigidly with it")
+        set=_inertia_set("world_damping_rotation"), min=0.0, max=INERTIA_SPAN, precision=2, step=10,
+        options=set(),
+        description="How much chains lag and swing when the armature turns. 0 turns rigidly with it, 10 lags fully")
     world_damping_location: FloatProperty(
         name="World Damping Location", default=0.8, min=0.0, max=1.0,
         update=_setting_changed("world_damping_location"),

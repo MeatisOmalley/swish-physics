@@ -278,9 +278,12 @@ check("0 is the loosest: ten seconds to settle, still some pull", 0.0 < g.stiffn
 g.stiffness_level = 10.0
 check("10 snaps straight back", g.stiffness > 0.99, g.stiffness)
 g.world_damping_location = 0.8
-check("World Damping Location 0.8 shows as World Location Inertia 0.2", abs(g.world_location_inertia - 0.2) < 1e-6)
-g.world_rotation_inertia = 1.0
-check("World Rotation Inertia 1 is World Damping Rotation 0", g.world_damping_rotation == 0.0)
+check("World Damping Location 0.8 shows as Moving Inertia 2 of 10", abs(g.world_location_inertia - 2.0) < 1e-6,
+      g.world_location_inertia)
+g.world_rotation_inertia = 10.0
+check("Rotating Inertia 10 is World Damping Rotation 0", g.world_damping_rotation == 0.0, g.world_damping_rotation)
+g.world_rotation_inertia = 5.0
+check("... and 5 is 0.5, in proportion", abs(g.world_damping_rotation - 0.5) < 1e-6, g.world_damping_rotation)
 serialize = sys.modules["waifu_physics.data.serialize"]
 saved = serialize.settings_to_dict(g)
 check("saved setups keep Kawaii's values, not the display ones",
