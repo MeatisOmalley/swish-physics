@@ -359,8 +359,8 @@ class WaifuPhysicsGroup(PropertyGroup):
     custom_collider_sets: BoolProperty(options={"HIDDEN"}, update=_structure_changed,
                                        description="The collider sets were edited: the list stands, even empty")
     use_all_colliders: BoolProperty(
-        name="Every Collider", default=True, update=_structure_changed,
-        description="Collide with every collider in the scene. Off picks armatures")
+        name="Collide Against Every Collider", default=True, update=_structure_changed,
+        description="Collide with every collider in the scene. Turn off to choose armatures")
     use_scene_colliders: BoolProperty(
         name="Scene Colliders", default=True, update=_structure_changed,
         description="Collide with scene colliders, like a ground")
@@ -527,7 +527,6 @@ class WaifuPhysicsScene(PropertyGroup):
         items=[("PHYSICS", "Physics", "The chains: their groups and settings", "PHYSICS", 0),
                ("COLLIDERS", "Colliders", "What the chains collide with: colliders on bones and in the scene",
                 "MESH_CAPSULE", 1)])
-    scene_colliders_expanded: BoolProperty(name="Expanded", default=True, description="Show the scene's colliders")
     simulate: BoolProperty(name="Simulate", default=False, update=lambda self, context: _simulate_changed(self),
                            description="Simulate the chains while the timeline plays")
     target_framerate: IntProperty(name="Steps per Second", default=60, min=1, max=480, update=_structure_changed,

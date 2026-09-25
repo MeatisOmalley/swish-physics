@@ -60,7 +60,7 @@ def upgrade_group(group):
     turns on Blender Force Fields, which reads the same Wind fields as Blender does. Returns whether it changed."""
     from . import curves
     changed = False
-    # Every Collider arrived on by default: a group whose collider list was edited before keeps its list.
+    # Collide Against Every Collider arrived on by default: a group whose collider list was edited before keeps its list.
     if not _stored(group, "use_all_colliders") and (group.custom_collider_sets or len(group.collider_sets)):
         group.use_all_colliders = False
         changed = True

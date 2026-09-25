@@ -364,7 +364,7 @@ def sources(group):
 
 
 def group_colliders(group, scene, enabled_only=True):
-    """The colliders a group collides with: with Every Collider, every collider in the scene; otherwise
+    """The colliders a group collides with: with Collide Against Every Collider, every collider in the scene; otherwise
     its armatures' (sources) and, with Scene Colliders, the scene's."""
     def wanted(obj):
         return obj.waifu_physics_collider.enabled or not enabled_only

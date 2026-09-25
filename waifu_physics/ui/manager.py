@@ -491,11 +491,11 @@ def draw(context):
 
     obj = layout.obj
     if obj is None:
-        texts.append((frame.x0 + 10 * s, title.y0 - unit, "Make an armature active", colours["dim"]))
+        texts.append((frame.x0 + 10 * s, title.y0 - unit, "Make an armature active to see its groups.", colours["dim"]))
     elif not len(obj.waifu_physics.groups):
-        texts.append((frame.x0 + 10 * s, title.y0 - 2.4 * unit, "No groups yet: select bones in Pose",
+        texts.append((frame.x0 + 10 * s, title.y0 - 2.4 * unit, "No groups yet. Select bones in Pose Mode,",
                       colours["dim"]))
-        texts.append((frame.x0 + 10 * s, title.y0 - 3.2 * unit, "Mode, then + in the sidebar's Groups",
+        texts.append((frame.x0 + 10 * s, title.y0 - 3.2 * unit, "then click + in the sidebar's Groups.",
                       colours["dim"]))
 
     active = obj.waifu_physics.active_group if obj is not None else -1
