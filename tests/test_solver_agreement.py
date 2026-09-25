@@ -5,7 +5,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, finish, REPO
 
-sys.path.insert(0, REPO)
+if REPO not in sys.path:                  # already there: CI's stand-in package goes before it
+    sys.path.insert(0, REPO)
 import numpy as np
 from waifu_physics.solver import native, step_numpy, uemath as ue
 from waifu_physics.solver.build import Skeleton, GroupSpec, build
