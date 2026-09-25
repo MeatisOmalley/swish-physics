@@ -9,6 +9,7 @@ steps take the same arrays and agree to the bit.
 """
 import ctypes
 import os
+import platform
 import sys
 
 import numpy as np
@@ -16,7 +17,12 @@ import numpy as np
 from . import step_numpy
 
 VERSION = 2
-DLL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "waifu_physics_step.dll")
+# The C step's library for this platform: built on Windows by tools/release.py, on Linux (x64) by the
+# linux-step GitHub workflow. Other platforms use step_numpy.
+LIBRARY = ("waifu_physics_step.dll" if sys.platform == "win32"
+           else "waifu_physics_step.so" if sys.platform.startswith("linux") else None)
+DLL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin",
+                        LIBRARY or "waifu_physics_step")
 
 _P = ctypes.c_void_p
 # (field, dtype) in the order of WaifuPhysicsSystem in step.c.
@@ -103,7 +109,7 @@ def backend():
     global _backend, _reason
     if _backend is not None:
         return _backend
-    if sys.platform != "win32":
+    if LIBRARY is None or platform.machine().lower() not in ("amd64", "x86_64"):
         _reason = "no C step for this platform"
     elif not os.path.exists(DLL_PATH):
         _reason = "the C step has not been built"

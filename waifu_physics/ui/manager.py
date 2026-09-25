@@ -156,7 +156,7 @@ class Layout:
                     rows.append(("links", index, "", group, ""))
                     if group.list_links:
                         rows += [("link", index, k, group, "") for k in range(len(group.links))]
-        self.dragging_chains = drag is not None and drag.kind == "chains"
+        self.dragging_chains = drag is not None and drag.kind in ("chains", "bones")
         footer = unit if self.dragging_chains else 0.0
         note = unit if obj is None else unit * 2.5 if not len(obj.waifu_physics.groups) else 0.0
         spare = unit * (0.6 if self.dragging_chains else 1.0)      # empty space under the rows, to drop on

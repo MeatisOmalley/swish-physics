@@ -8,11 +8,16 @@
  * reproduce Kawaii's golden positions. Points arrive sorted parents first.
  *
  * Build: cl /O2 /fp:precise /LD step.c   (no FMA contraction; see tools/release.py)
+ * Linux:  gcc -O2 -fPIC -shared -ffp-contract=off step.c -lm   (.github/workflows/linux-step.yml)
  */
 #include <math.h>
 #include <string.h>
 
+#ifdef _WIN32
 #define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __attribute__((visibility("default")))
+#endif
 #define WAIFU_PHYSICS_VERSION 2
 
 #define KIND_BRIDGE 3

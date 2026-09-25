@@ -1,0 +1,36 @@
+# The C step for Linux (x64): compiled where Blender's own Linux builds run (glibc 2.28, manylinux_2_28),
+# checked against step_numpy to the bit, and kept as an artifact for tools/release.py to package:
+#   gh run download --name waifu_physics_step-linux-x64 --dir waifu_physics/bin
+name: Linux C step
+on:
+  push:
+    paths: ["waifu_physics/solver/**", "tests/test_solver_agreement.py", ".github/workflows/linux-step.yml"]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    env:
+      PY: /opt/python/cp311-cp311/bin/python
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile
+        # -ffp-contract=off: no FMA contraction, so floats round as Kawaii's C++ (and the Windows build) do.
+        run: |
+          mkdir -p waifu_physics/bin
+          gcc -O2 -fPIC -shared -ffp-contract=off -fno-fast-math -o waifu_physics/bin/waifu_physics_step.so \
+              waifu_physics/solver/step.c -lm
+      - name: Agree with step_numpy
+        # The package imports Blender; the solver does not. A stand-in package holds just the solver.
+        run: |
+          $PY -m pip install --quiet numpy
+          mkdir -p ci/waifu_physics
+          touch ci/waifu_physics/__init__.py
+          ln -s "$PWD/waifu_physics/solver" ci/waifu_physics/solver
+          ln -s "$PWD/waifu_physics/bin" ci/waifu_physics/bin
+          PYTHONPATH=ci $PY -c "from waifu_physics.solver import native; b = native.backend(); assert type(b).__name__ == 'CBackend', native.reason(); print('C step loaded')"
+          PYTHONPATH=ci:. $PY tests/test_solver_agreement.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: waifu_physics_step-linux-x64
+          path: waifu_physics/bin/waifu_physics_step.so
