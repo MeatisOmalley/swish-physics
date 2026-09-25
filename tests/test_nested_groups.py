@@ -136,5 +136,66 @@ drift = max(np.linalg.norm(heads[name] - alone_heads[name]) for name in heads) *
 check("the upper half moves exactly as it does alone: the lower group never feeds back", drift < 1e-6, drift)
 check("a scene without nested groups steps once, as before", alone_tiers == 1, alone_tiers)
 
+# --- bones moved and deleted in runs, as the chain manager's bone rows do
+def select(obj, names):
+    for pb in obj.pose.bones:
+        pb.select = pb.name in names
+
+
+obj = chain("move")
+new_group(obj, {"c0"})
+select(obj, {"c2", "c3"})
+bpy.ops.waifu_physics.chains_to_group(index=-1)
+check("bones moved from the middle of a chain make a group of just that run; the chain keeps the rest, "
+      "above and below", sorted(described(obj)) == [(["c0", "c4"], ["c2"]), (["c2"], ["c4"])], described(obj))
+select(obj, {"c4"})
+bpy.ops.waifu_physics.chains_remove()
+check("deleting a bone removes it and everything below it", sorted(described(obj)) == [(["c0"], ["c2"]), (["c2"], ["c4"])],
+      described(obj))
+reset()
+
+obj = chain("nested")
+new_group(obj, {"c0", "c1", "c2"})
+new_group(obj, {"c3", "c4", "c5"})
+select(obj, {"c0", "c1", "c2"})
+bpy.ops.waifu_physics.chains_remove()
+check("deleting the upper group's chain leaves the group hanging below it", described(obj) == [(["c3"], [])],
+      described(obj))
+reset()
+
+
+def ladder(name):
+    """Two chains a0..a3 and b0..b3 side by side, one group, linked at depths 1 and 2."""
+    data = bpy.data.armatures.new(name)
+    obj = bpy.data.objects.new(name, data)
+    scene.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode="EDIT")
+    hips = data.edit_bones.new("hips")
+    hips.head, hips.tail = (0.0, 0.0, 1.9), (0.0, 0.0, 2.0)
+    for side, x in (("a", -0.1), ("b", 0.1)):
+        parent, head = hips, Vector((x, 0.0, 2.0))
+        for i in range(4):
+            bone = data.edit_bones.new(f"{side}{i}")
+            bone.head, bone.tail = head, head + Vector((0.0, 0.0, -0.1))
+            bone.parent = parent
+            parent, head = bone, bone.tail.copy()
+    bpy.ops.object.mode_set(mode="POSE")
+    group = new_group(obj, {"a0", "b0"})
+    for depth in (1, 2):
+        link = group.links.add()
+        link.bone_a, link.bone_b = f"a{depth}", f"b{depth}"
+    return obj
+
+
+obj = ladder("ladder")
+select(obj, {"a2", "a3", "b2", "b3"})
+bpy.ops.waifu_physics.chains_to_group(index=-1)
+kept, moved = obj.waifu_physics.groups
+pairs = lambda g: sorted((l.bone_a, l.bone_b) for l in g.links)
+check("a link wholly among the moved bones goes with them; one wholly among those left stays",
+      pairs(kept) == [("a1", "b1")] and pairs(moved) == [("a2", "b2")], (pairs(kept), pairs(moved)))
+reset()
+
 addon.unregister()
 finish()

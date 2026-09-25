@@ -12,36 +12,39 @@ from ..data.props import FORCE_CHANNELS, FORCE_KINDS
 from ..runtime import live
 
 
-def _selected_roots(context):
-    """The topmost selected bones: selecting bones acts on their whole chains."""
-    selected = {pb.name for pb in context.selected_pose_bones or ()
-                if pb.id_data == context.object}
+def _topmost(obj, selected):
+    """The bones of a set with no ancestor in it, by name."""
     roots = []
     for name in sorted(selected):
-        bone = context.object.pose.bones[name]
-        parent, covered = bone.parent, False
-        while parent is not None:
-            if parent.name in selected:
-                covered = True
-                break
+        parent = obj.pose.bones[name].parent
+        while parent is not None and parent.name not in selected:
             parent = parent.parent
-        if not covered:
+        if parent is None:
             roots.append(name)
     return roots
 
 
-def _selection_ends(context, roots):
-    """Where the selected chains stop: a root selected with other bones of its chain covers only the run
+def _run_ends(obj, roots, selected):
+    """Where selected runs of bones stop: a root selected with other bones of its chain covers only the run
     selected, so every unselected bone hanging from a selected one is cut off (excluded). A root selected
     alone covers its whole chain."""
-    obj = context.object
-    selected = {pb.name for pb in context.selected_pose_bones or () if pb.id_data == obj}
     cuts = []
     for root in roots:
         below = obj.pose.bones[root].children_recursive
         if any(bone.name in selected for bone in below):
             cuts += [bone.name for bone in below if bone.name not in selected and bone.parent.name in selected]
     return cuts
+
+
+def _selected_roots(context):
+    """The topmost selected bones: selecting bones acts on their whole chains."""
+    return _topmost(context.object, {pb.name for pb in context.selected_pose_bones or ()
+                                     if pb.id_data == context.object})
+
+
+def _selection_ends(context, roots):
+    obj = context.object
+    return _run_ends(obj, roots, {pb.name for pb in context.selected_pose_bones or () if pb.id_data == obj})
 
 
 def _covers(obj, root, excluded, name):
@@ -65,26 +68,56 @@ def _descends(obj, name, ancestor):
     return False
 
 
-def _claim(obj, roots, excluded=(), keep=None):
-    """Take these chains (roots, cut off at excluded) out of every other group, so no bone is simulated
-    twice. A chain they cover is taken over; a chain they start partway down is split: that group ends
-    above them (their root is excluded there), as two Kawaii nodes share a chain. A group left with no
-    chains is removed."""
-    excluded = set(excluded)
-    emptied = []
+def _simulates(obj, group, name):
+    """Does the group simulate this bone: is it under one of its roots, not cut off by its excluded bones?"""
+    own = {bone.name for bone in group.excluded}
+    return any(_covers(obj, root.name, own, name) for root in group.roots)
+
+
+def _take(obj, roots, cuts=(), target=None):
+    """Hand the bones under roots (cut off at cuts) to target, or to no group, out of every other group, so
+    no bone is simulated twice. In each group they come from, a chain wholly inside is taken; a chain they
+    start partway down ends above them (their root is excluded there), as two Kawaii nodes share a chain; and
+    what hung below them stays, from each cut down, as a chain of its own. Links among the taken bones go
+    with them; links half in are removed. Groups left with no chains are removed. The target is not given
+    the bones here (_give): removing emptied groups moves the ones after them, so look it up again. Returns
+    the links removed."""
+    cuts = set(cuts)
+
+    def taken(name):
+        return any(_covers(obj, root, cuts, name) for root in roots)
+
+    broken, emptied = 0, []
+    keep = target.as_pointer() if target is not None else None
     for group in obj.waifu_physics.groups:
-        if group is keep:
+        if group.as_pointer() == keep:
             continue
+        rest = [cut for cut in sorted(cuts) if _simulates(obj, group, cut)]
+        for index in reversed(range(len(group.links))):
+            link = group.links[index]
+            inside = (taken(link.bone_a), taken(link.bone_b))
+            if all(inside) and target is not None:
+                copy = target.links.add()
+                copy.bone_a, copy.bone_b = link.bone_a, link.bone_b
+                copy.compliance, copy.exclude_from_subdivision = link.compliance, link.exclude_from_subdivision
+                group.links.remove(index)
+            elif any(inside):
+                group.links.remove(index)
+                broken += 1
         before = len(group.roots)
         for k in reversed(range(len(group.roots))):
-            existing = group.roots[k].name
-            if any(_covers(obj, root, excluded, existing) for root in roots):
+            if taken(group.roots[k].name):
                 group.roots.remove(k)
-        own = {bone.name for bone in group.excluded}
         for root in roots:
-            if any(_covers(obj, item.name, own, root) for item in group.roots):
+            if _simulates(obj, group, root):
                 group.excluded.add().name = root
-                own.add(root)
+        for cut in rest:
+            if cut not in {item.name for item in group.roots}:
+                group.roots.add().name = cut
+        for k in reversed(range(len(group.excluded))):         # exclusions under none of its roots now
+            name = group.excluded[k].name
+            if not any(_descends(obj, name, item.name) for item in group.roots):
+                group.excluded.remove(k)
         if before and not len(group.roots):
             emptied.append(group.name)
     for name in emptied:
@@ -93,6 +126,47 @@ def _claim(obj, roots, excluded=(), keep=None):
         obj.waifu_physics.groups.remove(index)
     if emptied:
         obj.waifu_physics.active_group = max(0, min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1))
+    return broken
+
+
+def _index_of(obj, name):
+    """A group's index by name, after groups before it may have gone."""
+    return [g.name for g in obj.waifu_physics.groups].index(name)
+
+
+def _give(group, roots, cuts):
+    """Give a group chains from these roots, cut off at the cuts under them."""
+    have = {root.name for root in group.roots}
+    for name in roots:
+        if name not in have:
+            group.roots.add().name = name
+    known = {bone.name for bone in group.excluded}
+    for name in cuts:
+        if name not in known and any(_descends(group.id_data, name, root) for root in roots):
+            group.excluded.add().name = name
+
+
+def _simulated_runs(obj):
+    """The selected bones the armature's groups simulate, as runs: their topmost bones, where the runs end
+    (at the next unselected bone, or where their group already stops), and where their groups stop (their
+    exclusions under them). Topmost bones come in their groups' order."""
+    owner = {}
+    for group in obj.waifu_physics.groups:
+        own = [bone.name for bone in group.excluded]
+        for root in group.roots:
+            for name in chain_links.chain_subtree(obj, root.name, own):
+                owner.setdefault(name, group)
+    picked = {pb.name for pb in obj.pose.bones if pb.select and pb.name in owner}
+    groups = list(obj.waifu_physics.groups)
+
+    def order(name):
+        group = owner[name]
+        roots = [root.name for root in group.roots]
+        return (groups.index(group), roots.index(name) if name in roots else len(roots), name)
+    roots = sorted(_topmost(obj, picked), key=order)
+    stops = sorted({bone.name for root in roots for bone in owner[root].excluded if _descends(obj, bone.name, root)})
+    ends = sorted(set(_run_ends(obj, roots, picked)) | set(stops))
+    return roots, ends, stops, [owner[root] for root in roots]
 
 
 class _PoseBonesOperator:
@@ -185,14 +259,12 @@ class WAIFU_PHYSICS_OT_group_new(bpy.types.Operator):
             return {"CANCELLED"}
         roots = _selected_roots(context)
         ends = _selection_ends(context, roots)
-        _claim(obj, roots, ends)
         group = obj.waifu_physics.groups.add()
-        group.name = group_name(obj, roots)
-        for name in roots:
-            group.roots.add().name = name
-        for name in ends:
-            group.excluded.add().name = name
-        obj.waifu_physics.active_group = len(obj.waifu_physics.groups) - 1
+        group.name = name = group_name(obj, roots)
+        _take(obj, roots, ends, target=group)
+        index = _index_of(obj, name)
+        _give(obj.waifu_physics.groups[index], roots, ends)
+        obj.waifu_physics.active_group = index
         live.mark_dirty(context.scene)
         self.report({"INFO"}, f"New group with {len(roots)} chain{'s' if len(roots) != 1 else ''}")
         return {"FINISHED"}
@@ -211,15 +283,13 @@ class WAIFU_PHYSICS_OT_group_add(_PoseBonesOperator, bpy.types.Operator):
     def execute(self, context):
         obj = context.object
         group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
-        roots = [r for r in _selected_roots(context) if r not in {root.name for root in group.roots}]
+        roots = [r for r in _selected_roots(context) if not _simulates(obj, group, r)]
         ends = _selection_ends(context, roots)
-        _claim(obj, roots, ends, keep=group)
-        for name in roots:
-            group.roots.add().name = name
-        known = {bone.name for bone in group.excluded}
-        for name in ends:
-            if name not in known:
-                group.excluded.add().name = name
+        name = group.name
+        _take(obj, roots, ends, target=group)
+        index = _index_of(obj, name)
+        _give(obj.waifu_physics.groups[index], roots, ends)
+        obj.waifu_physics.active_group = index
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 
@@ -533,14 +603,48 @@ class WAIFU_PHYSICS_OT_links_clear(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_link_remove(bpy.types.Operator):
     bl_idname = "waifu_physics.link_remove"
     bl_label = "Remove Link"
+    bl_description = "Remove this link"
     bl_options = {"REGISTER", "UNDO"}
 
     index: bpy.props.IntProperty()
+    group: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"}, description="The group; -1 is the active one")
 
     def execute(self, context):
         obj = context.object
-        obj.waifu_physics.groups[obj.waifu_physics.active_group].links.remove(self.index)
+        groups = obj.waifu_physics.groups
+        group = groups[self.group if self.group >= 0 else obj.waifu_physics.active_group]
+        if not 0 <= self.index < len(group.links):
+            return {"CANCELLED"}
+        group.links.remove(self.index)
+        if group.active_link >= len(group.links) or group.active_link == self.index:
+            group.active_link = -1
+        elif group.active_link > self.index:
+            group.active_link -= 1
         live.mark_dirty(context.scene)
+        return {"FINISHED"}
+
+
+class WAIFU_PHYSICS_OT_link_pick(bpy.types.Operator):
+    bl_idname = "waifu_physics.link_pick"
+    bl_label = "Pick Link"
+    bl_description = "Pick this link: it shows red in the viewport. Click it again to drop it"
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
+
+    group: bpy.props.IntProperty()
+    index: bpy.props.IntProperty()
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        obj = context.object
+        if not 0 <= self.group < len(obj.waifu_physics.groups):
+            return {"CANCELLED"}
+        group = obj.waifu_physics.groups[self.group]
+        again = obj.waifu_physics.active_group == self.group and group.active_link == self.index
+        obj.waifu_physics.active_group = self.group
+        group.active_link = -1 if again else self.index
         return {"FINISHED"}
 
 
@@ -976,6 +1080,7 @@ class WAIFU_PHYSICS_OT_chains_set(bpy.types.Operator):
     bl_options = {"UNDO", "INTERNAL"}
 
     chains: bpy.props.StringProperty(description="One chain a line: its group's index, '|', its root bone")
+    bones: bpy.props.StringProperty(description="One bone a line, selected too")
     extend: bpy.props.BoolProperty(description="Add them to the selection instead of replacing it")
 
     @classmethod
@@ -991,8 +1096,56 @@ class WAIFU_PHYSICS_OT_chains_set(bpy.types.Operator):
             if index.isdigit() and (int(index), root) in known:
                 wanted.append((int(index), root))
         _select(context, obj, wanted, keep=self.extend)
+        for name in self.bones.splitlines():
+            if name in obj.pose.bones:
+                obj.pose.bones[name].select = True
         if wanted:
             _last_clicked[obj.session_uid] = wanted[-1]
+        return {"FINISHED"}
+
+
+_last_bone = {}                      # armature (session_uid) -> the bone clicked last, for Shift-click ranges
+
+
+class WAIFU_PHYSICS_OT_bone_click(bpy.types.Operator):
+    bl_idname = "waifu_physics.bone_click"
+    bl_label = "Select Bone"
+    bl_description = "Select this bone. Shift selects a range down its chain, Ctrl adds or removes"
+    bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
+
+    group: bpy.props.IntProperty()
+    root: bpy.props.StringProperty(description="The root of the chain the bone is listed under")
+    bone: bpy.props.StringProperty()
+    extend: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+    span: bpy.props.BoolProperty(options={"SKIP_SAVE"})
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == "ARMATURE"
+
+    def execute(self, context):
+        obj = context.object
+        groups = obj.waifu_physics.groups
+        if not 0 <= self.group < len(groups) or self.bone not in obj.pose.bones:
+            return {"CANCELLED"}
+        if context.mode != "POSE" and context.view_layer.objects.active == obj:
+            bpy.ops.object.mode_set(mode="POSE")
+        chain = _chain_bones(obj, groups[self.group], self.root)
+        last = _last_bone.get(obj.session_uid)
+        bones = obj.pose.bones
+        if self.span and last in chain and self.bone in chain:
+            a, b = sorted((chain.index(last), chain.index(self.bone)))
+            for name in chain[a:b + 1]:
+                bones[name].select = True
+        elif self.extend:
+            bones[self.bone].select = not bones[self.bone].select
+        else:
+            for pb in bones:
+                pb.select = pb.name == self.bone
+        if not self.span:
+            _last_bone[obj.session_uid] = self.bone
+        obj.data.bones.active = obj.data.bones[self.bone]
+        obj.waifu_physics.active_group = self.group
         return {"FINISHED"}
 
 
@@ -1087,23 +1240,10 @@ class WAIFU_PHYSICS_OT_group_click(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _remove_chains(obj, chains):
-    """Stop simulating chains, dropping groups they empty. Returns the links removed."""
-    broken, names = 0, [g.name for g in obj.waifu_physics.groups]
-    by_group = {}
-    for index, root in chains:
-        by_group.setdefault(names[index], []).append(root)
-    for name, roots in by_group.items():
-        group = obj.waifu_physics.groups[[g.name for g in obj.waifu_physics.groups].index(name)]
-        broken += _move_chains(obj, group, roots, None)
-        _drop_if_empty(obj, group)
-    return broken
-
-
 class WAIFU_PHYSICS_OT_chains_remove(bpy.types.Operator):
     bl_idname = "waifu_physics.chains_remove"
     bl_label = "Remove Selected Chains"
-    bl_description = "Stop simulating the selected chains"
+    bl_description = "Stop simulating the selected chains. A bone picked partway down removes it and all below"
     bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     def execute(self, context):
@@ -1118,7 +1258,8 @@ class WAIFU_PHYSICS_OT_chains_remove(bpy.types.Operator):
         after = [root for root in order[last + 1:] if root not in gone]
         before = [root for root in order[:last] if root not in gone]
         following = after[0] if after else before[-1] if before else None
-        broken = _remove_chains(obj, chains)
+        roots, _ends, stops, _owners = _simulated_runs(obj)
+        broken = _take(obj, roots, stops)              # each bone and all below it, as far as its group goes
         # As in a file browser, the next chain in line is selected, ready for another Delete.
         found = [(index, root) for index, root in all_chains(obj) if root == following]
         _select(context, obj, found)
@@ -1126,7 +1267,8 @@ class WAIFU_PHYSICS_OT_chains_remove(bpy.types.Operator):
             _last_clicked[obj.session_uid] = found[0]
             obj.waifu_physics.active_group = found[0][0]
         live.mark_dirty(context.scene)
-        self.report({"INFO"}, f"Removed {len(chains)} chains" + (f" and {broken} links" if broken else ""))
+        self.report({"INFO"}, f"Removed {len(roots)} chain{'' if len(roots) == 1 else 's'} (or their ends)"
+                              + (f" and {broken} links" if broken else ""))
         return {"FINISHED"}
 
 
@@ -1193,11 +1335,6 @@ class WAIFU_PHYSICS_OT_group_pick(bpy.types.Operator):
         return {"FINISHED"}
 
 
-def _chains_everywhere(obj):
-    """(group, [roots]) for every group of the armature with chains holding selected bones."""
-    return [(group, roots) for group in obj.waifu_physics.groups for roots in [selected_chains(obj, group)] if roots]
-
-
 class WAIFU_PHYSICS_OT_chains_to_group(bpy.types.Operator):
     bl_idname = "waifu_physics.chains_to_group"
     bl_label = "Move Chains to Group"
@@ -1213,28 +1350,26 @@ class WAIFU_PHYSICS_OT_chains_to_group(bpy.types.Operator):
 
     def execute(self, context):
         obj = context.object
-        found = _chains_everywhere(obj)
-        if not found:
+        roots, ends, _stops, owners = _simulated_runs(obj)
+        if not roots:
             self.report({"WARNING"}, "Select bones of the chains to move")
             return {"CANCELLED"}
         if self.index < 0:
             target = obj.waifu_physics.groups.add()
-            target.name = group_name(obj, [root for _group, roots in found for root in roots])
-            serialize.paste(target, serialize.settings_text(found[0][0]))
+            target.name = group_name(obj, roots)
+            serialize.paste(target, serialize.settings_text(owners[0]))
         else:
             target = obj.waifu_physics.groups[self.index]
-        name, moved, broken = target.name, 0, 0
-        for group, roots in found:
-            if group == target:
-                continue
-            broken += _move_chains(obj, group, roots, target)
-            moved += len(roots)
-        for group, _roots in found:
-            if group != target and group.name in [g.name for g in obj.waifu_physics.groups]:
-                _drop_if_empty(obj, group)
-        obj.waifu_physics.active_group = [g.name for g in obj.waifu_physics.groups].index(name)
+        moving = [root for root, owner in zip(roots, owners) if owner != target]
+        name = target.name
+        bones = sum(len(chain_links.chain_subtree(obj, root, ends)) for root in moving)
+        broken = _take(obj, moving, ends, target=target)
+        index = _index_of(obj, name)
+        _give(obj.waifu_physics.groups[index], moving, ends)
+        obj.waifu_physics.active_group = index
         live.mark_dirty(context.scene)
-        self.report({"INFO"}, f"{moved} chains to '{name}'" + (f"; {broken} links removed" if broken else ""))
+        self.report({"INFO"}, f"{bones} bone{'' if bones == 1 else 's'} to '{name}'"
+                              + (f"; {broken} links removed" if broken else ""))
         return {"FINISHED"}
 
 
@@ -1435,7 +1570,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_pick, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_pick, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bone_click, WAIFU_PHYSICS_OT_link_pick, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_scene_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_bones, WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,
