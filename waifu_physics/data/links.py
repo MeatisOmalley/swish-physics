@@ -1,10 +1,10 @@
 """Link Chains: join neighbouring chains of a group, bone by bone at each depth.
 
-Chains are put in order by their angle around their shared centre, seen along
-the direction they hang, so a skirt's panels link to the panels beside them
-whatever order they were selected in. A Loop also links the last chain back to
-the first (a skirt); a Strip does not (a cape). Each link joins the bones at
-the same depth below the roots -- the roots themselves follow the animation --
+Chains are put side by side (side_by_side), so a skirt's panels link to the
+panels beside them whatever order they were selected in, and never closed into a
+ring: the two end chains are left for the user to link, which closes it. Each
+link joins the bones at the same depth below the roots -- the roots themselves
+follow the animation --
 and the group's Link Tips setting adds links between their tip and
 subdivision points when the chains are built (Kawaii's automatic dummy links).
 """
@@ -81,27 +81,39 @@ def in_a_row(obj, roots):
     return [roots[i] for i in np.argsort(spread @ direction, kind="stable")]
 
 
-def neighbours(obj, names, loop):
-    """[(name, name)] of bones side by side: round their centre, the last closing on the first, when loop (and
-    three or more); else along their row."""
-    ring = ordered(obj, names) if loop else in_a_row(obj, names)
-    found = list(zip(ring, ring[1:]))
-    if loop and len(ring) > 2:
-        found.append((ring[-1], ring[0]))
-    return found
+def side_by_side(obj, names):
+    """Bones (or chain roots) in the order they sit side by side, end to end and never closed. Two orders are
+    tried: round their centre, opened at the widest gap (a skirt, or a cape wrapped round the back), and along
+    the line they spread out on most (a flat cape). The shorter path between neighbours wins: the wrong order
+    zig-zags from one side to the other, so it is always the longer."""
+    if len(names) < 3:
+        return list(names)
+    heads = {name: np.array(obj.pose.bones[name].bone.head_local) for name in names}
+    ring = ordered(obj, names)
+    gaps = [np.linalg.norm(heads[a] - heads[b]) for a, b in zip(ring, ring[1:] + ring[:1])]
+    widest = int(np.argmax(gaps))
+    arc = ring[widest + 1:] + ring[:widest + 1]
+
+    def length(order):
+        return sum(np.linalg.norm(heads[a] - heads[b]) for a, b in zip(order, order[1:]))
+    return min((arc, in_a_row(obj, names)), key=length)
 
 
-def pairs(obj, roots, loop, excluded=()):
+def neighbours(obj, names):
+    """[(name, name)] of bones side by side (side_by_side): the last is not linked back to the first."""
+    order = side_by_side(obj, names)
+    return list(zip(order, order[1:]))
+
+
+def pairs(obj, roots, excluded=()):
     """[(bone, bone)] linking each chain to its neighbour, at every depth below the roots (the roots do not
-    move): a ladder's rungs between neighbouring chains. A loop orders the chains round their centre and closes
-    the last back to the first (a skirt); a strip orders them along their row and leaves both ends open (a cape)."""
-    ring = ordered(obj, roots) if loop else in_a_row(obj, roots)
-    chains = [chain_bones(obj, r, excluded) for r in ring]
+    move): a ladder's rungs between neighbouring chains, in side_by_side order, the two end chains left
+    unlinked. Returns (the pairs, the roots in order)."""
+    order = side_by_side(obj, roots)
+    chains = [chain_bones(obj, r, excluded) for r in order]
     neighbours = list(zip(chains, chains[1:]))
-    if loop and len(chains) > 2:
-        neighbours.append((chains[-1], chains[0]))
     found = []
     for a, b in neighbours:
         for depth in range(1, min(len(a), len(b))):
             found.append((a[depth], b[depth]))
-    return found
+    return found, order

@@ -417,8 +417,6 @@ class WAIFU_PHYSICS_OT_link_bones(_PoseBonesOperator, bpy.types.Operator):
     bl_description = "Link the selected bones to each other. Two bones make one link"
     bl_options = {"REGISTER", "UNDO"}
 
-    loop: bpy.props.BoolProperty(name="Close the Loop", default=False)
-
     @classmethod
     def poll(cls, context):
         return super().poll(context) and len(context.object.waifu_physics.groups) > 0
@@ -432,7 +430,7 @@ class WAIFU_PHYSICS_OT_link_bones(_PoseBonesOperator, bpy.types.Operator):
         if len(inside) < 2:
             self.report({"WARNING"}, "Select at least two bones of the active group's chains")
             return {"CANCELLED"}
-        added = _add_links(group, chain_links.neighbours(obj, inside, self.loop))
+        added = _add_links(group, chain_links.neighbours(obj, inside))
         live.mark_dirty(context.scene)
         outside = len(names) - len(inside)
         self.report({"INFO"}, f"Added {added} link{'' if added == 1 else 's'}"
@@ -443,10 +441,9 @@ class WAIFU_PHYSICS_OT_link_bones(_PoseBonesOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.link_chains"
     bl_label = "Link Whole Chains"
-    bl_description = "Link the selected chains to their neighbours at every bone, like the rungs of a ladder"
+    bl_description = ("Link the selected chains to their neighbours at every bone, like the rungs of a ladder. "
+                      "The two end chains stay unlinked: link them to close a ring")
     bl_options = {"REGISTER", "UNDO"}
-
-    loop: bpy.props.BoolProperty(name="Close the Loop", default=False)
 
     @classmethod
     def poll(cls, context):
@@ -464,9 +461,12 @@ class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
             self.report({"WARNING"}, "Select bones in at least two chains of the active group")
             return {"CANCELLED"}
         excluded = {bone.name for bone in group.excluded}
-        added = _add_links(group, chain_links.pairs(obj, roots, self.loop, excluded))
+        found, order = chain_links.pairs(obj, roots, excluded)
+        added = _add_links(group, found)
         live.mark_dirty(context.scene)
-        self.report({"INFO"}, f"Added {added} links between {len(roots)} chains")
+        ends = (f". The ends are {order[0]} and {order[-1]}: link those two to close a ring"
+                if len(order) > 2 else "")
+        self.report({"INFO"}, f"Added {added} links between {len(roots)} chains{ends}")
         return {"FINISHED"}
 
 

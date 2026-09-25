@@ -1,4 +1,4 @@
-"""Link Chains: neighbours by angle, loops and strips, and links that hold a skirt together."""
+"""Link Chains: neighbours side by side, rings left open, and links that hold a skirt together."""
 import math
 import os
 import sys
@@ -44,34 +44,48 @@ def skirt(name):
     return obj, group
 
 
-def link(obj, mode, selection_order):
+def link(obj, selection_order, bone="2"):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode="POSE")
     for pb in obj.pose.bones:
         pb.select = False
     for k in selection_order:
-        obj.pose.bones[f"panel{k}_2"].select = True        # any bone of a chain selects the chain
-    result = bpy.ops.waifu_physics.link_chains(loop=mode == "LOOP")
+        obj.pose.bones[f"panel{k}_{bone}"].select = True   # any bone of a chain selects the chain
+    result = bpy.ops.waifu_physics.link_chains()
     bpy.ops.object.mode_set(mode="OBJECT")
     return result
 
 
-obj, group = skirt("loop")
-check("Link as Loop runs", link(obj, "LOOP", [3, 0, 5, 1, 4, 2]) == {"FINISHED"})
 panel = lambda name: int(name[5:name.index("_")])
 depth = lambda name: int(name[name.index("_") + 1:])
-pairs = {(min(panel(l.bone_a), panel(l.bone_b)), max(panel(l.bone_a), panel(l.bone_b))) for l in group.links}
-expected = {(k, (k + 1) % PANELS) if k < (k + 1) % PANELS else ((k + 1) % PANELS, k) for k in range(PANELS)}
-check("a loop links each panel to its neighbours by angle, whatever the selection order", pairs == expected,
-      sorted(pairs))
-check("... at every depth below the roots, bone by bone", len(group.links) == PANELS * 3 and
-      all(depth(l.bone_a) == depth(l.bone_b) and depth(l.bone_a) >= 1 for l in group.links), len(group.links))
-check("linking again adds nothing new", link(obj, "LOOP", range(PANELS)) == {"FINISHED"} and len(group.links) == 18)
 
-strip, strip_group = skirt("strip")
-link(strip, "STRIP", [0, 1, 2, 3, 4, 5])
-check("a strip leaves the ends open", len(strip_group.links) == (PANELS - 1) * 3, len(strip_group.links))
-bpy.data.objects.remove(strip)
+
+def linked_panels(group):
+    return {(min(panel(l.bone_a), panel(l.bone_b)), max(panel(l.bone_a), panel(l.bone_b))) for l in group.links}
+
+
+def ring_link(obj, group):
+    """Link every panel round the ring: all of them, then the two end chains."""
+    link(obj, range(PANELS))
+    ends = [k for k in range(PANELS) if sum(k in pair for pair in linked_panels(group)) == 1]
+    link(obj, ends)
+
+
+obj, group = skirt("ring")
+check("Link Whole Chains runs", link(obj, [3, 0, 5, 1, 4, 2]) == {"FINISHED"})
+pairs = linked_panels(group)
+around = {tuple(sorted((k, (k + 1) % PANELS))) for k in range(PANELS)}
+check("a skirt's panels link to the panels beside them, whatever the selection order (no zig-zag)",
+      pairs < around and len(pairs) == PANELS - 1, sorted(pairs))
+check("... at every depth below the roots, bone by bone", len(group.links) == (PANELS - 1) * 3 and
+      all(depth(l.bone_a) == depth(l.bone_b) and depth(l.bone_a) >= 1 for l in group.links), len(group.links))
+check("linking again adds nothing new", link(obj, range(PANELS)) == {"FINISHED"} and len(group.links) == 15)
+ends = [k for k in range(PANELS) if sum(k in pair for pair in pairs) == 1]
+check("the ring is left open: two end chains, side by side", len(ends) == 2 and tuple(sorted(ends)) in around, ends)
+link(obj, ends)
+check("linking the two end chains closes it", linked_panels(group) == around and len(group.links) == PANELS * 3,
+      sorted(linked_panels(group)))
+bpy.data.objects.remove(obj)
 
 # --- links hold the panels' spacing where unlinked panels splay apart
 spread = {}
@@ -80,7 +94,7 @@ for linked in (False, True):
         bpy.data.objects.remove(other)
     obj, group = skirt("run")
     if linked:
-        link(obj, "LOOP", range(PANELS))
+        ring_link(obj, group)
     group.gravity = (3.0, 0.0, -1.0)
     group.stiffness = 0.02
     group.compliance = "CONCRETE"
@@ -109,7 +123,7 @@ check("bridge points appear along the links", bridges == solver_links, (bridges,
 scene.waifu_physics.simulate = False
 
 check("the link overlay is drawing", draw._handle is not None)
-# --- a strip orders its chains along their row: a flat cape links neighbours, never its two edges
+# --- a flat cape: its chains in a straight row, linked along it
 from waifu_physics.data import links as chain_links
 cape_data = bpy.data.armatures.new("cape")
 cape = bpy.data.objects.new("cape", cape_data)
@@ -128,20 +142,46 @@ for i, x in enumerate((0.1, -0.2, 0.2, -0.1, 0.0)):        # made out of order, 
         parent, head = bone, bone.tail.copy()
     cape_roots.append(f"cape{i}_0")
 bpy.ops.object.mode_set(mode="OBJECT")
-row = [pair for pair in chain_links.pairs(cape, cape_roots, loop=False) if pair[0].endswith("_1")]
+row = [pair for pair in chain_links.pairs(cape, cape_roots)[0] if pair[0].endswith("_1")]
 x_of = {f"cape{i}_1": x for i, x in enumerate((0.1, -0.2, 0.2, -0.1, 0.0))}
 steps = sorted(round(abs(x_of[a] - x_of[b]), 3) for a, b in row)
-check("a strip links each chain of a flat row to its neighbour, and not its two edges together",
+check("a flat cape links each chain to its neighbour along the row, and not its two edges together",
       len(row) == 4 and steps == [0.1] * 4, row)
 
+# --- a cape wrapped round the back: an arc, opened at its front gap
+wrap_data = bpy.data.armatures.new("wrap")
+wrap = bpy.data.objects.new("wrap", wrap_data)
+bpy.context.scene.collection.objects.link(wrap)
+bpy.context.view_layer.objects.active = wrap
+bpy.ops.object.mode_set(mode="EDIT")
+neck = wrap_data.edit_bones.new("neck")
+neck.head, neck.tail = (0, 0, 1.5), (0, 0, 1.6)
+degrees = (135, 45, 270, 90, 225, 180, 315)                # 45 to 315 in 45 degree steps, made out of order;
+wrap_roots = []                                            # the front (0 degrees) is open
+for i, angle in enumerate(degrees):
+    a = math.radians(angle)
+    parent, head = neck, Vector((0.15 * math.cos(a), 0.15 * math.sin(a), 1.5))
+    for d in range(3):
+        bone = wrap_data.edit_bones.new(f"wrap{i}_{d}")
+        bone.head, bone.tail = head, head + Vector((0.02 * math.cos(a), 0.02 * math.sin(a), -0.15))
+        bone.parent = parent
+        parent, head = bone, bone.tail.copy()
+    wrap_roots.append(f"wrap{i}_0")
+bpy.ops.object.mode_set(mode="OBJECT")
+found, order = chain_links.pairs(wrap, wrap_roots)
+angle_of = lambda name: degrees[int(name[4:name.index("_")])]
+check("a cape wrapped round the back links neighbours round it, and leaves its front open",
+      sorted((angle_of(order[0]), angle_of(order[-1]))) == [45, 315]
+      and all(abs(angle_of(a) - angle_of(b)) == 45 for a, b in found), [angle_of(r) for r in order])
+
 # --- Link Selected Bones links only the bones selected
-def link_bones(obj, names, loop=False):
+def link_bones(obj, names):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode="POSE")
     for pb in obj.pose.bones:
         pb.select = pb.name in names
     try:
-        result = bpy.ops.waifu_physics.link_bones(loop=loop)
+        result = bpy.ops.waifu_physics.link_bones()
     except RuntimeError:
         result = {"CANCELLED"}
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -154,11 +194,10 @@ check("two selected bones make exactly one link, not their whole chains",
       and {group.links[0].bone_a, group.links[0].bone_b} == {"panel0_2", "panel1_2"},
       [(l.bone_a, l.bone_b) for l in group.links])
 group.links.clear()
-check("three bones with Close the Loop make three links, round the ring",
-      link_bones(obj, ["panel0_1", "panel2_1", "panel4_1"], loop=True) == {"FINISHED"} and len(group.links) == 3)
-group.links.clear()
-check("... and without it two, leaving the ends open",
-      link_bones(obj, ["panel0_1", "panel2_1", "panel4_1"]) == {"FINISHED"} and len(group.links) == 2)
+check("four bones round the skirt make three links between neighbours, the ring left open",
+      link_bones(obj, ["panel0_1", "panel3_1", "panel1_1", "panel2_1"]) == {"FINISHED"}
+      and {tuple(sorted((panel(l.bone_a), panel(l.bone_b)))) for l in group.links} == {(0, 1), (1, 2), (2, 3)},
+      [(l.bone_a, l.bone_b) for l in group.links])
 group.links.clear()
 check("a bone outside the group's chains is not linked",
       link_bones(obj, ["panel0_1", "hips"]) == {"CANCELLED"} and len(group.links) == 0)
