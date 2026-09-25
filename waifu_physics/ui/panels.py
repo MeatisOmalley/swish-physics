@@ -413,10 +413,11 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
 
 def _draw_colliders(layout, context):
     """The Colliders panel, in sections that keep their places whatever is picked: Armature Colliders (with a
-    group's armature active, first how its chains collide: the radius and what they collide against; then a
-    folder per armature with colliders), Add to Bones (one Shape; the active bone, or Generate for the selected
-    ones), Scene Colliders (a button per shape, then the scene's colliders), and last the picked collider's
-    settings, with its Remove. Picking a collider here is selecting it in the viewport, and the other way round."""
+    group's armature active, first how its chains collide: the radius and what they collide against; then the
+    Collider Type and its buttons, for the active bone or Generate for the selected ones; then a folder per
+    armature with colliders), Scene Colliders (a button per shape, then the scene's colliders), and last the
+    picked collider's settings, with its Remove. Both sections put their buttons above their colliders.
+    Picking a collider here is selecting it in the viewport, and the other way round."""
     from ..runtime import live
     settings = context.scene.waifu_physics
     layout = layout.column()
@@ -433,6 +434,7 @@ def _draw_colliders(layout, context):
         if len(groups):
             _chain_collision(body, context, obj, groups[min(obj.waifu_physics.active_group, len(groups) - 1)])
             body.separator()
+        _add_to_bones(body, context, settings)
         armatures = _collider_armatures(context)
         tree = body.box().column(align=True)
         active = colliders.armature_of(context)
@@ -447,27 +449,9 @@ def _draw_colliders(layout, context):
                 if not found:
                     hint = tree.row()
                     hint.separator(factor=1.6)
-                    _dim(hint, "No colliders yet. Use Add to Bones.")
+                    _dim(hint, "None yet. Generate them above.")
         if not armatures:
             _dim(tree, "Select an armature to see its colliders.")
-
-    header, body = layout.panel("waifu_physics_add_bones", default_closed=False)
-    header.label(text="Add to Bones", icon="BONE_DATA")
-    if body is not None:
-        body.prop(settings, "collider_shape", text="")
-        bones = (context.selected_pose_bones or ()) if context.mode == "POSE" else ()
-        again = any(colliders.has_collider(bone.id_data, bone.name) for bone in bones)
-        row = body.row()
-        row.scale_y = 1.3
-        row.operator("waifu_physics.collider_add", text="Active Bone", icon="ADD").shape = settings.collider_shape
-        generate = row.row()
-        generate.active_default = True
-        generate.operator("waifu_physics.colliders_from_bones", text="Regenerate" if again else "Generate",
-                          icon="FILE_REFRESH" if again else "MOD_PHYSICS").shape = settings.collider_shape
-        if bones:
-            _caption(body, "Each selected bone gets one collider,", "fitted to the skin weighted to it.")
-        else:
-            _caption(body, "Select bones in Pose Mode. Each one gets", "a collider fitted to the skin weighted to it.")
 
     header, body = layout.panel("waifu_physics_scene_colliders", default_closed=False)
     header.label(text="Scene Colliders", icon="SCENE_DATA")
@@ -493,6 +477,29 @@ def _draw_colliders(layout, context):
         trash.operator("waifu_physics.collider_remove", text="", icon="TRASH", emboss=False).name = picked.name
         if body is not None:
             _collider_settings(body, picked)
+
+
+def _add_to_bones(layout, context, settings):
+    """Making armature colliders: the Collider Type, then a button for the active bone and Generate (or
+    Regenerate) for the selected ones, with how they are fitted."""
+    split = layout.split(factor=0.5, align=True)       # lined up with Chain Collision Radius above
+    label = split.row()
+    label.alignment = "RIGHT"
+    label.label(text="Collider Type")
+    split.prop(settings, "collider_shape", text="")
+    bones = (context.selected_pose_bones or ()) if context.mode == "POSE" else ()
+    again = any(colliders.has_collider(bone.id_data, bone.name) for bone in bones)
+    row = layout.row()
+    row.scale_y = 1.3
+    row.operator("waifu_physics.collider_add", text="Active Bone", icon="ADD").shape = settings.collider_shape
+    generate = row.row()
+    generate.active_default = True
+    generate.operator("waifu_physics.colliders_from_bones", text="Regenerate" if again else "Generate",
+                      icon="FILE_REFRESH" if again else "MOD_PHYSICS").shape = settings.collider_shape
+    if bones:
+        _caption(layout, "Each selected bone gets one collider,", "fitted to the skin weighted to it.")
+    else:
+        _caption(layout, "Select bones in Pose Mode. Each one gets", "a collider fitted to the skin weighted to it.")
 
 
 def _chain_collision(layout, context, armature, group):
