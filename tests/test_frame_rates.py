@@ -99,8 +99,9 @@ check("interpolated 120 fps frame matches 24 fps at 1/24 second",
 
 scene.render.fps = 24
 scene.frame_set(2)
-check("changing scene FPS invalidates the old bake",
-      live.runtime(scene).cache_mode == "auto" and not live.runtime(scene).cache)
+check("changing scene FPS outdates the old bake (kept until baked again)",
+      live.runtime(scene).cache_mode == "canonical" and live.runtime(scene).outdated == "the frame range or rate changed",
+      live.runtime(scene).outdated)
 
 rig = make_rig(24, keyed_child=True)
 scene.waifu_physics.use_cache = True

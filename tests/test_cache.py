@@ -78,16 +78,26 @@ scene.frame_set(35)
 check("a frame past the baked range shows the unsimulated pose", np.allclose(tip(rig), rest, atol=1e-6),
       (tip(rig), rest))
 check("the bake holds frames 1-20", live.runtime(scene).cached_range() == (1, 20), live.runtime(scene).cached_range())
+scene.frame_set(10)
+baked_10 = tip(rig)
 group.damping = 0.3
-check("changing a setting drops the bake: back to live", not live.is_cached(scene))
-bpy.ops.waifu_physics.cache_toggle()
+check("changing a setting keeps the bake, outdated", live.is_cached(scene)
+      and live.runtime(scene).outdated == "a setting changed", live.runtime(scene).outdated)
+scene.frame_set(9)
+scene.frame_set(10)
+check("... which still plays as it was baked", np.array_equal(tip(rig), baked_10), (tip(rig), baked_10))
+bpy.ops.waifu_physics.cache_all()
+check("Recache (Cache All) bakes it again, up to date", live.is_cached(scene) and live.runtime(scene).outdated is None)
 pb = rig.pose.bones["anchor"]
 pb.keyframe_insert("rotation_quaternion", frame=1)
 bpy.context.view_layer.update()
-check("inserting a keyframe drops the bake", not live.is_cached(scene))
+check("inserting a keyframe keeps the bake, outdated", live.is_cached(scene) and live.runtime(scene).outdated,
+      live.runtime(scene).outdated)
 rig.pose.bones["c1"].keyframe_insert("rotation_quaternion", frame=1)
 bpy.context.view_layer.update()
 rt = live.runtime(scene)
+check("keys on a chain bone rebuild the simulation, and the bake survives it, outdated",
+      live.is_cached(scene) and rt.outdated and rt.cached_range() == (1, 20), (rt.outdated, rt.cached_range()))
 bag = rig.animation_data.action.layers[0].strips[0].channelbag(rig.animation_data.action_slot)
 chain_curves = [c for c in bag.fcurves if c.data_path.startswith('pose.bones["c1"]')]
 check("a newly keyed chain bone's curves are taken over (muted), so no post-frame replay is needed",
@@ -96,11 +106,31 @@ scene.waifu_physics.simulate = False
 check("... and handed back when simulation stops", all(not c.mute for c in chain_curves))
 scene.waifu_physics.simulate = True
 ball = colliders.add(rig, "anchor", "Sphere")
-bpy.ops.waifu_physics.cache_toggle()
+bpy.ops.waifu_physics.cache_all()
 ball.location.x += 0.1
 bpy.context.view_layer.update()
-check("moving a collider clears the cache", len(live.runtime(scene).cache) == 0, len(live.runtime(scene).cache))
-bpy.data.objects.remove(ball)
+check("moving a collider keeps the bake, outdated", live.is_cached(scene)
+      and live.runtime(scene).outdated == "the scene changed", live.runtime(scene).outdated)
+bpy.ops.waifu_physics.cache_all()
+scene.waifu_physics.tab = "COLLIDERS"                # colliders show there, so they can be picked and deleted
+for other in list(bpy.context.view_layer.objects.selected):
+    other.select_set(False)
+ball.select_set(True)
+bpy.context.view_layer.objects.active = ball
+check("deleting a collider in the viewport ...", bpy.ops.object.delete() == {"FINISHED"})
+bpy.context.view_layer.update()
+check("... is noticed: the bake is kept, outdated", live.is_cached(scene) and live.runtime(scene).outdated,
+      live.runtime(scene).outdated)
+bpy.ops.waifu_physics.cache_all()
+check("... and baked again, the chains no longer meet it", len(live.runtime(scene).system.shape_type) == 0,
+      len(live.runtime(scene).system.shape_type))
+scene.frame_end = 25
+scene.frame_set(3)
+check("changing the frame range keeps the bake too, outdated", live.is_cached(scene)
+      and live.runtime(scene).outdated == "the frame range or rate changed", live.runtime(scene).outdated)
+scene.frame_end = 20
+bpy.ops.waifu_physics.cache_all()
+scene.waifu_physics.tab = "PHYSICS"
 
 scene.frame_end = 30
 bpy.ops.waifu_physics.cache_all()

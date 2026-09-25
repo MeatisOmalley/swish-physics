@@ -61,6 +61,12 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
         row.operator("waifu_physics.cache_toggle", text=f"Cached  {span[0]}-{span[1]}" if span else "Cache",
                      icon="DISK_DRIVE", depress=span is not None)
         row.operator("waifu_physics.bake", icon="KEYFRAME")          # greyed until cached (its poll)
+        if span is not None and current.outdated:                   # kept, not thrown away: say so
+            warning = layout.column(align=True)
+            note = warning.box().row()
+            note.alert = True
+            note.label(text=f"Outdated: {current.outdated}", icon="ERROR")
+            warning.operator("waifu_physics.cache_all", text="Recache", icon="FILE_REFRESH")
         if native.backend() is native.step_numpy:
             layout.label(text=f"Using the slower numpy step: {native.reason()}", icon="INFO")
         from . import manager

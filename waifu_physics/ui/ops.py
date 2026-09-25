@@ -505,7 +505,7 @@ class WAIFU_PHYSICS_OT_cache_toggle(bpy.types.Operator):
         scene = context.scene
         if live.is_cached(scene):
             scene.waifu_physics.use_cache = False
-            live.invalidate(scene)
+            live.clear_cache(scene)
             return {"FINISHED"}
         if not scene.waifu_physics.simulate:
             scene.waifu_physics.simulate = True
@@ -553,7 +553,7 @@ class WAIFU_PHYSICS_OT_cache_clear(bpy.types.Operator):
     bl_description = "Forget every cached frame"
 
     def execute(self, context):
-        live.invalidate(context.scene)
+        live.clear_cache(context.scene)
         return {"FINISHED"}
 
 

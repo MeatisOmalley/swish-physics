@@ -50,7 +50,7 @@ def _structure_changed(self, context):
 def _result_changed(self, context):
     """A setting read every frame changed: cached frames are stale."""
     from ..runtime import live
-    live.invalidate()
+    live.invalidate(reason="a setting changed")
 
 
 _propagating = False
@@ -62,7 +62,7 @@ def _setting_changed(name):
     def update(self, context):
         global _propagating
         from ..runtime import live
-        live.invalidate()
+        live.invalidate(reason="a setting changed")
         if _propagating or context is None:
             return
         from ..ui.selection import groups_of_selected

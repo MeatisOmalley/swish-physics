@@ -356,6 +356,10 @@ on_anchor = [obj for obj in colliders.all_of(own) if obj.parent_bone == "anchor"
 check("Regenerate replaces them with one fitted (a Capsule before, a Sphere now)",
       on_anchor == redone and len(redone) == 1 and colliders.values(redone[0])["Shape"] == "Sphere"
       and len(colliders.all_of(own)) == len(before), [obj.name for obj in on_anchor])
+extra = [colliders.add(own, "anchor", "Box") for _ in range(2)]
+redone = colliders.from_bones(own, ["anchor"], "Sphere", replace=True)
+check("Regenerate erases every collider a bone has, however many, for the one fitted",
+      [obj for obj in colliders.all_of(own) if obj.parent_bone == "anchor"] == redone and len(redone) == 1)
 bpy.ops.object.mode_set(mode="OBJECT")
 
 # --- showing and hiding before there is any collider: nothing to do, and nothing is made

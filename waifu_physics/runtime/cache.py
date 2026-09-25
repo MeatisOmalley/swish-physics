@@ -43,11 +43,20 @@ class Snapshot:
             motion.previous = None if previous is None else tuple(v.copy() for v in previous)
 
     def replay(self, rt):
-        """Write the chain bones' channels as they were written for this frame."""
+        """Write the chain bones' channels as they were written for this frame. A bake's frames are laid out
+        as it was made (rt.cache_rigs): each armature is found again by identity, and one whose bones changed
+        since is left alone, since its rows would name other bones."""
         rt.own_update = True
-        for rig, channels in zip(rt.rigs, self.channels):
+        layout = rt.cache_rigs if rt.cache_rigs is not None else [
+            (rig.uid, None, np.flatnonzero(rig.chain)) for rig in rt.rigs]
+        rigs = {rig.uid: rig for rig in rt.rigs}
+        for (uid, count, rows), channels in zip(layout, self.channels):
+            rig = rigs.get(uid)
+            if rig is None:
+                continue                         # no longer simulated, or gone
             bones = rig.obj.pose.bones
-            rows = np.flatnonzero(rig.chain)
+            if count is not None and len(bones) != count:
+                continue
             for path, size in CHANNELS:
                 buffer = rig._buffers[path]
                 bones.foreach_get(path, buffer)
@@ -165,14 +174,17 @@ def relevant_update(rt, depsgraph):
     """Does this depsgraph update change the simulation's result? Our own writes do not.
 
     Colliders are judged by their prints, since our writes move bone-parented
-    colliders too; armatures by whether the update is our own."""
+    colliders too (a collider deleted or unlinked shows only as its collections'
+    update); armatures by whether the update is our own."""
     import bpy
     from ..data import colliders, curves
     rig_objects = {rig.uid for rig in rt.rigs}
     rig_data = {rig.data_uid for rig in rt.rigs}
     own = rt.own_update
     rt.own_update = False
-    colliders_touched = False
+    # A deleted (or unlinked) collider is not among the updates: it is gone. Its collections are, and our own
+    # writes never touch collections, so a collection update is when colliders may have come or gone.
+    colliders_touched = depsgraph.id_type_updated("COLLECTION")
     for update in depsgraph.updates:
         found = update.id
         if isinstance(found, bpy.types.Action):

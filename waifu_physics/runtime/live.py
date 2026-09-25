@@ -38,14 +38,35 @@ _writing = False              # our own writes are in progress (the cache ignore
 _building_cache = False
 
 
-def invalidate(scene=None):
-    """Something that changes the result changed: drop cached frames."""
+def _outdate(current, reason):
+    """What the frames were made from changed. A baked cache (Cache, Cache All) is kept, playing as it was
+    baked, and says it is outdated until it is baked again: an edit, even a mistaken one, never throws away a
+    bake. Frames kept while playing live are dropped: playing on makes them again."""
+    if current.cache_mode == "canonical" and current.cache:
+        if current.outdated is None:
+            current.outdated = reason
+    else:
+        current.cache.clear()
+        current.cache_mode = "auto"
+
+
+def invalidate(scene=None, reason="the setup changed"):
+    """Something that changes the result changed: a bake is outdated, live frames are dropped."""
     if _building_cache:
         return
     for key, current in _runtimes.items():
         if scene is None or key == scene.as_pointer():
-            current.cache.clear()
-            current.cache_mode = "auto"
+            _outdate(current, reason)
+
+
+def clear_cache(scene):
+    """Drop the scene's cached frames, baked or not (the Cache button turned off)."""
+    current = _runtimes.get(scene.as_pointer())
+    if current is not None:
+        current.cache.clear()
+        current.cache_mode = "auto"
+        current.cache_rigs = None
+        current.outdated = None
 
 
 def is_cached(scene):
@@ -137,6 +158,8 @@ class Runtime:
         self.cache = {}                   # frame -> cache.Snapshot
         self.cache_mode = "auto"
         self.cache_key = frame_cache.key(scene)
+        self.cache_rigs = None            # a bake's armatures: (session_uid, bone count, chain rows), per snapshot
+        self.outdated = None              # why a bake no longer matches the scene, or None
         self.own_update = False           # the next depsgraph update is our own write
         self.collider_prints = {}
 
@@ -550,13 +573,20 @@ def runtime(scene, rebuild=False):
     changed_clock = current is not None and current.cache_key != frame_cache.key(scene)
     stale = current is not None and not current.alive()
     if current is None or rebuild or changed_clock or stale or key in _dirty or "all" in _dirty:
-        if current is not None:
-            current.release()
+        previous = current
+        if previous is not None:
+            previous.release()
         for obj in armatures(scene):
             bone_refs.repair(obj)          # renamed bones followed before the groups are read
         _dirty.discard(key)
         _dirty.discard("all")
         current = _runtimes[key] = Runtime(scene)
+        if previous is not None and previous.cache_mode == "canonical" and previous.cache:
+            # A bake outlives the simulation it was made with: it plays on, outdated.
+            current.cache, current.cache_mode = previous.cache, "canonical"
+            current.cache_rigs, current.collider_prints = previous.cache_rigs, previous.collider_prints
+            current.outdated = previous.outdated or (
+                "the frame range or rate changed" if changed_clock else "the chains changed")
     return current
 
 
@@ -629,6 +659,8 @@ def bake_cache(scene, progress=None):
         rt.collider_prints = frame_cache.collider_prints(rt)
         rt.cache_key = frame_cache.key(scene)
         rt.cache_mode = "canonical"
+        rt.cache_rigs = [(rig.uid, len(rig.obj.pose.bones), np.flatnonzero(rig.chain)) for rig in rt.rigs]
+        rt.outdated = None
         rt.last_frame = None
     except BaseException:
         current = _runtimes.get(key)
@@ -676,7 +708,7 @@ def _frame_changing(scene, depsgraph=None):
     dirty = key in _dirty or "all" in _dirty
     frame = scene.frame_current
     cached = settings.use_cache and current.cache_mode == "canonical"
-    if not _building_cache and cached and current.cache_key == frame_cache.key(scene) and not dirty:
+    if not _building_cache and cached:                    # a bake plays even when outdated
         snapshot = current.cache.get(frame)
         if snapshot is not None:
             snapshot.replay(current)
@@ -714,9 +746,6 @@ def _frame_changed(scene, depsgraph=None):
             rt.step(scene, frames)
         rt.last_frame = frame
         return
-    if rt.cache_key != frame_cache.key(scene):
-        rt.cache.clear()
-        rt.cache_key = frame_cache.key(scene)
     snapshot = rt.cache.get(frame)
     if snapshot is not None:
         if rt.cache_mode != "canonical":
@@ -773,8 +802,7 @@ def _depsgraph_updated(scene, depsgraph):
     if current is None:
         return
     if frame_cache.relevant_update(current, depsgraph):
-        current.cache.clear()
-        current.cache_mode = "auto"
+        _outdate(current, "the scene changed")
         for rig in current.rigs:
             rig.refresh_keyed()
         if current.keys_changed():

@@ -188,7 +188,7 @@ check("procedural wind bakes into the cache and scrubs back exactly",
       live.is_cached(scene) and all(np.array_equal(again[f], baked[f]) for f in again))
 check("... and the wind moved it", float(np.abs(baked[30] - rest).max()) > 0.01)
 group.forces[0].sway = 0.5
-check("changing a force setting drops the bake", not live.is_cached(scene))
+check("changing a force setting keeps the bake, outdated", live.is_cached(scene) and live.runtime(scene).outdated)
 bpy.ops.waifu_physics.cache_toggle()
 bpy.ops.object.effector_add(type="WIND")
 bpy.context.view_layer.update()
@@ -197,7 +197,7 @@ check("baked again", live.is_cached(scene))
 field = [o for o in scene.objects if o.field and o.field.type == "WIND"][-1]
 field.location.x += 1.0
 bpy.context.view_layer.update()
-check("moving a wind field drops the bake", not live.is_cached(scene))
+check("moving a wind field keeps the bake, outdated", live.is_cached(scene) and live.runtime(scene).outdated)
 scene.waifu_physics.simulate = False
 scene.waifu_physics.use_cache = False
 
