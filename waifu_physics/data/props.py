@@ -405,7 +405,7 @@ class WaifuPhysicsGroup(PropertyGroup):
         name="World Damping Rotation", default=0.8, min=0.0, max=1.0,
         update=_setting_changed("world_damping_rotation"),
         description="How little chains react to the armature turning")
-    radius: FloatProperty(name="Collision Radius", default=0.03, min=0.0, subtype="DISTANCE", precision=4,
+    radius: FloatProperty(name="Chain Collision Radius", default=0.03, min=0.0, subtype="DISTANCE", precision=4,
                           update=_setting_changed("radius"),
                           description="Size of the collision sphere around each chain point")
     limit_angle: FloatProperty(name="Joint Limit", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
