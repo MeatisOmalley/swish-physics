@@ -141,6 +141,8 @@ def group_from_dict(group, data):
     """Fill an empty group. Returns the collider set armatures it names that this file lacks."""
     group.name = data.get("name", group.name)
     settings_from_dict(group, data.get("settings", {}))
+    if "use_all_colliders" in data.get("settings", {}):    # stored even when it is the default, so the
+        group.use_all_colliders = data["settings"]["use_all_colliders"]   # upgrade below leaves it
     for name in data.get("roots", ()):
         group.roots.add().name = name
     for name in data.get("excluded", ()):

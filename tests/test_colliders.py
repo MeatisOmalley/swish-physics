@@ -144,6 +144,17 @@ expected = (rig.matrix_world.inverted() @ ball.matrix_world).translation * CM
 check("another armature's collider joins the group through a collider set", len(shapes) == 1, len(shapes))
 check("... in the group's armature space", np.allclose(rt.system.shape_loc[0], expected, atol=1e-4),
       (rt.system.shape_loc[0], tuple(expected)))
+g.collider_sets.clear()
+g.custom_collider_sets = False
+scene.frame_set(3)
+check("with Every Collider (the default) a group collides with every armature's colliders, listed or not",
+      g.use_all_colliders and len(live.runtime(scene).system.shape_type) == 1, len(live.runtime(scene).system.shape_type))
+g.use_all_colliders = False
+scene.frame_set(4)
+check("... and off, only its armatures' (its own and its parent's, by default)",
+      len(live.runtime(scene).system.shape_type) == 0, len(live.runtime(scene).system.shape_type))
+g.collider_sets.add().armature = body
+g.use_all_colliders = True
 scene.waifu_physics.simulate = False
 
 # --- a scene collider, on no armature, is a ground every group stands on
@@ -164,11 +175,13 @@ frame_cache = sys.modules["waifu_physics.runtime.cache"]
 before = frame_cache.collider_prints(rt)
 ground.location.z = 1.8
 check("moving a scene collider is a collider edit (the cache is redone)", frame_cache.collider_prints(rt) != before)
+g.use_all_colliders = False
 g.use_scene_colliders = False
 scene.frame_set(60)
 check("a group can leave the scene's colliders out", len(live.runtime(scene).system.shape_type) == 1,
       len(live.runtime(scene).system.shape_type))
 g.use_scene_colliders = True
+g.use_all_colliders = True
 scene.waifu_physics.tab = "COLLIDERS"
 check("on the Colliders tab the colliders show", ground.visible_get())
 scene.waifu_physics.tab = "PHYSICS"

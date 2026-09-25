@@ -46,12 +46,24 @@ def migrate():
     return moved
 
 
+def _stored(group, name):
+    """Has the group ever stored this setting (a value read back is otherwise only the default)?"""
+    try:
+        return name in group.bl_system_properties_get()
+    except (AttributeError, TypeError):
+        return True
+
+
 def upgrade_group(group):
     """Kawaii's Simple External Force and scene wind, from before every force lived in the Forces list: the
     simple force becomes a Push force (it adds the same push each step), and scene wind or Kawaii's Wind force
     turns on Blender Force Fields, which reads the same Wind fields as Blender does. Returns whether it changed."""
     from . import curves
     changed = False
+    # Every Collider arrived on by default: a group whose collider list was edited before keeps its list.
+    if not _stored(group, "use_all_colliders") and (group.custom_collider_sets or len(group.collider_sets)):
+        group.use_all_colliders = False
+        changed = True
     simple = tuple(group.simple_external_force)
     if any(value != 0.0 for value in simple):
         force = group.forces.add()

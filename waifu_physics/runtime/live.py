@@ -326,15 +326,11 @@ class Runtime:
         s.resolve_settings()
 
     def _shapes(self, g, scene):
-        """This frame's colliders for a group (colliders.sources, and the scene's), in its armature's space
-        (Kawaii's Update*Limits, once a frame)."""
+        """This frame's colliders for a group (colliders.group_colliders), in its armature's space (Kawaii's
+        Update*Limits, once a frame)."""
         rig, props = self._group(g)
-        found = [obj for armature in collider_objects.sources(props)
-                 for obj in collider_objects.colliders_of(armature)]
-        if props.use_scene_colliders:
-            found += collider_objects.scene_colliders(scene)
         shapes = []
-        for obj in found:
+        for obj in collider_objects.group_colliders(props, scene):
             shape = collider_objects.shape_of(obj, rig.obj, self.cm)
             if shape is not None:
                 shapes.append(shape)

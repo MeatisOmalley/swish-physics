@@ -35,6 +35,9 @@ _boxes = {}                # area -> (x0, y0, x1, y1), the box select being drag
 _shown = {}                # area -> session_uid of the armature the manager shows
 _nav_closed = set()        # areas whose armature pane is collapsed to its arrow
 _pan = {}                  # area -> trackpad scrolling not yet a whole row
+_last_group_press = {}     # area -> (group index, time): a second press on it soon after is a double-click
+_editing = {}              # area -> Editing: a group's name being typed in its row
+_addon_keymaps = []        # (keymap, item): the viewport's own double-click and F2 over a group's row
 
 
 def is_open(area):
@@ -338,6 +341,7 @@ def _palette(context):
         "danger": (0.62, 0.18, 0.18, 1.0),
         "edge": tuple(item.inner_sel[:3]) + (0.85,),
         "edge_held": tuple(min(c + 0.2, 1.0) for c in item.inner_sel[:3]) + (1.0,),
+        "field": tuple(ui.wcol_text.inner[:3]) + (1.0,),
     }
 
 
@@ -522,9 +526,23 @@ def draw(context):
                    or hovered.kind != "fold" or hovered.group != row.group else colours["text"])
             is_active = row.group == active
             _folder(canvas, row.x0 + 22 * s, mid, s, colours["sel"] if is_active else colours["dim"])
-            name = row.text if group.enabled else row.text + "  (off)"
-            label(row, name, row.x0 + 41 * s, colours["text"] if is_active or group.enabled else colours["dim"],
-                  room=row.x1 - row.x0 - 80 * s)
+            editing = _editing.get(key)
+            if editing is not None and editing.group == row.group:     # the name being typed, in a field
+                x0, x1 = row.x0 + 37 * s, row.x1 - 30 * s
+                canvas.rect(x0, row.y0 + 2 * s, x1, row.y1 - 2 * s, colours["field"], radius=3 * s)
+                canvas.outline(x0, row.y0 + 2 * s, x1, row.y1 - 2 * s, colours["edge"])
+                shown_text = _fit(editing.text, x1 - x0 - 12 * s) if editing.text else ""
+                width = blf.dimensions(0, shown_text)[0]
+                if editing.selected and shown_text:
+                    canvas.rect(x0 + 4 * s, row.y0 + 4 * s, x0 + 6 * s + width, row.y1 - 4 * s, colours["sel"])
+                else:
+                    canvas.rect(x0 + 5 * s + width, row.y0 + 5 * s, x0 + 6 * s + width, row.y1 - 5 * s,
+                                colours["text"])
+                label(row, shown_text, x0 + 5 * s, colours["text_sel"] if editing.selected else colours["text"])
+            else:
+                name = row.text if group.enabled else row.text + "  (off)"
+                label(row, name, row.x0 + 41 * s, colours["text"] if is_active or group.enabled else colours["dim"],
+                      room=row.x1 - row.x0 - 80 * s)
             label(row, row.count, count_right, colours["dim"], right=True)
         else:
             label(row, row.text, row.x0 + 41 * s, text_colour, room=row.x1 - row.x0 - 75 * s)
@@ -652,6 +670,18 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
             else:
                 _call("chain_click", group=item.group, root=item.root)
         elif kind == "group":
+            import time
+            key = context.area.as_pointer()
+            now, last = time.monotonic(), _last_group_press.get(key)
+            _last_group_press[key] = (item.group, now)
+            window = context.preferences.inputs.mouse_double_click_time / 1000.0
+            if last is not None and last[0] == item.group and now - last[1] <= window and not (event.ctrl or event.shift):
+                # A double-click renames. Detected here: the gizmo takes the first press, so the second may
+                # never reach a keymap as a double-click.
+                _last_group_press.pop(key, None)
+                _pressed.pop(key, None)
+                bpy.ops.waifu_physics.group_rename("INVOKE_DEFAULT", index=item.group)
+                return {"FINISHED"}
             _call("group_click", index=item.group, extend=event.ctrl or event.shift)
         elif kind in ("empty", "frame") and obj is not None:
             self.box = event.shift or event.ctrl       # a box select, adding with Shift or Ctrl; a click selects none
@@ -833,39 +863,82 @@ class WAIFU_PHYSICS_OT_manager_key(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class Editing:
+    """A group's name being typed in its row: the text, and whether it is all selected (typing replaces it)."""
+    __slots__ = ("group", "text", "selected")
+
+    def __init__(self, group, text):
+        self.group, self.text, self.selected = group, text, True
+
+
 class WAIFU_PHYSICS_OT_group_rename(bpy.types.Operator):
+    """Edit a group's name in its row: double-click it, or F2 over it. Enter renames, Esc keeps the old name,
+    a click elsewhere renames too."""
     bl_idname = "waifu_physics.group_rename"
     bl_label = "Rename Group"
     bl_description = "Rename a group"
     bl_options = {"REGISTER", "UNDO"}
 
     index: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
-    name: bpy.props.StringProperty(name="Name")
 
     @classmethod
     def poll(cls, context):
-        return shown(context) is not None
+        return context.area is not None and shown(context) is not None
 
     def invoke(self, context, event):
         obj = shown(context)
+        key = context.area.as_pointer()
         if self.index < 0:
-            if not is_open(context.area):
+            if not is_open(context.area) or context.region is None or context.region.type != "WINDOW":
                 return {"PASS_THROUGH"}
             item = layout_for(context).hit(event.mouse_region_x, event.mouse_region_y)
             if item is None or item.kind != "group":
-                return {"PASS_THROUGH"}           # a double-click elsewhere is a click
+                return {"PASS_THROUGH"}           # not over a group's row: the viewport's own double-click
             self.index = item.group
-        if not 0 <= self.index < len(obj.waifu_physics.groups):
+        if not 0 <= self.index < len(obj.waifu_physics.groups) or key in _editing:
             return {"CANCELLED"}
-        self.name = obj.waifu_physics.groups[self.index].name
-        return context.window_manager.invoke_props_dialog(self, title="Rename Group")
+        _editing[key] = Editing(self.index, obj.waifu_physics.groups[self.index].name)
+        self.area = context.area
+        context.window_manager.modal_handler_add(self)
+        context.area.tag_redraw()
+        return {"RUNNING_MODAL"}
 
-    def execute(self, context):
+    def _finish(self, context, keep):
+        key = self.area.as_pointer()
+        editing = _editing.pop(key, None)
+        self.area.tag_redraw()
         obj = shown(context)
-        if not 0 <= self.index < len(obj.waifu_physics.groups) or not self.name.strip():
+        name = editing.text.strip() if editing is not None else ""
+        if not keep or obj is None or not name or not 0 <= editing.group < len(obj.waifu_physics.groups):
+            return False
+        obj.waifu_physics.groups[editing.group].name = name
+        return True
+
+    def modal(self, context, event):
+        editing = _editing.get(self.area.as_pointer())
+        if editing is None:
             return {"CANCELLED"}
-        obj.waifu_physics.groups[self.index].name = self.name.strip()
-        return {"FINISHED"}
+        if event.value != "PRESS":
+            return {"RUNNING_MODAL"} if event.type not in ("MOUSEMOVE", "INBETWEEN_MOUSEMOVE", "TIMER") \
+                else {"PASS_THROUGH"}
+        if event.type in ("RET", "NUMPAD_ENTER"):
+            return {"FINISHED"} if self._finish(context, True) else {"CANCELLED"}
+        if event.type == "ESC":
+            self._finish(context, False)
+            return {"CANCELLED"}
+        if event.type in ("LEFTMOUSE", "RIGHTMOUSE", "MIDDLEMOUSE"):
+            renamed = self._finish(context, True)       # a click elsewhere keeps what was typed, as Blender's fields
+            return ({"FINISHED"} if renamed else {"CANCELLED"}) | {"PASS_THROUGH"}
+        if event.type == "BACK_SPACE":
+            editing.text = "" if editing.selected or event.ctrl else editing.text[:-1]
+            editing.selected = False
+        elif event.type == "A" and event.ctrl:
+            editing.selected = True
+        elif event.unicode and not (event.ctrl or event.alt or event.oskey):
+            editing.text = event.unicode if editing.selected else editing.text + event.unicode
+            editing.selected = False
+        self.area.tag_redraw()
+        return {"RUNNING_MODAL"}
 
 
 CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIFU_PHYSICS_OT_manager_key,
@@ -876,7 +949,8 @@ CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIF
 @bpy.app.handlers.persistent
 def _file_loaded(_dummy):
     """A new file brings new areas: the manager starts closed."""
-    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes, _shown, _nav_closed):
+    for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes, _shown, _nav_closed,
+                  _last_group_press, _editing):
         state.clear()
 
 
@@ -884,9 +958,22 @@ def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
     bpy.app.handlers.load_post.append(_file_loaded)
+    # A still double-click (the mouse not moved since the first click ended) reaches no gizmo, so the viewport's
+    # keymap has it too; over anything but a group's row the operator passes it on.
+    keyconfig = bpy.context.window_manager.keyconfigs.addon
+    if keyconfig is not None:
+        keymap = keyconfig.keymaps.new(name="3D View", space_type="VIEW_3D")
+        for event, value in (("LEFTMOUSE", "DOUBLE_CLICK"), ("F2", "PRESS")):
+            _addon_keymaps.append((keymap, keymap.keymap_items.new("waifu_physics.group_rename", event, value)))
 
 
 def unregister():
+    for keymap, item in _addon_keymaps:
+        try:
+            keymap.keymap_items.remove(item)
+        except (ReferenceError, RuntimeError):
+            pass
+    _addon_keymaps.clear()
     if _file_loaded in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_file_loaded)
     for cls in reversed(CLASSES):

@@ -38,7 +38,7 @@ def apply(group, key):
 # presets folder, so every file can use them. The group's on/off switch and what it collides with are not
 # settings a preset should set.
 FOLDER = "presets/waifu_physics/groups"
-_NOT_PRESET = {"enabled", "use_scene_colliders", "custom_collider_sets"}
+_NOT_PRESET = {"enabled", "use_all_colliders", "use_scene_colliders", "custom_collider_sets"}
 
 
 def folder(create=False):

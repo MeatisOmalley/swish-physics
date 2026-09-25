@@ -494,6 +494,9 @@ def _chain_collision(layout, context, armature, group):
         _dim(layout, f"Edits go to all {len(shared)} selected groups", "INFO")
     _setting_row(layout.column(align=True), group, "radius")
     layout.separator(factor=0.5)
+    layout.prop(group, "use_all_colliders")
+    if group.use_all_colliders:
+        return
     layout.label(text="Collides with the colliders of")
     column = layout.column(align=True)
     if group.custom_collider_sets or len(group.collider_sets):

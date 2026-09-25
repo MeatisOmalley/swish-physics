@@ -363,6 +363,19 @@ def sources(group):
     return default_sources(group.id_data)
 
 
+def group_colliders(group, scene, enabled_only=True):
+    """The colliders a group collides with: with Every Collider, every collider in the scene; otherwise
+    its armatures' (sources) and, with Scene Colliders, the scene's."""
+    def wanted(obj):
+        return obj.waifu_physics_collider.enabled or not enabled_only
+    if group.use_all_colliders:
+        return [obj for obj in scene.objects if is_collider(obj) and wanted(obj)]
+    found = [obj for armature in sources(group) for obj in all_of(armature) if wanted(obj)]
+    if group.use_scene_colliders:
+        found += scene_colliders(scene, enabled_only)
+    return found
+
+
 def armature_of(context):
     """The armature whose colliders the panel shows: the active armature, or a selected collider's."""
     obj = context.object
