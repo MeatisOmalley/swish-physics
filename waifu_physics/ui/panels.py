@@ -386,10 +386,14 @@ def _collider_row(layout, obj, picked):
         where.label(text=colliders.short_name(obj.parent_bone) if obj.parent_type == "BONE" else obj.parent.name)
 
 
+SCENE_SHAPES = (("Plane", "Ground"), ("Sphere", "Sphere"), ("Capsule", "Capsule"), ("Box", "Box"))
+
+
 def _draw_colliders(layout, context):
-    """The Colliders page, in three sections: the colliders (a folder per armature with colliders, then the
-    scene's; + and - on the right, the eye in the header), the picked one's settings, and generating them from
-    bones. Picking a collider here is selecting it in the viewport, and the other way round."""
+    """The Colliders page, in sections that keep their places whatever is picked: the colliders (a folder per
+    armature with colliders, then the scene's; the eye in the header), adding to the scene (a button per shape),
+    adding to bones (one Shape; the active bone, or Generate for the selected ones), then the picked collider's
+    settings, with its Remove. Picking a collider here is selecting it in the viewport, and the other way round."""
     from ..runtime import live
     settings = context.scene.waifu_physics
     layout = layout.column()
@@ -405,13 +409,7 @@ def _draw_colliders(layout, context):
     eye.prop(settings, "show_colliders", text="", toggle=True,
              icon="HIDE_OFF" if settings.show_colliders else "HIDE_ON")
     if body is not None:
-        row = body.row()
-        tree = row.box().column(align=True)
-        side = row.column(align=True)
-        side.menu("WAIFU_PHYSICS_MT_collider_add", text="", icon="ADD")
-        remove = side.row()
-        remove.enabled = picked is not None
-        remove.operator("waifu_physics.collider_remove", text="", icon="REMOVE").name = picked.name if picked else ""
+        tree = body.box().column(align=True)
         active = colliders.armature_of(context)
         for rig in _collider_armatures(context):
             found = colliders.all_of(rig)
@@ -420,40 +418,61 @@ def _draw_colliders(layout, context):
                 for obj in found:
                     _collider_row(tree, obj, picked)
                 if not found:
-                    _dim(tree, "      Select bones, then Generate below")
+                    _dim(tree, "      None yet: Add to Bones, below")
             tree.separator(factor=0.6)
         found = colliders.scene_colliders(context.scene, enabled_only=False)
         if _folder_row(tree, settings, "scene_colliders_expanded", "Scene", "SCENE_DATA", len(found)):
             for obj in found:
                 _collider_row(tree, obj, picked)
             if not found:
-                _dim(tree, "      + adds a ground or a shape")
+                _dim(tree, "      None yet: Add to Scene, below")
+
+    header, body = layout.panel("waifu_physics_add_scene", default_closed=False)
+    header.label(text="Add to Scene", icon="SCENE_DATA")
+    if body is not None:
+        grid = body.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True)
+        grid.scale_y = 1.3
+        for shape, label in SCENE_SHAPES:
+            grid.operator("waifu_physics.scene_collider_add", text=label,
+                          icon=colliders.SHAPE_ICONS[shape]).shape = shape
+        _caption(body, "At the 3D cursor. Every group collides", "with the scene's colliders.")
+
+    header, body = layout.panel("waifu_physics_add_bones", default_closed=False)
+    header.label(text="Add to Bones", icon="BONE_DATA")
+    if body is not None:
+        body.prop(settings, "collider_shape", text="")
+        bones = (context.selected_pose_bones or ()) if context.mode == "POSE" else ()
+        again = any(colliders.has_collider(bone.id_data, bone.name) for bone in bones)
+        row = body.row()
+        row.scale_y = 1.3
+        row.operator("waifu_physics.collider_add", text="Active Bone", icon="ADD").shape = settings.collider_shape
+        generate = row.row()
+        generate.active_default = True
+        generate.operator("waifu_physics.colliders_from_bones", text="Regenerate" if again else "Generate",
+                          icon="FILE_REFRESH" if again else "MOD_PHYSICS").shape = settings.collider_shape
+        if bones:
+            _caption(body, "Each selected bone gets one collider,", "fitted to the skin weighted to it.")
+        else:
+            _caption(body, "Pose Mode: select bones. Each gets a", "collider fitted to the skin weighted to it.")
 
     if picked is not None:
         header, body = layout.panel("waifu_physics_collider", default_closed=False)
         header.label(text=picked.name, icon=colliders.SHAPE_ICONS.get(
             (colliders.values(picked) or {}).get("Shape"), "MESH_UVSPHERE"))
+        trash = header.row()
+        trash.alignment = "RIGHT"
+        trash.operator("waifu_physics.collider_remove", text="", icon="TRASH", emboss=False).name = picked.name
         if body is not None:
             _collider_settings(body, picked)
 
-    header, body = layout.panel("waifu_physics_generate", default_closed=False)
-    header.label(text="Generate from Bones")
-    if body is not None:
-        body.prop(settings, "collider_shape", text="")
-        bones = (context.selected_pose_bones or ()) if context.mode == "POSE" else ()
-        again = any(colliders.has_collider(bone.id_data, bone.name) for bone in bones)
-        button = body.row()
-        button.scale_y = 1.5
-        button.active_default = True
-        button.operator("waifu_physics.colliders_from_bones", text="Regenerate" if again else "Generate",
-                        icon="FILE_REFRESH" if again else "MOD_PHYSICS").shape = settings.collider_shape
-        help_text = body.column(align=True)
-        help_text.enabled = False
-        help_text.scale_y = 0.8
-        if not bones:
-            help_text.label(text="Select bones in Pose Mode first.")
-        help_text.label(text="Each bone gets one collider, fitted")
-        help_text.label(text="to the skin weighted to it.")
+
+def _caption(layout, *lines):
+    """Dimmed help under a section's controls, a line at a time (labels do not wrap)."""
+    column = layout.column(align=True)
+    column.enabled = False
+    column.scale_y = 0.8
+    for line in lines:
+        column.label(text=line)
 
 
 def _collider_settings(layout, obj):
