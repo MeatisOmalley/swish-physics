@@ -88,8 +88,7 @@ def group_name(obj, roots):
 class WAIFU_PHYSICS_OT_bones_clean_up(bpy.types.Operator):
     bl_idname = "waifu_physics.bones_clean_up"
     bl_label = "Clean Up"
-    bl_description = ("Remove what the groups hold for bones this armature no longer has: chains, exclusions, "
-                      "links, force filters and sync bones")
+    bl_description = ("Remove references to bones this armature no longer has")
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -121,7 +120,7 @@ def make_active(context, obj):
 class WAIFU_PHYSICS_OT_armature_activate(bpy.types.Operator):
     bl_idname = "waifu_physics.armature_activate"
     bl_label = "Edit Armature"
-    bl_description = "Make this armature the one the panels edit (and add groups to)"
+    bl_description = "Edit this armature"
     bl_options = {"REGISTER", "UNDO"}
 
     armature: bpy.props.StringProperty()
@@ -137,7 +136,7 @@ class WAIFU_PHYSICS_OT_armature_activate(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_group_new(bpy.types.Operator):
     bl_idname = "waifu_physics.group_new"
     bl_label = "New Group"
-    bl_description = "Make a group of the chains under the bones selected in Pose Mode"
+    bl_description = "Make a group from the chains under the selected bones"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -187,7 +186,7 @@ class WAIFU_PHYSICS_OT_group_add(_PoseBonesOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_exclude(_PoseBonesOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.exclude"
     bl_label = "Exclude Bones"
-    bl_description = "Leave the selected bones, and everything under them, out of the active group"
+    bl_description = "Exclude the selected bones, and everything below, from the group"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -208,7 +207,7 @@ class WAIFU_PHYSICS_OT_exclude(_PoseBonesOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_group_remove(bpy.types.Operator):
     bl_idname = "waifu_physics.group_remove"
     bl_label = "Remove Group"
-    bl_description = "Remove the active group; its bones go back to their animation"
+    bl_description = "Delete the active group. Its bones return to their animation"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -230,7 +229,7 @@ class WAIFU_PHYSICS_OT_group_remove(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_reset(bpy.types.Operator):
     bl_idname = "waifu_physics.reset"
     bl_label = "Reset"
-    bl_description = "Start the simulation over from the current pose"
+    bl_description = "Restart the simulation from the current pose"
 
     def execute(self, context):
         if context.scene.waifu_physics.simulate:
@@ -241,7 +240,7 @@ class WAIFU_PHYSICS_OT_reset(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
     bl_idname = "waifu_physics.collider_add"
     bl_label = "Add Collider"
-    bl_description = "Add a collider to the active bone, fitted to the skin around it and weighted to it"
+    bl_description = "Add a collider to the active bone, fitted to its skin"
     bl_options = {"REGISTER", "UNDO"}
 
     shape: bpy.props.EnumProperty(name="Shape", items=colliders.SHAPE_CHOICES, default="AUTO")
@@ -267,8 +266,7 @@ class WAIFU_PHYSICS_OT_collider_add(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_scene_collider_add(bpy.types.Operator):
     bl_idname = "waifu_physics.scene_collider_add"
     bl_label = "Add Scene Collider"
-    bl_description = ("Add a collider on no armature, at the 3D cursor: every group collides with it. A Plane faces "
-                      "up, a ground")
+    bl_description = ("Add a collider at the 3D cursor. Every group collides with it")
     bl_options = {"REGISTER", "UNDO"}
 
     shape: bpy.props.EnumProperty(
@@ -286,8 +284,7 @@ class WAIFU_PHYSICS_OT_scene_collider_add(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
     bl_idname = "waifu_physics.colliders_from_bones"
     bl_label = "Generate Colliders"
-    bl_description = ("Give each selected bone one collider, fitted to the skin around it and weighted to it; a "
-                      "bone's colliders already there are replaced (Regenerate). Bones in chains are skipped")
+    bl_description = ("Fit one collider to each selected bone, replacing any it has")
     bl_options = {"REGISTER", "UNDO"}
 
     shape: bpy.props.EnumProperty(name="Shape", items=colliders.SHAPE_CHOICES, default="AUTO")
@@ -314,7 +311,7 @@ class WAIFU_PHYSICS_OT_colliders_from_bones(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_collider_set_add(bpy.types.Operator):
     bl_idname = "waifu_physics.collider_set_add"
     bl_label = "Add Collider Set"
-    bl_description = "Collide the active group with another armature's colliders (a character's body)"
+    bl_description = "Also collide with another armature's colliders"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -377,7 +374,7 @@ class WAIFU_PHYSICS_OT_collider_remove(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_collider_pick(bpy.types.Operator):
     bl_idname = "waifu_physics.collider_pick"
     bl_label = "Pick Collider"
-    bl_description = "Select this collider (in Pose Mode, its bone) to edit it"
+    bl_description = "Select this collider (in Pose Mode, its bone)"
     bl_options = {"REGISTER", "UNDO"}
 
     name: bpy.props.StringProperty()
@@ -404,8 +401,7 @@ def _chain_root(obj, group, name):
 class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.link_chains"
     bl_label = "Link Chains"
-    bl_description = ("Link the selected chains of the active group to their neighbours, bone by bone: "
-                      "a loop for a skirt, a strip for a cape")
+    bl_description = ("Link neighbouring chains: a loop for skirts, a strip for capes")
     bl_options = {"REGISTER", "UNDO"}
 
     mode: bpy.props.EnumProperty(name="Mode", items=[
@@ -444,7 +440,7 @@ class WAIFU_PHYSICS_OT_link_chains(_PoseBonesOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_links_clear(bpy.types.Operator):
     bl_idname = "waifu_physics.links_clear"
     bl_label = "Clear Links"
-    bl_description = "Remove every link of the active group"
+    bl_description = "Remove all of the active group's links"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -477,7 +473,7 @@ class WAIFU_PHYSICS_OT_link_remove(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_cache_all(bpy.types.Operator):
     bl_idname = "waifu_physics.cache_all"
     bl_label = "Cache All"
-    bl_description = "Simulate the whole frame range into the cache, to scrub and render"
+    bl_description = "Simulate and cache the whole frame range"
 
     @classmethod
     def poll(cls, context):
@@ -498,8 +494,7 @@ class WAIFU_PHYSICS_OT_cache_all(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_cache_toggle(bpy.types.Operator):
     bl_idname = "waifu_physics.cache_toggle"
     bl_label = "Cache"
-    bl_description = ("Bake the whole frame range, to scrub and render; click again to clear it and play "
-                      "live. A change to the setup clears the bake too")
+    bl_description = ("Cache the whole frame range. Click again to clear it")
 
     def execute(self, context):
         scene = context.scene
@@ -522,8 +517,7 @@ class WAIFU_PHYSICS_OT_cache_toggle(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_bake(bpy.types.Operator):
     bl_idname = "waifu_physics.bake"
     bl_label = "Bake"
-    bl_description = ("Write the cached simulation as keyframes into a copy of each armature's action, so it plays, "
-                      "renders and exports without the add-on. The original action is kept; Simulate turns off")
+    bl_description = ("After caching, bake the simulation to keyframes on a copy of the action")
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -550,7 +544,7 @@ class WAIFU_PHYSICS_OT_bake(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_cache_clear(bpy.types.Operator):
     bl_idname = "waifu_physics.cache_clear"
     bl_label = "Clear Cache"
-    bl_description = "Forget every cached frame"
+    bl_description = "Clear all cached frames"
 
     def execute(self, context):
         live.clear_cache(context.scene)
@@ -590,7 +584,7 @@ def _active_item(collection, index):
 class WAIFU_PHYSICS_OT_force_add(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.force_add"
     bl_label = "Add Force"
-    bl_description = "Add an external force to the active group"
+    bl_description = "Add a force to the active group"
     bl_options = {"REGISTER", "UNDO"}
 
     kind: bpy.props.EnumProperty(name="Type", items=[item[:3] for item in FORCE_KINDS])
@@ -629,7 +623,7 @@ class WAIFU_PHYSICS_MT_force_add(bpy.types.Menu):
 class WAIFU_PHYSICS_OT_wind_preset(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.wind_preset"
     bl_label = "Wind Preset"
-    bl_description = "Set the Procedural Wind force to one of Kawaii's presets"
+    bl_description = "Apply a wind preset"
     bl_options = {"REGISTER", "UNDO"}
 
     preset: bpy.props.EnumProperty(name="Preset", items=presets.WIND_ITEMS)
@@ -647,7 +641,7 @@ class WAIFU_PHYSICS_OT_wind_preset(_GroupOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_wind_field_add(bpy.types.Operator):
     bl_idname = "waifu_physics.wind_field_add"
     bl_label = "Add Wind Field"
-    bl_description = "Add a Wind force field: it blows along its Z axis at its Strength"
+    bl_description = "Add a Wind force field. It blows along its Z axis"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -693,7 +687,7 @@ class WAIFU_PHYSICS_OT_force_remove(_GroupOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_force_filter(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.force_filter"
     bl_label = "Set Bone Filter"
-    bl_description = "Set the force's bone filter to the selected bones, or clear it"
+    bl_description = "Limit the force to the selected bones, or clear the limit"
     bl_options = {"REGISTER", "UNDO"}
 
     target: bpy.props.EnumProperty(items=[("APPLY", "Only", ""), ("IGNORE", "Ignore", "")])
@@ -720,8 +714,7 @@ class WAIFU_PHYSICS_OT_force_filter(_GroupOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_sync_add(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.sync_add"
     bl_label = "Add Sync Bone"
-    bl_description = ("Add a sync bone to the active group, following the active bone; selected bones of the "
-                      "group become its targets")
+    bl_description = ("Add a sync bone following the active bone")
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
@@ -769,7 +762,7 @@ class WAIFU_PHYSICS_OT_sync_remove(_GroupOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_sync_target_add(_PoseBonesOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.sync_target_add"
     bl_label = "Add Sync Targets"
-    bl_description = "Add the selected bones as targets of the active sync bone"
+    bl_description = "Add the selected bones as targets"
     bl_options = {"REGISTER", "UNDO"}
 
     @classmethod
@@ -932,7 +925,7 @@ class WAIFU_PHYSICS_OT_chains_set(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_chain_click(bpy.types.Operator):
     bl_idname = "waifu_physics.chain_click"
     bl_label = "Select Chain"
-    bl_description = "Select this chain. Shift-click selects a range; Ctrl-click adds or drops one chain"
+    bl_description = "Select this chain. Shift selects a range, Ctrl adds or removes"
     bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     group: bpy.props.IntProperty()
@@ -974,7 +967,7 @@ class WAIFU_PHYSICS_OT_chain_click(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_chains_select(bpy.types.Operator):
     bl_idname = "waifu_physics.chains_select"
     bl_label = "Select Chains"
-    bl_description = "Select every chain of the armature, or none"
+    bl_description = "Select all chains, or none"
     bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     action: bpy.props.EnumProperty(items=(("ALL", "All", ""), ("NONE", "None", ""), ("TOGGLE", "Toggle", "")),
@@ -995,7 +988,7 @@ class WAIFU_PHYSICS_OT_chains_select(bpy.types.Operator):
 class WAIFU_PHYSICS_OT_group_click(bpy.types.Operator):
     bl_idname = "waifu_physics.group_click"
     bl_label = "Select Group"
-    bl_description = "Edit this group and select its chains. Ctrl or Shift adds them to the selection"
+    bl_description = "Edit this group and select its chains. Ctrl or Shift adds"
     bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     index: bpy.props.IntProperty()
@@ -1080,8 +1073,7 @@ def merge_groups(obj, sources, target):
 class WAIFU_PHYSICS_OT_groups_merge(bpy.types.Operator):
     bl_idname = "waifu_physics.groups_merge"
     bl_label = "Merge Groups"
-    bl_description = ("Merge the groups of the selected chains into one: the active group if it is among them, "
-                      "keeping its settings")
+    bl_description = ("Merge the selected chains' groups into one")
     bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     source: bpy.props.IntProperty(default=-1, options={"SKIP_SAVE"})
@@ -1135,7 +1127,7 @@ def _chains_everywhere(obj):
 class WAIFU_PHYSICS_OT_chains_to_group(bpy.types.Operator):
     bl_idname = "waifu_physics.chains_to_group"
     bl_label = "Move Chains to Group"
-    bl_description = "Move the chains holding the selected bones, from whatever groups, into this group"
+    bl_description = "Move the selected chains into this group"
     bl_options = {"UNDO"}         # no Adjust Last Operation panel: it can cover the chain manager
 
     index: bpy.props.IntProperty(default=-1, description="The group; -1 makes a new one")
@@ -1195,7 +1187,7 @@ def _pose_menu(self, context):
 class WAIFU_PHYSICS_OT_preset_apply(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.preset_apply"
     bl_label = "Apply Preset"
-    bl_description = "Set the group's physics to this preset"
+    bl_description = "Apply this preset"
     bl_options = {"REGISTER", "UNDO"}
 
     preset: bpy.props.StringProperty(name="Preset", description="A built-in preset's key, or a saved preset's name")
@@ -1226,7 +1218,7 @@ class WAIFU_PHYSICS_OT_preset_apply(_GroupOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_preset_save(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.preset_save"
     bl_label = "Save Preset"
-    bl_description = "Save the active group's settings and curves as a preset of your own, for any file"
+    bl_description = "Save the active group's settings as a preset"
 
     name: bpy.props.StringProperty(name="Name", default="My Preset")
 
@@ -1290,7 +1282,7 @@ class WAIFU_PHYSICS_MT_presets(bpy.types.Menu):
 class WAIFU_PHYSICS_OT_group_copy(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.group_copy"
     bl_label = "Copy Settings"
-    bl_description = "Copy the active group's physics settings and curves (not its chains) to the clipboard"
+    bl_description = "Copy the active group's settings"
 
     def execute(self, context):
         context.window_manager.clipboard = serialize.settings_text(_active_group(context))
@@ -1300,8 +1292,7 @@ class WAIFU_PHYSICS_OT_group_copy(_GroupOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_group_paste(_GroupOperator, bpy.types.Operator):
     bl_idname = "waifu_physics.group_paste"
     bl_label = "Paste Settings"
-    bl_description = ("Paste copied physics settings and curves onto the active group "
-                      "(and the groups of selected bones, with Edit Selected Groups)")
+    bl_description = ("Paste copied settings onto the active group")
     bl_options = {"REGISTER", "UNDO"}
 
     text: bpy.props.StringProperty(options={"HIDDEN", "SKIP_SAVE"},
@@ -1322,7 +1313,7 @@ class WAIFU_PHYSICS_OT_group_paste(_GroupOperator, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_setup_export(ExportHelper, bpy.types.Operator):
     bl_idname = "waifu_physics.setup_export"
     bl_label = "Export Setup"
-    bl_description = "Save the armature's groups, links, curves and colliders to a JSON file"
+    bl_description = "Save the armature's groups and colliders to a file"
     filename_ext = ".json"
     filter_glob: bpy.props.StringProperty(default="*.json", options={"HIDDEN"})
 
@@ -1341,15 +1332,15 @@ class WAIFU_PHYSICS_OT_setup_export(ExportHelper, bpy.types.Operator):
 class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
     bl_idname = "waifu_physics.setup_import"
     bl_label = "Import Setup"
-    bl_description = "Replace the armature's groups and colliders with a saved setup"
+    bl_description = "Load groups and colliders from a file, replacing the current ones"
     bl_options = {"REGISTER", "UNDO"}
     filename_ext = ".json"
     filter_glob: bpy.props.StringProperty(default="*.json", options={"HIDDEN"})
 
     include_colliders: bpy.props.BoolProperty(name="Colliders", default=True,
-                                              description="Replace the armature's colliders too")
+                                              description="Also replace the colliders")
     include_scene: bpy.props.BoolProperty(name="Step Settings", default=True,
-                                          description="Set the scene's steps per second and steps per frame")
+                                          description="Also load the scene's step settings")
 
     @classmethod
     def poll(cls, context):

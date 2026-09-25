@@ -15,12 +15,12 @@ from bpy.types import PropertyGroup
 
 from ..solver.system import COMPLIANCE_TYPES
 
-COMPLIANCE_ITEMS = [(name, name.title(), f"XPBD compliance of {name.lower()}") for name in COMPLIANCE_TYPES]
+COMPLIANCE_ITEMS = [(name, name.title(), f"Stretches like {name.lower()}") for name in COMPLIANCE_TYPES]
 LINK_COMPLIANCE_ITEMS = [("GROUP", "Group's", "Use the group's compliance")] + COMPLIANCE_ITEMS
 PLANAR_ITEMS = [("NONE", "None", "No planar constraint"),
-                ("X", "X", "Keep each bone in the plane through its parent, normal to the parent's X axis"),
-                ("Y", "Y", "Keep each bone in the plane through its parent, normal to the parent's Y axis"),
-                ("Z", "Z", "Keep each bone in the plane through its parent, normal to the parent's Z axis")]
+                ("X", "X", "Bones swing only in the parent's YZ plane"),
+                ("Y", "Y", "Bones swing only in the parent's XZ plane"),
+                ("Z", "Z", "Bones swing only in the parent's XY plane")]
 
 
 def _colliders():
@@ -111,7 +111,7 @@ class WaifuPhysicsLink(PropertyGroup):
     compliance: EnumProperty(name="Compliance", items=LINK_COMPLIANCE_ITEMS, default="GROUP",
                              update=_structure_changed)
     exclude_from_subdivision: BoolProperty(name="No Bridge Points", update=_structure_changed,
-                                           description="Place no collision points along this link")
+                                           description="Add no bridge points along this link")
 
 
 class WaifuPhysicsColliderSet(PropertyGroup):
@@ -139,21 +139,21 @@ def _item_curve_toggled(name):
 
 FORCE_CHANNELS = ("force_x", "force_y", "force_z")
 FORCE_KINDS = [
-    ("BASIC", "Push", "A steady push, or a pulse every interval (Kawaii's Basic external force)", "FORCE_FORCE", 0),
-    ("GRAVITY", "Gravity", "Extra gravity through velocity, in world space (Kawaii's Gravity external force)",
+    ("BASIC", "Push", "A steady push, or a pulse at intervals", "FORCE_FORCE", 0),
+    ("GRAVITY", "Gravity", "Extra gravity, in world space",
      "FORCE_HARMONIC", 1),
-    ("CURVE", "Curve", "A push that follows curves over time (Kawaii's Curve external force)", "FCURVE", 2),
+    ("CURVE", "Curve", "A push that follows curves over time", "FCURVE", 2),
     # Kawaii's Wind external force read the scene's Wind fields; Blender Force Fields does that job now, and
     # files are converted on load. Kept so old files' values still read.
     ("WIND", "Field Wind", "Kawaii's wind from Wind force fields (replaced by Blender Force Fields)", "FORCE_WIND", 3),
-    ("PROCEDURAL_WIND", "Procedural Wind", "Seeded sway, ripple and gusting noise (Kawaii's Procedural Wind)",
+    ("PROCEDURAL_WIND", "Procedural Wind", "Generated sway, ripples and gusts",
      "FORCE_WIND", 4)]
 # What a force is, as its header shows it. Wind is Procedural Wind: Kawaii's field-reading Wind force became
 # Blender Force Fields.
 FORCE_CATEGORIES = [("PUSH", "Push", "A steady push, or a pulse every interval", "FORCE_FORCE", 0),
                     ("GRAVITY", "Gravity", "Extra gravity, in world space", "FORCE_HARMONIC", 1),
                     ("CURVE", "Curve", "A push that follows curves over time", "FCURVE", 2),
-                    ("WIND", "Wind", "Generated sway, ripples and gusts; needs no force field", "FORCE_WIND", 3)]
+                    ("WIND", "Wind", "Generated sway, ripples and gusts. No force field needed", "FORCE_WIND", 3)]
 _CATEGORY_OF_KIND = {"BASIC": 0, "GRAVITY": 1, "CURVE": 2, "WIND": 3, "PROCEDURAL_WIND": 3}
 _KIND_OF_CATEGORY = ("BASIC", "GRAVITY", "CURVE", "PROCEDURAL_WIND")
 FORCE_NAMES = {"BASIC": "Push", "GRAVITY": "Gravity", "CURVE": "Curve", "WIND": "Wind", "PROCEDURAL_WIND": "Wind"}
@@ -175,9 +175,9 @@ FORCE_SPACES = [("COMPONENT", "Armature", "In the armature's space"),
                 ("WORLD", "World", "In world space"),
                 ("BONE", "Bone", "In each bone's own space, turning with it")]
 CURVE_EVALUATE = [("SINGLE", "Single", "The curve's value at the current time"),
-                  ("AVERAGE", "Average", "The average over the frame's time, in Substeps samples"),
-                  ("MAX", "Max", "The largest value over the frame's time"),
-                  ("MIN", "Min", "The smallest value over the frame's time")]
+                  ("AVERAGE", "Average", "The average over the frame"),
+                  ("MAX", "Max", "The largest value over the frame"),
+                  ("MIN", "Min", "The smallest value over the frame")]
 SYNC_DIRECTIONS = [("BOTH", "Both", "Follow movement either way along this axis"),
                    ("POSITIVE", "Positive", "Follow only movement toward +axis"),
                    ("NEGATIVE", "Negative", "Follow only movement toward -axis"),
@@ -190,56 +190,54 @@ class WaifuPhysicsForce(PropertyGroup):
     enabled: BoolProperty(name="Enabled", default=True, update=_result_changed)
     kind: EnumProperty(name="Type", items=FORCE_KINDS, default="BASIC", update=_force_kind_changed)
     category: EnumProperty(name="Type", items=FORCE_CATEGORIES, get=_category_get, set=_category_set,
-                           options=set(), description="What the force is")
+                           options=set(), description="The kind of force")
     space: EnumProperty(name="Space", items=FORCE_SPACES, default="WORLD", update=_result_changed)
     apply_bones: CollectionProperty(type=WaifuPhysicsBoneName)
     ignore_bones: CollectionProperty(type=WaifuPhysicsBoneName)
     random_min: FloatProperty(name="Scale Min", default=1.0, update=_result_changed,
-                              description="Each frame the force is scaled by a random value in this range; "
-                                          "for Gravity it is the acceleration (Blender units a second squared)")
+                              description="Scales the force by a random amount each frame, within this range")
     random_max: FloatProperty(name="Scale Max", default=1.0, update=_result_changed)
     curve_key: StringProperty(options={"HIDDEN"})
     use_rate_curve: BoolProperty(name="Force Curve", update=_item_curve_toggled("rate"),
-                                 description="Scale the force along each chain, root to tip")
+                                 description="Scale the force along the chain, root to tip")
 
     direction: FloatVectorProperty(name="Direction", default=(0.0, 0.0, 0.0), size=3, update=_result_changed,
-                                   description="Basic: the push, in Blender units a second. Gravity and "
-                                               "Procedural Wind: a direction")
+                                   description="The push, in units per second. For Gravity and Wind, its direction")
     interval: FloatProperty(name="Interval", default=0.0, min=0.0, subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE",
-                            update=_result_changed, description="Push once every this long; 0 pushes constantly")
+                            update=_result_changed, description="Seconds between pushes. 0 pushes constantly")
     override_direction: BoolProperty(name="Override Direction", update=_result_changed,
                                      description="Pull along Direction instead of straight down")
     duration: FloatProperty(name="Duration", default=1.0, min=0.001, subtype="TIME_ABSOLUTE",
                             unit="TIME_ABSOLUTE", update=_result_changed,
                             description="How long the curves run before repeating")
     amplitude: FloatVectorProperty(name="Amplitude", default=(1.0, 1.0, 1.0), size=3, update=_result_changed,
-                                   description="The push at a curve value of 1, per axis, in Blender units a second")
+                                   description="The push at a curve value of 1, in units per second")
     time_scale: FloatProperty(name="Time Scale", default=1.0, update=_result_changed)
     evaluate: EnumProperty(name="Evaluate", items=CURVE_EVALUATE, default="SINGLE", update=_result_changed)
     substeps: IntProperty(name="Substeps", default=10, min=1, max=100, update=_result_changed)
     noise_angle: FloatProperty(name="Direction Noise", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
-                               update=_result_changed, description="Random turn of the wind's direction")
+                               update=_result_changed, description="Randomly turns the wind's direction")
     noise_period: FloatProperty(name="Noise Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=1.0, min=0.01, update=_result_changed)
     constant: FloatProperty(name="Constant", unit="VELOCITY", default=0.0, update=_result_changed,
-                            description="Steady wind, in Blender units a second")
+                            description="Steady wind strength")
     sway: FloatProperty(name="Sway", unit="VELOCITY", default=0.0, update=_result_changed,
-                        description="Back-and-forth wind, in Blender units a second")
+                        description="Back-and-forth wind strength")
     sway_period: FloatProperty(name="Sway Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=1.0, min=0.01, update=_result_changed)
     sway_phase: FloatProperty(name="Sway Phase", default=0.0, subtype="ANGLE", update=_result_changed)
     ripple: FloatProperty(name="Ripple", unit="VELOCITY", default=0.0, update=_result_changed,
-                          description="A wave running root to tip, in Blender units a second")
+                          description="A wave running from root to tip")
     ripple_period: FloatProperty(name="Ripple Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=1.0, min=0.01, update=_result_changed)
     ripple_phase: FloatProperty(name="Ripple Phase", default=0.0, subtype="ANGLE", update=_result_changed)
     ripple_delay: FloatProperty(name="Ripple Tip Delay", default=math.pi, subtype="ANGLE", update=_result_changed,
-                                description="How far behind the root the tip's wave runs")
+                                description="How far the wave at the tip lags behind the root")
     cycle_min: FloatProperty(name="Gust Low", default=1.0, update=_result_changed,
-                             description="The wind's strength at the calm of its slow gust cycle, as a multiplier")
+                             description="Wind strength at the calmest point of a gust")
     cycle_max: FloatProperty(name="Gust High", default=1.0, update=_result_changed,
-                             description="The wind's strength at the peak of its slow gust cycle, as a multiplier")
+                             description="Wind strength at the strongest point of a gust")
     cycle_period: FloatProperty(name="Strength Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=10.0, min=0.01, update=_result_changed)
     cycle_phase: FloatProperty(name="Strength Phase", default=0.0, subtype="ANGLE", update=_result_changed)
     random: FloatProperty(name="Random", unit="VELOCITY", default=0.0, update=_result_changed,
-                          description="Seeded noise, in Blender units a second")
+                          description="Random turbulence strength")
     random_period: FloatProperty(name="Random Period", subtype="TIME_ABSOLUTE", unit="TIME_ABSOLUTE", default=0.5, min=0.01, update=_result_changed)
     seed: IntProperty(name="Seed", default=0, update=_result_changed)
     show_advanced: BoolProperty(name="Advanced", default=False)
@@ -248,25 +246,25 @@ class WaifuPhysicsForce(PropertyGroup):
 class WaifuPhysicsSyncTarget(PropertyGroup):
     bone: StringProperty(name="Bone", update=_bone_named(_result_changed))
     include_children: BoolProperty(name="Children", default=True, update=_result_changed,
-                                   description="Move the bones under it too")
+                                   description="Also move the bones below it")
     curve_key: StringProperty(options={"HIDDEN"})
     use_rate_curve: BoolProperty(name="Rate Curve", update=_item_curve_toggled("rate"),
-                                 description="Scale the movement from this bone (0) to its chain's tip (1)")
+                                 description="Scale the movement from this bone to the chain's tip")
 
 
 class WaifuPhysicsSyncBone(PropertyGroup):
     """Kawaii's SyncBone: a bone outside the chains (a thigh) whose movement carries chain bones' poses."""
     name: StringProperty(name="Name", default="Sync")
     bone: StringProperty(name="Source Bone", update=_bone_named(_result_changed),
-                         description="The bone whose movement from its rest position the targets follow")
+                         description="The bone whose movement the targets follow")
     targets: CollectionProperty(type=WaifuPhysicsSyncTarget)
     active_target: IntProperty()
     global_scale: FloatVectorProperty(name="Scale", default=(1.0, 1.0, 1.0), size=3, update=_result_changed)
     curve_key: StringProperty(options={"HIDDEN"})
     use_distance_curve: BoolProperty(name="Distance Curve", update=_item_curve_toggled("distance"),
-                                     description="Scale by how far the source has moved, from 0 to Distance")
+                                     description="Scale the effect by how far the source has moved")
     distance: FloatProperty(name="Distance", default=0.3, min=0.001, subtype="DISTANCE", update=_result_changed,
-                            description="The movement the distance curve's right end stands for")
+                            description="The movement the right end of the curve stands for")
     direction_x: EnumProperty(name="X", items=SYNC_DIRECTIONS, default="BOTH", update=_result_changed)
     direction_y: EnumProperty(name="Y", items=SYNC_DIRECTIONS, default="BOTH", update=_result_changed)
     direction_z: EnumProperty(name="Z", items=SYNC_DIRECTIONS, default="BOTH", update=_result_changed)
@@ -362,65 +360,54 @@ class WaifuPhysicsGroup(PropertyGroup):
                                        description="The collider sets were edited: the list stands, even empty")
     use_scene_colliders: BoolProperty(
         name="Scene Colliders", default=True, update=_structure_changed,
-        description="Collide with the scene's colliders: those on no armature, like a ground")
+        description="Collide with scene colliders, like a ground")
     active_link: IntProperty()
 
     # FKawaiiPhysicsSettings, animatable. Radius is a length; limit angle an angle.
     damping: FloatProperty(name="Damping", default=0.1, min=0.0, max=1.0, update=_setting_changed("damping"),
-                           description="How much of its velocity a point loses each step")
+                           description="How much velocity each point loses per step")
     stiffness: FloatProperty(name="Stiffness", default=0.05, min=0.0, max=1.0, update=_setting_changed("stiffness"),
-                             description="How strongly a point is pulled back toward its animated pose")
+                             description="How strongly points are pulled back to the animated pose")
     damping_level: FloatProperty(
         name="Damping", get=_damping_level_get, set=_damping_level_set, min=0.0, max=DAMPING_SPAN, precision=2,
         step=10, options=set(),
-        description="How quickly swinging dies down: 0 swings longest, 10 stops the bounce almost at once, 5 is "
-                    "Kawaii's default. Each step scales Kawaii's damping by the same factor, from 0.03 (even the "
-                    "loosest chains still settle) to 0.33. Kawaii's own damping is what is saved and exported")
+        description="How quickly swinging dies down. 0 swings longest, 10 stops almost at once")
     preset_name: StringProperty(options=set(), description="The preset last applied to the group")
     use_force_fields: BoolProperty(
         name="Blender Force Fields", default=False, update=_result_changed,
-        description="The chains feel the scene's force fields, made in the Physics tab as usual: Wind, Force, "
-                    "Vortex, Magnetic, Harmonic, Turbulence and Drag. Blender only: Kawaii in a game has no "
-                    "force fields")
+        description="React to the scene's force fields. Blender only: not exported")
     force_field_collection: PointerProperty(
         type=bpy.types.Collection, name="Collection", update=_result_changed,
-        description="Only the fields in this collection; empty for every field in the scene")
+        description="Only use force fields in this collection. Empty uses all of them")
     force_field_strength: FloatProperty(
         name="Strength", default=1.0, soft_min=0.0, soft_max=2.0, update=_result_changed,
-        description="Scales every field's effect on this group (as cloth's Field Weights: All)")
+        description="Scale the effect of all force fields on this group")
     stiffness_level: FloatProperty(
         name="Stiffness", get=_level_get, set=_level_set, min=0.0, max=STIFFNESS_SPAN, precision=2, step=10,
         options=set(),
-        description="How quickly a chain returns to its animated pose: 10 snaps straight back, 0 takes ten "
-                    "seconds to settle. (10 minus the seconds to get 95% of the way back; Kawaii's own stiffness "
-                    "is what is saved and exported)")
+        description="How quickly chains return to their pose. 10 snaps back, 0 takes ~10 s")
     world_location_inertia: FloatProperty(
         name="Moving Inertia", get=_inertia_get("world_damping_location"),
         set=_inertia_set("world_damping_location"), min=0.0, max=1.0, precision=2, options=set(),
-        description="How much the chains lag behind and swing when the armature object moves through the "
-                    "world (walking, jumping). 1: full inertia; 0: they move rigidly with it. Moves animated on "
-                    "bones always count in full. (Kawaii's World Damping Location is 1 minus this)")
+        description="How much chains lag and swing when the armature moves. 0 moves rigidly with it")
     world_rotation_inertia: FloatProperty(
         name="Rotating Inertia", get=_inertia_get("world_damping_rotation"),
         set=_inertia_set("world_damping_rotation"), min=0.0, max=1.0, precision=2, options=set(),
-        description="How much the chains lag behind and swing when the armature object turns. 1: full "
-                    "inertia; 0: they turn rigidly with it. (Kawaii's World Damping Rotation is 1 minus this)")
+        description="How much chains lag and swing when the armature turns. 0 turns rigidly with it")
     world_damping_location: FloatProperty(
         name="World Damping Location", default=0.8, min=0.0, max=1.0,
         update=_setting_changed("world_damping_location"),
-        description="How little the chains feel the armature object moving: 0 trails fully, 1 rides along")
+        description="How little chains react to the armature moving")
     world_damping_rotation: FloatProperty(
         name="World Damping Rotation", default=0.8, min=0.0, max=1.0,
         update=_setting_changed("world_damping_rotation"),
-        description="How little the chains feel the armature object turning: 0 trails fully, 1 rides along")
+        description="How little chains react to the armature turning")
     radius: FloatProperty(name="Collision Radius", default=0.03, min=0.0, subtype="DISTANCE", precision=4,
                           update=_setting_changed("radius"),
-                          description="How thick the chain is where it meets colliders: each bone collides as a "
-                                      "sphere this size (Kawaii's Radius)")
+                          description="Size of the collision sphere around each chain point")
     limit_angle: FloatProperty(name="Joint Limit", default=0.0, min=0.0, max=math.pi, subtype="ANGLE",
                                update=_setting_changed("limit_angle"),
-                               description="How far each bone may bend away from its animated direction; 0 for no "
-                                           "limit (Kawaii's Limit Angle)")
+                               description="How far bones may bend from their animated direction. 0 is no limit")
     # Curves along the chain, root to tip, multiplying each setting (Kawaii's *CurveData).
     curve_key: StringProperty(options={"HIDDEN"})
     use_damping_curve: BoolProperty(name="Damping Curve", update=_curve_toggled("damping"))
@@ -434,67 +421,65 @@ class WaifuPhysicsGroup(PropertyGroup):
 
     gravity: FloatVectorProperty(name="Gravity", default=(0.0, 0.0, -9.81), subtype="ACCELERATION", size=3,
                                  update=_result_changed,
-                                 description="The group's own gravity, when it does not use the scene's")
+                                 description="The group's own gravity")
     gravity_scale: FloatProperty(name="Gravity Scale", default=1.0, soft_min=0.0, soft_max=2.0,
                                  update=_result_changed,
-                                 description="The scene's gravity times this: 1 is normal, 0 none, 2 double")
+                                 description="Multiplier on the scene's gravity. 1 is normal, 0 is none")
     use_scene_gravity: BoolProperty(name="Use Scene Gravity", default=True, update=_result_changed,
-                                    description="Pull with the scene's gravity (times Gravity Scale); off, the "
-                                                "group's own Gravity")
+                                    description="Use the scene's gravity. Off uses the group's own")
     use_world_space_gravity: BoolProperty(name="World Space Gravity", default=True, update=_result_changed,
-                                          description="Gravity is in world space, not the armature's")
+                                          description="Gravity points in world space, not the armature's")
     legacy_gravity: BoolProperty(name="Legacy Gravity", default=False, update=_structure_changed,
-                                 description="Kawaii's older gravity: added to position, not velocity")
+                                 description="Use the older gravity, added to position instead of velocity")
 
     dummy_bone_length: FloatProperty(name="Tip Length", default=0.0, min=0.0, subtype="DISTANCE",
                                      update=_structure_changed,
-                                     description="A point past each chain's last bone, so the last bone swings too")
+                                     description="Add a point past each chain's last bone, so that bone swings too")
     bone_subdivision_count: IntProperty(name="Subdivisions", default=0, min=0, max=10, update=_structure_changed,
                                         description="Extra collision points along each bone")
     bone_subdivision_collision_only: BoolProperty(name="Collision Only", default=True, update=_structure_changed,
-                                                  description="Subdivision points only collide; they are not simulated")
+                                                  description="Extra points collide but aren't simulated")
     bone_subdivision_densify_by_radius: BoolProperty(name="Densify by Radius", default=False,
                                                      update=_structure_changed,
-                                                     description="Add points until they cover the bone at this radius")
+                                                     description="Add points until they cover each bone at the collision radius")
     planar_constraint: EnumProperty(name="Planar Constraint", items=PLANAR_ITEMS, default="NONE",
                                     update=_structure_changed)
     compliance: EnumProperty(name="Link Compliance", items=COMPLIANCE_ITEMS, default="LEATHER",
                              update=_structure_changed,
-                             description="How much links stretch: the stiffest is concrete, the softest fat")
+                             description="How much links can stretch")
     iterations_before_collision: IntProperty(name="Iterations Before Collision", default=1, min=0, max=20,
                                              update=_structure_changed)
     iterations_after_collision: IntProperty(name="Iterations After Collision", default=1, min=0, max=20,
                                             update=_structure_changed)
     auto_child_dummy_links: BoolProperty(name="Link Tips", default=True, update=_structure_changed,
-                                         description="Links between bones also link their tip and subdivision points")
+                                         description="Also link the tip and extra points")
     bridge_count: IntProperty(name="Bridge Points", default=0, min=0, max=10, update=_structure_changed,
-                              description="Collision points along each link, so colliders cannot pass between chains")
+                              description="Collision points along links, so colliders can't slip between chains")
     bridge_feedback: FloatProperty(name="Bridge Feedback", default=1.0, min=0.0, max=2.0,
                                    update=_structure_changed,
-                                   description="How strongly a bridge point's collision pushes the bones it links")
+                                   description="How strongly bridge points push the bones they join")
 
     teleport_distance: FloatProperty(name="Teleport Distance", default=3.0, min=0.0, subtype="DISTANCE",
                                      update=_result_changed,
-                                     description="An armature jumping further than this in a frame is a teleport")
+                                     description="Jumps farther than this in one frame are treated as teleports")
     teleport_rotation: FloatProperty(name="Teleport Rotation", default=math.radians(10.0), min=0.0,
                                      update=_result_changed,
                                      subtype="ANGLE",
-                                     description="An armature turning further than this in a frame is a teleport")
+                                     description="Turns larger than this in one frame are treated as teleports")
     warm_up_frames: IntProperty(name="Warm Up Frames", default=0, min=0, max=500, update=_result_changed,
-                                description="Steps simulated before the first frame, so chains start settled")
+                                description="Frames simulated before the start, so chains begin settled")
 
-    show_chains: BoolProperty(name="Show Chains", default=True, description="Fold this group open in Chains")
+    show_chains: BoolProperty(name="Show Chains", default=True, description="Show this group's chains")
     forces: CollectionProperty(type=WaifuPhysicsForce)
     active_force: IntProperty()
     sync_bones: CollectionProperty(type=WaifuPhysicsSyncBone)
     active_sync: IntProperty()
     simple_external_force: FloatVectorProperty(
         name="Simple Force", default=(0.0, 0.0, 0.0), size=3, subtype="VELOCITY", update=_result_changed,
-        description="A constant push on every bone, in Blender units a second (Kawaii's SimpleExternalForce)")
+        description="A constant push on every bone, in units per second")
     world_space_simple_external_force: BoolProperty(name="World Space", default=True, update=_result_changed)
     enable_wind: BoolProperty(name="Scene Wind", default=False, update=_result_changed,
-                              description="Blow with the scene's wind force fields, gusting at random "
-                                          "(Kawaii's Enable Wind); a field's Strength is its speed")
+                              description="Blow with the scene's Wind force fields, gusting at random")
     wind_scale: FloatProperty(name="Wind Scale", default=1.0, update=_result_changed)
     wind_direction_noise_angle: FloatProperty(name="Wind Direction Noise", default=0.0, min=0.0, max=math.pi,
                                               subtype="ANGLE", update=_result_changed)
@@ -503,7 +488,7 @@ class WaifuPhysicsGroup(PropertyGroup):
 class WaifuPhysicsCollider(PropertyGroup):
     """Marks a mesh object as a Waifu Physics collider (its shape lives on its Waifu Physics Collider modifier)."""
     is_collider: BoolProperty(options={"HIDDEN"})
-    enabled: BoolProperty(name="Enabled", default=True, description="This collider pushes chains")
+    enabled: BoolProperty(name="Enabled", default=True, description="Use this collider")
 
 
 def _group_picked(self, context):
@@ -541,25 +526,22 @@ class WaifuPhysicsScene(PropertyGroup):
                 "MESH_CAPSULE", 1)])
     scene_colliders_expanded: BoolProperty(name="Expanded", default=True, description="Show the scene's colliders")
     simulate: BoolProperty(name="Simulate", default=False, update=lambda self, context: _simulate_changed(self),
-                           description="Simulate every Waifu Physics group in the scene while the timeline plays")
+                           description="Simulate the chains while the timeline plays")
     target_framerate: IntProperty(name="Steps per Second", default=60, min=1, max=480, update=_structure_changed,
-                                  description="Simulation rate (Kawaii's target framerate). Stiffness and damping act "
-                                              "per step, so a chain's feel depends on it")
+                                  description="Simulation steps per second. Changes how the settings feel")
     fixed_substepping: BoolProperty(
         name="Fixed Steps", default=True, update=_structure_changed,
-        description="Live playback steps at Steps per Second, carrying a frame's leftover time to the next; off, it "
-                    "steps once per frame (Kawaii's legacy mode). The cache always steps at Steps per Second")
+        description="Step at a fixed rate in live playback. Off steps once per frame")
     edit_selected_groups: BoolProperty(
         name="Edit Selected Groups", default=True,
-        description="Changing a setting changes it in every group holding a selected bone")
+        description="Changes apply to every group with a selected bone")
     use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
-                            description="Keep each simulated frame, to scrub and render without re-simulating")
-    show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
+                            description="Store simulated frames for scrubbing and rendering")
+    show_links: BoolProperty(name="Show Links", default=True, description="Show links in the viewport")
     always_show_colliders: BoolProperty(
         name="Always Show Colliders", default=False,
         update=lambda self, context: _colliders().apply_shown(self.id_data),
-        description="Show the colliders, and the chains' collision spheres, on the Physics tab too (the Colliders "
-                    "tab always shows them). Hidden, they still collide")
+        description="Show colliders and collision spheres on the Physics tab too")
     # The Colliders list's pick is the viewport's selection (colliders.picked / pick); the list's index is
     # into bpy.data.objects.
     active_collider: IntProperty(name="Active Collider", options={"HIDDEN"},
@@ -567,11 +549,10 @@ class WaifuPhysicsScene(PropertyGroup):
     last_collider: StringProperty(options={"HIDDEN"})     # the name of the one last picked in the list
     collider_shape: EnumProperty(
         name="Shape", items=_colliders().SHAPE_CHOICES, default="AUTO",
-        description="The shape of the colliders generated or added to bones: Auto fits each bone's skin with "
-                    "the shape that fits it best")
+        description="Shape for new bone colliders. Auto picks the best fit per bone")
     selected_only: BoolProperty(
         name="Selected Only", default=True,
-        description="List the selected armature's groups only; off lists every armature with a group")
+        description="Only list the selected armatures")
 
 
 def _simulate_changed(settings):

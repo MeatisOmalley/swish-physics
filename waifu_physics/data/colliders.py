@@ -38,7 +38,7 @@ SHAPE_NOTES = {"Sphere": "A ball the chains stay outside of",
                "Box": "A box the chains stay outside of",
                "Plane": "An endless plane the chains stay above: a ground"}
 # What a collider added to a bone may be: fitted to the skin, as one shape or the best fitting.
-SHAPE_CHOICES = [("AUTO", "Auto (Best Fit)", "Each bone gets the shape that fits the skin around it best",
+SHAPE_CHOICES = [("AUTO", "Auto (Best Fit)", "Pick the best-fitting shape for each bone",
                   SHAPE_ICONS["AUTO"], 0)] + [(s, s, SHAPE_NOTES[s], SHAPE_ICONS[s], n + 1)
                                               for n, s in enumerate(SHAPES)]
 KINDS = {"Sphere": SPHERE_OUTER, "Inner Sphere": SPHERE_INNER, "Capsule": CAPSULE, "Tapered Capsule": TAPERED,

@@ -776,8 +776,7 @@ class WAIFU_PHYSICS_GGT_chain_manager(bpy.types.GizmoGroup):
 class WAIFU_PHYSICS_OT_chain_manager(bpy.types.Operator):
     bl_idname = "waifu_physics.chain_manager"
     bl_label = "Chain Manager"
-    bl_description = ("Show or hide the chain manager over this viewport: the groups as folders, to select "
-                      "chains, drag them between groups, merge groups and delete chains")
+    bl_description = ("Show or hide the chain manager: organize chains into groups")
 
     @classmethod
     def poll(cls, context):
