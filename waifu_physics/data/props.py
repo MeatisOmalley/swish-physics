@@ -535,7 +535,7 @@ class WaifuPhysicsArmature(PropertyGroup):
 
 class WaifuPhysicsScene(PropertyGroup):
     tab: EnumProperty(
-        name="Tab", default="PHYSICS",
+        name="Tab", default="PHYSICS", update=lambda self, context: _colliders().apply_shown(self.id_data),
         items=[("PHYSICS", "Physics", "The chains: their groups and settings", "PHYSICS", 0),
                ("COLLIDERS", "Colliders", "What the chains collide with: colliders on bones and in the scene",
                 "MESH_CAPSULE", 1)])
@@ -555,10 +555,11 @@ class WaifuPhysicsScene(PropertyGroup):
     use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
                             description="Keep each simulated frame, to scrub and render without re-simulating")
     show_links: BoolProperty(name="Show Links", default=True, description="Draw every group's links in the viewport")
-    show_colliders: BoolProperty(
-        name="Show Colliders", default=True, update=lambda self, context: _colliders().apply_shown(self.id_data),
-        description="Show the colliders, and the chains' collision spheres, in the viewport. Hidden, they still "
-                    "collide")
+    always_show_colliders: BoolProperty(
+        name="Always Show Colliders", default=False,
+        update=lambda self, context: _colliders().apply_shown(self.id_data),
+        description="Show the colliders, and the chains' collision spheres, on the Physics tab too (the Colliders "
+                    "tab always shows them). Hidden, they still collide")
     # The Colliders list's pick is the viewport's selection (colliders.picked / pick); the list's index is
     # into bpy.data.objects.
     active_collider: IntProperty(name="Active Collider", options={"HIDDEN"},

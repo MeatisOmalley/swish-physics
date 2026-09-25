@@ -234,21 +234,32 @@ def _view_layer(scene):
     return bpy.context.view_layer if bpy.context.scene == scene else scene.view_layers[0]
 
 
+def visible(scene):
+    """Are the colliders (and the chains' collision spheres) shown: on the Colliders tab always, on the Physics
+    tab with Always Show Colliders."""
+    settings = scene.waifu_physics
+    return settings.tab == "COLLIDERS" or settings.always_show_colliders
+
+
+def _apply_shown(obj, hidden, view_layer):
+    """Right after linking, view_layer.objects does not list a new object yet, but hide_set syncs the layer
+    itself; only an object that is not in the layer at all is skipped."""
+    try:
+        if obj.hide_get(view_layer=view_layer) != hidden:
+            obj.hide_set(hidden, view_layer=view_layer)
+    except RuntimeError:
+        pass
+
+
 def apply_shown(scene):
-    """Every collider in the scene shown or hidden as Show Colliders says, by its own eye: that costs no
-    rebuild of the scene's dependency graph (a collection's eye tags the view layer for a resync), and a hidden
-    collider still follows its bone and collides."""
-    hidden = not scene.waifu_physics.show_colliders
+    """Every collider in the scene shown or hidden as visible() says, by its own eye: that costs no rebuild of
+    the scene's dependency graph (a collection's eye tags the view layer for a resync), and a hidden collider
+    still follows its bone and collides. The eyes are saved with the file, as they are."""
+    hidden = not visible(scene)
     view_layer = _view_layer(scene)
     for obj in scene.objects:
-        if is_collider(obj) and obj.name in view_layer.objects and obj.hide_get(view_layer=view_layer) != hidden:
-            obj.hide_set(hidden, view_layer=view_layer)
-
-
-def show(scene):
-    """Show the colliders: a collider just added or picked should be seen."""
-    if not scene.waifu_physics.show_colliders:
-        scene.waifu_physics.show_colliders = True
+        if is_collider(obj):
+            _apply_shown(obj, hidden, view_layer)
 
 
 def remove(obj):
@@ -292,7 +303,6 @@ def pick(scene, obj):
         return
     if active is not None and active.mode != "OBJECT" or obj.name not in view_layer.objects:
         return                                            # editing something: its selection is left alone
-    show(scene)
     for other in view_layer.objects.selected:
         other.select_set(False)
     obj.hide_set(False)
@@ -510,7 +520,7 @@ def _new(name, context=None):
     obj.hide_render = True
     md = obj.modifiers.new(MODIFIER, "NODES")
     md.node_group = node_group()
-    show(scene)
+    _apply_shown(obj, not visible(scene), _view_layer(scene))
     return obj
 
 

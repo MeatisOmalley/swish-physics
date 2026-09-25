@@ -79,7 +79,8 @@ def _draw():
     if scene is None:
         return
     settings = scene.waifu_physics
-    if settings.show_colliders and context.region_data is not None:
+    from ..data import colliders
+    if colliders.visible(scene) and context.region_data is not None:
         _draw_spheres(context, scene)
     if not settings.show_links:
         return

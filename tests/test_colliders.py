@@ -169,15 +169,18 @@ scene.frame_set(60)
 check("a group can leave the scene's colliders out", len(live.runtime(scene).system.shape_type) == 1,
       len(live.runtime(scene).system.shape_type))
 g.use_scene_colliders = True
-scene.waifu_physics.show_colliders = False
-bpy.context.view_layer.update()
-check("Show Colliders off hides them (each one's own eye, not their collection's) ...", not ground.visible_get()
-      and not scene.waifu_physics.show_colliders
+scene.waifu_physics.tab = "COLLIDERS"
+check("on the Colliders tab the colliders show", ground.visible_get())
+scene.waifu_physics.tab = "PHYSICS"
+check("on the Physics tab they are hidden (each one's own eye, not their collection's) ...", not ground.visible_get()
       and not bpy.context.view_layer.layer_collection.children[colliders.COLLECTION].hide_viewport)
 scene.frame_set(61)
 check("... and hidden, they still collide", len(live.runtime(scene).system.shape_type) == 2)
-colliders.add_to_scene("Sphere")
-check("a new collider shows the colliders again", scene.waifu_physics.show_colliders and ground.visible_get())
+scene.waifu_physics.always_show_colliders = True
+check("Always Show Colliders shows them on the Physics tab too", ground.visible_get())
+scene.waifu_physics.always_show_colliders = False
+extra = colliders.add_to_scene("Sphere")
+check("a collider made on the Physics tab is hidden like the rest", not extra.visible_get() and not ground.visible_get())
 scene.waifu_physics.simulate = False
 for obj in colliders.scene_colliders(scene, enabled_only=False):
     bpy.data.objects.remove(obj)
@@ -355,16 +358,15 @@ check("Regenerate replaces them with one fitted (a Capsule before, a Sphere now)
       and len(colliders.all_of(own)) == len(before), [obj.name for obj in on_anchor])
 bpy.ops.object.mode_set(mode="OBJECT")
 
-# --- the eye before there is any collider: nothing to hide, and nothing is made
+# --- showing and hiding before there is any collider: nothing to do, and nothing is made
 for obj in [obj for obj in bpy.data.objects if colliders.is_collider(obj)]:
     colliders.remove(obj)
 bpy.data.collections.remove(bpy.data.collections[colliders.COLLECTION])
-settings.show_colliders = False
-check("hiding with no colliders yet makes no collection: it only remembers",
-      colliders.COLLECTION not in bpy.data.collections and not settings.show_colliders)
-made_hidden = colliders.add_to_scene("Sphere")
-check("... and the next collider made shows the colliders again", settings.show_colliders and made_hidden.visible_get())
-colliders.remove(made_hidden)
+settings.tab = "COLLIDERS"
+settings.always_show_colliders = True
+settings.tab = "PHYSICS"
+settings.always_show_colliders = False
+check("switching tabs with no colliders makes no collection", colliders.COLLECTION not in bpy.data.collections)
 
 addon.unregister()
 finish()

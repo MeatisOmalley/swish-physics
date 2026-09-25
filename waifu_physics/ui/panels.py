@@ -228,26 +228,14 @@ class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
             note.label(text=f"Edits go to all {len(shared)} selected groups", icon="INFO")
         column = layout.column(align=True)
         for name in curves.CURVED:
-            shown = _SHOWN.get(name, name)
+            if name == "radius":                         # a collision setting: on the Colliders tab
+                continue
             if name == "world_damping_location":
                 heading = column.split(factor=0.5)
                 heading.label(text="Inertia")
-            elif name == "radius":                       # the same gap after the Inertia pair, one row
+            elif name == "limit_angle":                  # the same gap after the Inertia pair, one row
                 column.split(factor=0.5).label(text="")
-            split = column.split(factor=0.5, align=True)
-            label = split.row()
-            label.alignment = "RIGHT"
-            label.label(text=_SHORT_LABELS.get(name, group.bl_rna.properties[shown].name))
-            row = split.row(align=True)
-            row.prop(group, shown, text="")
-            row.prop(group, f"use_{name}_curve", text="", icon="FCURVE")
-            if getattr(group, f"use_{name}_curve"):
-                node = curves.node(group, name, create=False)
-                if node is not None:
-                    box = column.box()
-                    box.label(text=("Scales Kawaii's value along the chain, root to tip" if name in _SHOWN
-                                    else "Along the chain, root to tip"), icon="IPO_LINEAR")
-                    box.template_curve_mapping(node, "mapping")
+            _setting_row(column, group, name)
         layout.separator()
         column = layout.column()
         column.use_property_split = True
@@ -258,6 +246,26 @@ class WAIFU_PHYSICS_PT_settings(_GroupPanel, bpy.types.Panel):
         else:
             column.prop(group, "gravity")
             column.prop(group, "use_world_space_gravity")
+
+
+def _setting_row(column, group, name):
+    """One curved setting: its label, its value (shown the intuitive way round), its curve switch, and the curve
+    when switched on."""
+    shown = _SHOWN.get(name, name)
+    split = column.split(factor=0.5, align=True)
+    label = split.row()
+    label.alignment = "RIGHT"
+    label.label(text=_SHORT_LABELS.get(name, group.bl_rna.properties[shown].name))
+    row = split.row(align=True)
+    row.prop(group, shown, text="")
+    row.prop(group, f"use_{name}_curve", text="", icon="FCURVE")
+    if getattr(group, f"use_{name}_curve"):
+        node = curves.node(group, name, create=False)
+        if node is not None:
+            box = column.box()
+            box.label(text=("Scales Kawaii's value along the chain, root to tip" if name in _SHOWN
+                            else "Along the chain, root to tip"), icon="IPO_LINEAR")
+            box.template_curve_mapping(node, "mapping")
 
 
 class WAIFU_PHYSICS_PT_advanced(_GroupPanel, bpy.types.Panel):
@@ -294,6 +302,7 @@ class WAIFU_PHYSICS_PT_advanced(_GroupPanel, bpy.types.Panel):
         layout.label(text="Scene")
         layout.prop(settings, "target_framerate")
         layout.column(heading="Live Playback").prop(settings, "fixed_substepping")
+        layout.column(heading="Viewport").prop(settings, "always_show_colliders")
 
 
 class WAIFU_PHYSICS_UL_links(bpy.types.UIList):
@@ -404,10 +413,6 @@ def _draw_colliders(layout, context):
 
     header, body = layout.panel("waifu_physics_colliders", default_closed=False)
     header.label(text="Colliders")
-    eye = header.row()
-    eye.alignment = "RIGHT"
-    eye.prop(settings, "show_colliders", text="", toggle=True,
-             icon="HIDE_OFF" if settings.show_colliders else "HIDE_ON")
     if body is not None:
         tree = body.box().column(align=True)
         active = colliders.armature_of(context)
@@ -455,6 +460,14 @@ def _draw_colliders(layout, context):
         else:
             _caption(body, "Pose Mode: select bones. Each gets a", "collider fitted to the skin weighted to it.")
 
+    obj = context.object
+    if obj is not None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups):
+        group = obj.waifu_physics.groups[min(obj.waifu_physics.active_group, len(obj.waifu_physics.groups) - 1)]
+        header, body = layout.panel("waifu_physics_chain_collision", default_closed=False)
+        header.label(text=f"Chain Collision: {group.name}", icon="BONE_DATA")
+        if body is not None:
+            _chain_collision(body, context, obj, group)
+
     if picked is not None:
         header, body = layout.panel("waifu_physics_collider", default_closed=False)
         header.label(text=picked.name, icon=colliders.SHAPE_ICONS.get(
@@ -464,6 +477,34 @@ def _draw_colliders(layout, context):
         trash.operator("waifu_physics.collider_remove", text="", icon="TRASH", emboss=False).name = picked.name
         if body is not None:
             _collider_settings(body, picked)
+
+
+def _chain_collision(layout, context, armature, group):
+    """How the active group's chains collide: how big their points are (the radius, with its curve; the
+    spheres the viewport draws on this tab), and the colliders they collide with."""
+    from .selection import groups_of_selected
+    shared = groups_of_selected(context)
+    if len(shared) > 1:
+        _dim(layout, f"Edits go to all {len(shared)} selected groups", "INFO")
+    _setting_row(layout.column(align=True), group, "radius")
+    layout.separator(factor=0.5)
+    layout.label(text="Collides with the colliders of")
+    column = layout.column(align=True)
+    if group.custom_collider_sets or len(group.collider_sets):
+        for index, item in enumerate(group.collider_sets):
+            row = column.row(align=True)
+            row.prop(item, "armature", text="")
+            row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
+        if not len(group.collider_sets):
+            _dim(column, "No armatures", "BLANK1")
+    else:                                                   # the defaults, until the list is edited
+        for index, source in enumerate(colliders.default_sources(armature)):
+            row = column.row(align=True)
+            row.label(text="Its own armature" if source == armature else "The armature it hangs from",
+                      icon="ARMATURE_DATA")
+            row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
+    layout.operator("waifu_physics.collider_set_add", text="Add Armature", icon="ADD")
+    layout.prop(group, "use_scene_colliders")
 
 
 def _caption(layout, *lines):
@@ -504,37 +545,6 @@ def _collider_settings(layout, obj):
 
 def _note(layout, text, icon="INFO"):
     _dim(layout, text, icon)
-
-
-class WAIFU_PHYSICS_PT_collides_with(_GroupPanel, bpy.types.Panel):
-    """What the group collides with: the colliders of the armatures it lists (its own and the one it hangs
-    from, until the list is edited), and the scene's. A setting of the group, so it sits with the others."""
-    bl_idname = "WAIFU_PHYSICS_PT_collides_with"
-    bl_label = "Collision"
-    bl_options = {"DEFAULT_CLOSED"}
-
-    def draw_settings(self, context):
-        armature = context.object
-        group = self.group(context)
-        layout = self.layout
-        layout.label(text="Collides with the colliders of")
-        col = layout.column(align=True)
-        if group.custom_collider_sets or len(group.collider_sets):
-            for index, item in enumerate(group.collider_sets):
-                row = col.row(align=True)
-                row.prop(item, "armature", text="")
-                row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
-            if not len(group.collider_sets):
-                _note(col, "No armatures", icon="BLANK1")
-        else:                                                   # the defaults, until the list is edited
-            for index, source in enumerate(colliders.default_sources(armature)):
-                row = col.row(align=True)
-                row.label(text="Its own armature" if source == armature else "The armature it hangs from",
-                          icon="ARMATURE_DATA")
-                row.operator("waifu_physics.collider_set_remove", text="", icon="X").index = index
-        layout.operator("waifu_physics.collider_set_add", text="Add Armature", icon="ADD")
-        layout.separator()
-        layout.prop(group, "use_scene_colliders")
 
 
 def _curve_box(layout, owner, setting, label):
@@ -737,7 +747,7 @@ class WAIFU_PHYSICS_PT_sync(_GroupPanel, bpy.types.Panel):
 
 
 CLASSES = (WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
-           WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_collides_with, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
+           WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
            WAIFU_PHYSICS_PT_advanced)
 
 
