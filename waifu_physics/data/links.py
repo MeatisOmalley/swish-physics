@@ -72,9 +72,20 @@ def ordered(obj, roots):
     return sorted(roots, key=lambda r: angle[r])
 
 
+def in_a_row(obj, roots):
+    """Roots in order along the line they spread out on most (a cape's chains, left to right). An angle around
+    their centre (ordered) cannot order chains in a straight row: they all sit at one of two angles."""
+    heads = np.array([obj.pose.bones[r].bone.head_local for r in roots], dtype=float)
+    spread = heads - heads.mean(axis=0)
+    direction = np.linalg.svd(spread, full_matrices=False)[2][0] if len(roots) > 1 else np.zeros(3)
+    return [roots[i] for i in np.argsort(spread @ direction, kind="stable")]
+
+
 def pairs(obj, roots, loop, excluded=()):
-    """[(bone, bone)] linking each chain to the next, at every depth below the roots."""
-    ring = ordered(obj, roots)
+    """[(bone, bone)] linking each chain to its neighbour, at every depth below the roots (the roots do not
+    move): a ladder's rungs between neighbouring chains. A loop orders the chains round their centre and closes
+    the last back to the first (a skirt); a strip orders them along their row and leaves both ends open (a cape)."""
+    ring = ordered(obj, roots) if loop else in_a_row(obj, roots)
     chains = [chain_bones(obj, r, excluded) for r in ring]
     neighbours = list(zip(chains, chains[1:]))
     if loop and len(chains) > 2:

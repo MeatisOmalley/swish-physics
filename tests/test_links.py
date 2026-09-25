@@ -109,6 +109,31 @@ check("bridge points appear along the links", bridges == solver_links, (bridges,
 scene.waifu_physics.simulate = False
 
 check("the link overlay is drawing", draw._handle is not None)
+# --- a strip orders its chains along their row: a flat cape links neighbours, never its two edges
+from waifu_physics.data import links as chain_links
+cape_data = bpy.data.armatures.new("cape")
+cape = bpy.data.objects.new("cape", cape_data)
+bpy.context.scene.collection.objects.link(cape)
+bpy.context.view_layer.objects.active = cape
+bpy.ops.object.mode_set(mode="EDIT")
+back = cape_data.edit_bones.new("back")
+back.head, back.tail = (0, 0, 1.5), (0, 0, 1.6)
+cape_roots = []
+for i, x in enumerate((0.1, -0.2, 0.2, -0.1, 0.0)):        # made out of order, in a straight row
+    parent, head = back, Vector((x, 0.1, 1.5))
+    for depth in range(3):
+        bone = cape_data.edit_bones.new(f"cape{i}_{depth}")
+        bone.head, bone.tail = head, head + Vector((0, 0, -0.15))
+        bone.parent = parent
+        parent, head = bone, bone.tail.copy()
+    cape_roots.append(f"cape{i}_0")
+bpy.ops.object.mode_set(mode="OBJECT")
+row = [pair for pair in chain_links.pairs(cape, cape_roots, loop=False) if pair[0].endswith("_1")]
+x_of = {f"cape{i}_1": x for i, x in enumerate((0.1, -0.2, 0.2, -0.1, 0.0))}
+steps = sorted(round(abs(x_of[a] - x_of[b]), 3) for a, b in row)
+check("a strip links each chain of a flat row to its neighbour, and not its two edges together",
+      len(row) == 4 and steps == [0.1] * 4, row)
+
 addon.unregister()
 check("... and stops when unregistered", draw._handle is None)
 finish()
