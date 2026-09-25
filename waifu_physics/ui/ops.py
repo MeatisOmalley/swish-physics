@@ -624,6 +624,29 @@ class WAIFU_PHYSICS_OT_link_remove(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class WAIFU_PHYSICS_OT_toggle_shown(bpy.types.Operator):
+    bl_idname = "waifu_physics.toggle_shown"
+    bl_label = "Show or Hide"
+    bl_options = {"INTERNAL"}
+
+    what: bpy.props.EnumProperty(items=(("COLLIDERS", "Colliders", ""), ("LINKS", "Links", "")))
+
+    @classmethod
+    def description(cls, context, properties):
+        if properties.what == "LINKS":
+            return "Show or hide links in the viewport"
+        return "Show or hide colliders and the chains' collision spheres in the viewport. Hidden, they still collide"
+
+    def execute(self, context):
+        settings = context.scene.waifu_physics
+        name = "show_links" if self.what == "LINKS" else "show_colliders"
+        setattr(settings, name, not getattr(settings, name))
+        for area in context.screen.areas if context.screen is not None else ():
+            if area.type == "VIEW_3D":
+                area.tag_redraw()
+        return {"FINISHED"}
+
+
 class WAIFU_PHYSICS_OT_link_pick(bpy.types.Operator):
     bl_idname = "waifu_physics.link_pick"
     bl_label = "Pick Link"
@@ -1570,7 +1593,7 @@ class WAIFU_PHYSICS_OT_setup_import(ImportHelper, bpy.types.Operator):
         return {"FINISHED"}
 
 
-CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_pick, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bone_click, WAIFU_PHYSICS_OT_link_pick, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
+CLASSES = (WAIFU_PHYSICS_OT_colliders_from_bones, WAIFU_PHYSICS_MT_force_add, WAIFU_PHYSICS_OT_collider_remove, WAIFU_PHYSICS_OT_collider_pick, WAIFU_PHYSICS_OT_chains_set, WAIFU_PHYSICS_OT_bone_click, WAIFU_PHYSICS_OT_link_pick, WAIFU_PHYSICS_OT_toggle_shown, WAIFU_PHYSICS_OT_bones_clean_up, WAIFU_PHYSICS_OT_bake, WAIFU_PHYSICS_OT_group_new, WAIFU_PHYSICS_OT_group_add, WAIFU_PHYSICS_OT_exclude, WAIFU_PHYSICS_OT_group_remove, WAIFU_PHYSICS_OT_reset,
            WAIFU_PHYSICS_OT_collider_add, WAIFU_PHYSICS_OT_scene_collider_add, WAIFU_PHYSICS_OT_collider_set_add, WAIFU_PHYSICS_OT_collider_set_remove,
            WAIFU_PHYSICS_OT_link_bones, WAIFU_PHYSICS_OT_link_chains, WAIFU_PHYSICS_OT_links_clear, WAIFU_PHYSICS_OT_link_remove, WAIFU_PHYSICS_OT_cache_all,
            WAIFU_PHYSICS_OT_cache_clear, WAIFU_PHYSICS_OT_preset_apply, WAIFU_PHYSICS_OT_preset_save, WAIFU_PHYSICS_OT_preset_delete, WAIFU_PHYSICS_MT_presets, WAIFU_PHYSICS_OT_group_copy, WAIFU_PHYSICS_OT_group_paste,

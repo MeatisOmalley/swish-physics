@@ -483,6 +483,7 @@ class WaifuPhysicsGroup(PropertyGroup):
                                 description="Frames simulated before the start, so chains begin settled")
 
     show_chains: BoolProperty(name="Show Chains", default=True, description="Show this group's chains")
+    list_links: BoolProperty(name="List Links", default=False, description="List this group's links in the chain manager")
     forces: CollectionProperty(type=WaifuPhysicsForce)
     active_force: IntProperty()
     sync_bones: CollectionProperty(type=WaifuPhysicsSyncBone)

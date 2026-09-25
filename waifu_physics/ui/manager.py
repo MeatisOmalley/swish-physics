@@ -5,6 +5,10 @@ Click a chain to select it (its bones are selected in the viewport), Shift-click
 or drop one. Drag chains onto a group to move them there, or onto empty space for a new group; drag a group
 onto another to merge them. It edits one armature, the active one: a group never spans armatures.
 
+Opt-in detail, closed until opened: a chain's arrow lists its bones, which select, drag and delete like
+chains (a run of bones moves as a group of its own; deleting a bone removes it and all below). Each group's
+Links row lists its links: clicking one picks it (red in the viewport), its x removes it.
+
 Input comes through a 2D gizmo covering the manager, so clicks on it never reach the viewport, and nothing
 outside it is touched. No modal operator runs while it is open (a running one would hold off autosave)."""
 import bpy
@@ -37,6 +41,7 @@ _nav_closed = set()        # areas whose armature pane is collapsed to its arrow
 _pan = {}                  # area -> trackpad scrolling not yet a whole row
 _last_group_press = {}     # area -> (group index, time): a second press on it soon after is a double-click
 _editing = {}              # area -> Editing: a group's name being typed in its row
+_open_chains = set()       # (armature session_uid, chain root) of chains listing their bones
 _addon_keymaps = []        # (keymap, item): the viewport's own double-click and F2 over a group's row
 
 
@@ -61,11 +66,16 @@ def shown_name(root):
 # --------------------------------------------------------------------------- layout (no drawing: testable)
 
 class Item:
-    __slots__ = ("kind", "x0", "y0", "x1", "y1", "group", "root", "text", "count", "enabled")
+    """A row or a control. root: a chain's root, or a bone row's bone; chain: the chain a bone row is listed
+    under; index: a link row's link; state: a chain row's selection, "all", "some" or ""."""
+    __slots__ = ("kind", "x0", "y0", "x1", "y1", "group", "root", "text", "count", "enabled", "chain", "index",
+                 "state")
 
-    def __init__(self, kind, x0, y0, x1, y1, group=-1, root="", text="", count="", enabled=True):
+    def __init__(self, kind, x0, y0, x1, y1, group=-1, root="", text="", count="", enabled=True, chain="",
+                 index=-1, state=""):
         self.kind, self.x0, self.y0, self.x1, self.y1 = kind, x0, y0, x1, y1
         self.group, self.root, self.text, self.count, self.enabled = group, root, text, count, enabled
+        self.chain, self.index, self.state = chain, index, state
 
     def contains(self, x, y):
         return self.x0 <= x < self.x1 and self.y0 <= y < self.y1
@@ -78,10 +88,12 @@ class Layout:
     """Where everything is, top to bottom. Hit-testing and drawing both read this, so they always agree."""
 
     def __init__(self, obj, region_size, scale, place=None, scroll=0, drag=None, size=None, armatures=(),
-                 nav_open=True, measure=None):
+                 nav_open=True, measure=None, open_chains=frozenset()):
         """armatures: the ones the pane on the left lists (with none, there is no pane); nav_open: the pane shows
-        them, else only its arrow; measure: a text's width in pixels (the drawing's font), else estimated."""
+        them, else only its arrow; measure: a text's width in pixels (the drawing's font), else estimated;
+        open_chains: the roots of the chains listing their bones."""
         self.obj, self.scale = obj, scale
+        self.open_chains = open_chains
         unit = ROW * scale
         width_unscaled, height_unscaled = size if size is not None else (WIDTH, None)
         self.main_width = min(max(width_unscaled, MIN_WIDTH), MAX_WIDTH)
@@ -102,6 +114,7 @@ class Layout:
         self.items, self.rows = [], []
         self.unit = unit
         self.chosen = ops.selected_chain_keys(obj) if obj is not None else set()
+        self.selected_bones = {pb.name for pb in obj.pose.bones if pb.select} if obj is not None else set()
         chosen_groups = {group for group, _root in self.chosen}
         self.chosen_groups = chosen_groups
         x0, x1 = left, left + width
@@ -126,13 +139,23 @@ class Layout:
             buttons = [new, merge, delete]
             y = tools - pad
 
-        # The rows: every group, and the chains of the open ones.
+        # The rows: every group; the chains of the open ones, the bones of open chains; each group's links.
         rows = []
         if obj is not None:
             for index, group in enumerate(obj.waifu_physics.groups):
-                rows.append(("group", index, "", group))
-                if group.show_chains:
-                    rows += [("chain", index, root.name, group) for root in group.roots]
+                rows.append(("group", index, "", group, ""))
+                if not group.show_chains:
+                    continue
+                for root in group.roots:
+                    rows.append(("chain", index, root.name, group, ""))
+                    if root.name in open_chains:
+                        own = [bone.name for bone in group.excluded]
+                        rows += [("bone", index, name, group, root.name)
+                                 for name in chain_links.chain_subtree(obj, root.name, own)]
+                if len(group.links):
+                    rows.append(("links", index, "", group, ""))
+                    if group.list_links:
+                        rows += [("link", index, k, group, "") for k in range(len(group.links))]
         self.dragging_chains = drag is not None and drag.kind == "chains"
         footer = unit if self.dragging_chains else 0.0
         note = unit if obj is None else unit * 2.5 if not len(obj.waifu_physics.groups) else 0.0
@@ -148,7 +171,7 @@ class Layout:
         shown = rows[self.first:self.first + room]
         self.overflow = len(rows) > room
         row_right = x1 - edge - BAR * scale - 2 * scale if self.overflow else x1
-        for kind, index, root, group in shown:
+        for kind, index, root, group, chain in shown:
             y0 = y - unit
             if kind == "group":
                 row = Item("group", x0, y0, row_right, y, group=index, text=group.name,
@@ -156,8 +179,23 @@ class Layout:
                 self.items.append(Item("fold", x0, y0, x0 + pad + unit, y, group=index))
             elif kind == "chain":
                 bones = chain_links.chain_subtree(obj, root, [bone.name for bone in group.excluded])
+                picked = sum(name in self.selected_bones for name in bones)
                 row = Item("chain", x0, y0, row_right, y, group=index, root=root, text=shown_name(root),
-                           count=str(len(bones)))
+                           count=str(len(bones)),
+                           state="all" if bones and picked == len(bones) else "some" if picked else "")
+                self.items.append(Item("chain_fold", x0 + 20 * scale, y0, x0 + 36 * scale, y, group=index,
+                                       root=root))
+            elif kind == "bone":
+                linked = sum((link.bone_a == root) + (link.bone_b == root) for link in group.links)
+                row = Item("bone", x0, y0, row_right, y, group=index, root=root, text=shown_name(root),
+                           count=f"\u2194 {linked}" if linked else "", chain=chain)
+            elif kind == "links":
+                row = Item("links", x0, y0, row_right, y, group=index, text="Links", count=str(len(group.links)))
+            else:
+                link = group.links[root]
+                row = Item("link", x0, y0, row_right, y, group=index, index=root,
+                           text=f"{shown_name(link.bone_a)}  \u2194  {shown_name(link.bone_b)}")
+                self.items.append(Item("link_remove", row_right - unit, y0, row_right, y, group=index, index=root))
             self.rows.append(row)
             y = y0
         scroll_bottom = y
@@ -227,12 +265,17 @@ class Layout:
                     found += [(row.group, root.name) for root in self.obj.waifu_physics.groups[row.group].roots]
         return list(dict.fromkeys(found))
 
+    def boxed_bones(self, y0, y1):
+        """The bones of the bone rows a box spanning these heights touches."""
+        low, high = min(y0, y1), max(y0, y1)
+        return [row.root for row in self.rows if row.kind == "bone" and row.y1 > low and row.y0 < high]
+
     def drop_target(self, x, y):
-        """Where dropped chains would go: ("group", index), ("new", -1), or None."""
+        """Where dropped chains or bones would go: ("group", index), ("new", -1), or None."""
         item = self.hit(x, y)
         if item is None:
             return None
-        if item.kind in ("group", "fold", "chain"):
+        if item.kind in ("group", "fold", "chain", "chain_fold", "bone", "links", "link", "link_remove"):
             return ("group", item.group)
         if item.kind in ("newzone", "empty", "edge_bottom", "corner"):
             return ("new", -1)
@@ -307,9 +350,11 @@ def layout_for(context):
         tools = next((r for r in area.regions if r.type == "TOOLS"), None)
         inset = tools.width if tools is not None and context.preferences.system.use_region_overlap else 0
         place = (inset + 10 * scale, region.height - 110 * scale)       # under the view's name
-    return Layout(shown(context), (region.width, region.height), scale, place, _scroll.get(key, 0),
+    obj = shown(context)
+    opened = frozenset(root for uid, root in _open_chains if obj is not None and uid == obj.session_uid)
+    return Layout(obj, (region.width, region.height), scale, place, _scroll.get(key, 0),
                   _drags.get(key), _sizes.get(key), armatures=listed(context), nav_open=key not in _nav_closed,
-                  measure=_measure)
+                  measure=_measure, open_chains=opened)
 
 
 def scroll(context, rows):
@@ -501,6 +546,8 @@ def draw(context):
     active = obj.waifu_physics.active_group if obj is not None else -1
     box = _boxes.get(key)
     boxed = set(layout.boxed(box[1], box[3])) if box is not None else set()
+    boxed_bones = set(layout.boxed_bones(box[1], box[3])) if box is not None else set()
+    opened = layout.open_chains
     for row in layout.rows:
         mid = (row.y0 + row.y1) / 2
         if row.kind == "newzone":
@@ -511,11 +558,22 @@ def draw(context):
             width = blf.dimensions(0, row.text)[0]
             label(row, row.text, (row.x0 + row.x1 - width) / 2, colours["text"] if lit else colours["dim"])
             continue
-        picked = row.kind == "chain" and ((row.group, row.root) in layout.chosen or (row.group, row.root) in boxed)
+        partly = False
+        if row.kind == "chain":
+            picked = row.state == "all" or (row.group, row.root) in boxed
+            partly = not picked and row.state == "some"
+        elif row.kind == "bone":
+            picked = row.root in layout.selected_bones or row.root in boxed_bones
+        elif row.kind == "link":
+            picked = row.group == active and obj.waifu_physics.groups[row.group].active_link == row.index
+        else:
+            picked = False
         if target == ("group", row.group):
             canvas.rect(row.x0 + 2 * s, row.y0, row.x1 - 2 * s, row.y1, colours["target"])
         if picked:
             canvas.rect(row.x0 + 2 * s, row.y0 + 1, row.x1 - 2 * s, row.y1 - 1, colours["sel"], radius=3 * s)
+        elif partly:                                   # some of its bones selected: a lighter highlight
+            canvas.rect(row.x0 + 2 * s, row.y0 + 1, row.x1 - 2 * s, row.y1 - 1, colours["target"], radius=3 * s)
         elif hovered is not None and hovered.y0 == row.y0 and drag is None:
             canvas.rect(row.x0 + 2 * s, row.y0 + 1, row.x1 - 2 * s, row.y1 - 1, colours["hover"], radius=3 * s)
         text_colour = colours["text_sel"] if picked else colours["text"]
@@ -544,9 +602,26 @@ def draw(context):
                 label(row, name, row.x0 + 41 * s, colours["text"] if is_active or group.enabled else colours["dim"],
                       room=row.x1 - row.x0 - 80 * s)
             label(row, row.count, count_right, colours["dim"], right=True)
-        else:
+        elif row.kind == "chain":
+            lit = hovered is not None and hovered.kind == "chain_fold" and hovered.root == row.root
+            _arrow(canvas, row.x0 + 28 * s, mid, s, row.root in opened, colours["text"] if lit else colours["dim"])
             label(row, row.text, row.x0 + 41 * s, text_colour, room=row.x1 - row.x0 - 75 * s)
             label(row, row.count, count_right, colours["dim"] if not picked else text_colour, right=True)
+        elif row.kind == "bone":
+            label(row, row.text, row.x0 + 55 * s, text_colour, room=row.x1 - row.x0 - 95 * s)
+            label(row, row.count, count_right, colours["dim"] if not picked else text_colour, right=True)
+        elif row.kind == "links":
+            group = obj.waifu_physics.groups[row.group]
+            lit = hovered is not None and hovered.y0 == row.y0
+            _arrow(canvas, row.x0 + 28 * s, mid, s, group.list_links, colours["text"] if lit else colours["dim"])
+            label(row, row.text, row.x0 + 41 * s, colours["dim"])
+            label(row, row.count, count_right, colours["dim"], right=True)
+        else:                                          # a link: its two bones, and an x to remove it
+            label(row, row.text, row.x0 + 55 * s, text_colour, room=row.x1 - row.x0 - 80 * s)
+            if hovered is not None and hovered.y0 == row.y0 and drag is None:
+                over = hovered.kind == "link_remove"
+                _cross(canvas, row.x1 - unit / 2, mid, s * 0.8,
+                       colours["text"] if over else colours["dim"] if not picked else text_colour)
 
     held = _pressed.get(key)
     if layout.track is not None:                                # the scroll bar
@@ -578,6 +653,7 @@ def draw(context):
 
     if drag is not None:                                        # what is being dragged, by the mouse
         text = (f"{drag.count} chain{'' if drag.count == 1 else 's'}" if drag.kind == "chains"
+                else f"{drag.count} bone{'' if drag.count == 1 else 's'}" if drag.kind == "bones"
                 else f"Merge '{obj.waifu_physics.groups[drag.group].name}'" if obj is not None else "")
         if drag.kind == "group" and target is not None:
             text += f" into '{obj.waifu_physics.groups[target[1]].name}'"
@@ -659,6 +735,24 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         elif kind == "fold":
             group = obj.waifu_physics.groups[item.group]
             group.show_chains = not group.show_chains
+        elif kind == "chain_fold":
+            _open_chains.symmetric_difference_update({(obj.session_uid, item.root)})
+        elif kind == "links":
+            group = obj.waifu_physics.groups[item.group]
+            group.list_links = not group.list_links
+        elif kind == "link":
+            _call("link_pick", group=item.group, index=item.index)
+        elif kind == "link_remove":
+            _call("link_remove", group=item.group, index=item.index)
+        elif kind == "bone":
+            if event.shift:
+                _call("bone_click", group=item.group, root=item.chain, bone=item.root, span=True)
+            elif event.ctrl:
+                _call("bone_click", group=item.group, root=item.chain, bone=item.root, extend=True)
+            elif item.root in layout.selected_bones:
+                self.pending = item          # released without a drag: select just this one
+            else:
+                _call("bone_click", group=item.group, root=item.chain, bone=item.root)
         elif kind == "chain":
             picked = (item.group, item.root) in layout.chosen
             if event.shift:
@@ -722,13 +816,19 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
                 _boxes[key] = (self.press[0], self.press[1], x, y)
                 context.area.tag_redraw()
             return {"RUNNING_MODAL"}
-        if not self.dragging and self.item.kind in ("chain", "group") \
+        if not self.dragging and self.item.kind in ("chain", "group", "bone") \
                 and dx * dx + dy * dy > (DRAG_START * _scale(context)) ** 2:
             layout = layout_for(context)
             if self.item.kind == "chain":
                 if (self.item.group, self.item.root) not in layout.chosen:
                     return {"RUNNING_MODAL"}                  # Ctrl-click dropped it: nothing to drag
                 _drags[key] = Drag("chains", self.item.group, len(layout.chosen), x, y)
+            elif self.item.kind == "bone":
+                if self.item.root not in layout.selected_bones:
+                    return {"RUNNING_MODAL"}
+                simulated = {name for row in layout.rows if row.kind == "bone" for name in [row.root]}
+                count = len(layout.selected_bones & simulated) or 1
+                _drags[key] = Drag("bones", self.item.group, count, x, y)
             else:
                 _drags[key] = Drag("group", self.item.group, 1, x, y)
             self.dragging, self.pending = True, None
@@ -745,8 +845,10 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         box = _boxes.pop(key, None)
         if self.box is not None and not cancel:
             if box is not None:
-                chains = layout_for(context).boxed(box[1], box[3])
-                _call("chains_set", chains="\n".join(f"{group}|{root}" for group, root in chains), extend=self.box)
+                layout = layout_for(context)
+                chains = layout.boxed(box[1], box[3])
+                _call("chains_set", chains="\n".join(f"{group}|{root}" for group, root in chains),
+                      bones="\n".join(layout.boxed_bones(box[1], box[3])), extend=self.box)
             elif not self.box:
                 _call("chains_select", action="NONE")
             self.box = None
@@ -756,7 +858,7 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
         if drag is not None and not cancel:
             target = layout_for(context).drop_target(drag.x, drag.y)
             obj = shown(context)
-            if drag.kind == "chains" and target is not None:
+            if drag.kind in ("chains", "bones") and target is not None:
                 chosen = ops.selected_chain_keys(obj)
                 if target[0] == "new" or any(group != target[1] for group, _root in chosen):
                     _call("chains_to_group", index=target[1])
@@ -764,7 +866,10 @@ class WAIFU_PHYSICS_GT_chain_manager(bpy.types.Gizmo):
                     and target[1] != drag.group:
                 _call("groups_merge", source=drag.group, target=target[1])
         elif self.pending is not None and not cancel:
-            _call("chain_click", group=self.pending.group, root=self.pending.root)
+            if self.pending.kind == "bone":
+                _call("bone_click", group=self.pending.group, root=self.pending.chain, bone=self.pending.root)
+            else:
+                _call("chain_click", group=self.pending.group, root=self.pending.root)
         self.pending = None
         context.area.tag_redraw()
 
@@ -950,7 +1055,7 @@ CLASSES = (WAIFU_PHYSICS_OT_chain_manager, WAIFU_PHYSICS_OT_manager_scroll, WAIF
 def _file_loaded(_dummy):
     """A new file brings new areas: the manager starts closed."""
     for state in (_open, _places, _scroll, _hover, _drags, _sizes, _pressed, _pan, _boxes, _shown, _nav_closed,
-                  _last_group_press, _editing):
+                  _last_group_press, _editing, _open_chains):
         state.clear()
 
 

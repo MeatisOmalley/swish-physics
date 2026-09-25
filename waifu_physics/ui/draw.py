@@ -87,7 +87,10 @@ def _draw():
     if not settings.show_links:
         return
     lines, colours, picked = [], [], []
-    active = context.object
+    from . import manager
+    focus = {context.object}                       # the active armature, and the one the chain manager shows
+    if manager.is_open(context.area):
+        focus.add(manager.shown(context))
     for obj in scene.objects:
         if obj.type != "ARMATURE" or not obj.visible_get():
             continue
@@ -97,7 +100,7 @@ def _draw():
             if not group.enabled:
                 continue
             colour = COLOURS[index % len(COLOURS)]
-            chosen = group.active_link if obj == active and index == obj.waifu_physics.active_group else -1
+            chosen = group.active_link if obj in focus and index == obj.waifu_physics.active_group else -1
             for number, link in enumerate(group.links):
                 a, b = bones.get(link.bone_a), bones.get(link.bone_b)
                 if a is None or b is None:

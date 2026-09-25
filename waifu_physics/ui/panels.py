@@ -290,6 +290,13 @@ class WAIFU_PHYSICS_PT_advanced(_GroupPanel, bpy.types.Panel):
         layout.label(text="Scene")
         layout.prop(settings, "target_framerate")
         layout.column(heading="Live Playback").prop(settings, "fixed_substepping")
+        layout.separator()
+        layout.label(text="Setup File")
+        files = layout.row(align=True)
+        files.use_property_split = False
+        files.operator("waifu_physics.setup_export", text="Export Setup", icon="EXPORT")
+        files.operator("waifu_physics.setup_import", text="Import Setup", icon="IMPORT")
+        _caption(layout, "Save or load this armature's groups", "and colliders as a file.")
 
 
 class WAIFU_PHYSICS_UL_links(bpy.types.UIList):
@@ -300,10 +307,18 @@ class WAIFU_PHYSICS_UL_links(bpy.types.UIList):
         row.operator("waifu_physics.link_remove", text="", icon="X", emboss=False).index = index
 
 
+def _eye(layout, what, shown):
+    """A panel header's show/hide button: raised, with a border, and never lit, its eye open or shut."""
+    layout.operator("waifu_physics.toggle_shown", text="", icon="HIDE_OFF" if shown else "HIDE_ON").what = what
+
+
 class WAIFU_PHYSICS_PT_links(_GroupPanel, bpy.types.Panel):
     bl_idname = "WAIFU_PHYSICS_PT_links"
     bl_label = "Links"
     bl_options = {"DEFAULT_CLOSED"}
+
+    def draw_header_preset(self, context):
+        _eye(self.layout, "LINKS", context.scene.waifu_physics.show_links)
 
     def draw_settings(self, context):
         group = self.group(context)
@@ -315,7 +330,6 @@ class WAIFU_PHYSICS_PT_links(_GroupPanel, bpy.types.Panel):
         _caption(layout, "Rings are left open. To close one,", "link its two end chains.")
         layout.template_list("WAIFU_PHYSICS_UL_links", "", group, "links", group, "active_link", rows=3)
         row = layout.row(align=True)
-        row.prop(context.scene.waifu_physics, "show_links")
         row.operator("waifu_physics.links_clear", icon="TRASH")
         layout.use_property_split = True
         layout.prop(group, "compliance")
@@ -400,8 +414,7 @@ class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
 
     def draw_header_preset(self, context):
         settings = context.scene.waifu_physics
-        self.layout.prop(settings, "show_colliders", text="", toggle=True,
-                         icon="HIDE_OFF" if settings.show_colliders else "HIDE_ON")
+        _eye(self.layout, "COLLIDERS", settings.show_colliders)
 
     def draw(self, context):
         _draw_colliders(self.layout, context)

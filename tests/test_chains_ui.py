@@ -146,9 +146,9 @@ check("... and links crossing to the chains left behind are removed",
 manager = sys.modules["waifu_physics.ui.manager"]
 layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
 kinds = [(item.kind, item.group, item.root) for item in layout.rows]
-check("the manager lists each group as a folder, its chains under it",
-      kinds == [("group", 0, "")] + [("chain", 0, f"p{k}_0") for k in (2, 3, 4, 5)]
-      + [("group", 1, "")] + [("chain", 1, f"p{k}_0") for k in (0, 1)], kinds)
+check("the manager lists each group as a folder, its chains under it, then its Links row (closed)",
+      kinds == [("group", 0, "")] + [("chain", 0, f"p{k}_0") for k in (2, 3, 4, 5)] + [("links", 0, "")]
+      + [("group", 1, "")] + [("chain", 1, f"p{k}_0") for k in (0, 1)] + [("links", 1, "")], kinds)
 row = layout.rows[2]
 mid_y = (row.y0 + row.y1) / 2
 check("a click on a row hits that chain", layout.hit(row.x0 + 60, mid_y).root == "p3_0")
@@ -168,7 +168,7 @@ check("... and a chain from a second group turns Merge on",
       next(i for i in layout.items if i.kind == "merge").enabled)
 skirt_rig.waifu_physics.groups[1].show_chains = False
 layout = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
-check("a folded group hides its chains", len(layout.rows) == 6)
+check("a folded group hides its chains and links", len(layout.rows) == 7)
 mid = lambda row: (row.y0 + row.y1) / 2
 check("a box over two chain rows covers those two chains",
       layout.boxed(mid(layout.rows[1]), mid(layout.rows[2])) == [(0, layout.rows[1].root), (0, layout.rows[2].root)])
@@ -196,7 +196,7 @@ check("... whose thumb, held, scrolls the rows", resized.hit((resized.thumb.x0 +
 bottom = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), size=(360, 200), scroll=99)
 check("... to the last row, with the thumb at the track's foot",
       bottom.first == bottom.total - bottom.capacity and abs(bottom.thumb.y0 - bottom.track.y0) < 1e-6)
-check("a short viewport scrolls the rows", small.total == 8 and small.capacity < 8 and small.first == 2
+check("a short viewport scrolls the rows", small.total == 10 and small.capacity < 10 and small.first == 2
       and small.rows[0].root == "p3_0", (small.total, small.capacity, small.first))
 dragging = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), drag=manager.Drag("chains", 0, 2, 0, 0))
 zone = dragging.rows[-1]
@@ -289,6 +289,51 @@ saved = serialize.settings_to_dict(g)
 check("saved setups keep Kawaii's values, not the display ones",
       not {"stiffness_level", "world_location_inertia", "world_rotation_inertia"} & set(saved) and "stiffness" in saved)
 g.stiffness = 0.05
+
+# --- the manager's opt-in detail: a chain's bones, a group's links
+group0 = skirt_rig.waifu_physics.groups[0]
+for pb in skirt_rig.pose.bones:
+    pb.select = pb.name == "p2_1"
+detail = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800), open_chains=frozenset({"p2_0"}))
+kinds = [(item.kind, item.root) for item in detail.rows[:5]]
+check("an open chain lists its bones under it, root to tip",
+      kinds == [("group", ""), ("chain", "p2_0"), ("bone", "p2_0"), ("bone", "p2_1"), ("bone", "p2_2")], kinds)
+chain_row = detail.rows[1]
+check("... a chain with some of its bones selected is marked partly selected", chain_row.state == "some")
+fold = detail.hit(chain_row.x0 + 28, (chain_row.y0 + chain_row.y1) / 2)
+check("... and its arrow is what opens and closes it", fold.kind == "chain_fold" and fold.root == "p2_0")
+bone_row = detail.rows[3]
+linked = sum(name == "p2_1" for link in group0.links for name in (link.bone_a, link.bone_b))
+check("a bone row shows how many links it has", bone_row.count == (f"↔ {linked}" if linked else ""),
+      (bone_row.count, linked))
+check("dropping on a bone row drops into its group",
+      detail.drop_target(bone_row.x0 + 80, (bone_row.y0 + bone_row.y1) / 2) == ("group", 0))
+check("a box over bone rows covers those bones",
+      detail.boxed_bones((detail.rows[2].y0 + detail.rows[2].y1) / 2, (bone_row.y0 + bone_row.y1) / 2)
+      == ["p2_0", "p2_1"])
+group0.list_links = True
+listed_links = manager.Layout(skirt_rig, (1200, 900), 1.0, place=(20, 800))
+link_rows = [row for row in listed_links.rows if row.kind == "link" and row.group == 0]
+check("an open Links row lists the group's links", len(link_rows) == len(group0.links) > 0,
+      (len(link_rows), len(group0.links)))
+first = link_rows[0]
+remove = listed_links.hit(first.x1 - 5, (first.y0 + first.y1) / 2)
+check("... each with its bones' names, and an x at its end that removes it",
+      "↔" in first.text and remove.kind == "link_remove" and remove.index == 0, (first.text, remove))
+count = len(group0.links)
+bpy.ops.waifu_physics.link_pick(group=0, index=1)
+check("picking a link makes it the group's active link (drawn red)", group0.active_link == 1)
+bpy.ops.waifu_physics.link_pick(group=0, index=1)
+check("... picking it again drops it", group0.active_link == -1)
+bpy.ops.waifu_physics.link_remove(group=0, index=0)
+check("the x removes that link", len(group0.links) == count - 1)
+group0.list_links = False
+bpy.ops.waifu_physics.bone_click(group=0, root="p2_0", bone="p2_0")
+bpy.ops.waifu_physics.bone_click(group=0, root="p2_0", bone="p2_2", span=True)
+check("clicking a bone row selects that bone; Shift-click a run down its chain",
+      {pb.name for pb in skirt_rig.pose.bones if pb.select} == {"p2_0", "p2_1", "p2_2"})
+for pb in skirt_rig.pose.bones:
+    pb.select = pb.name in was_selected
 
 # --- the right-click Move Chains to Group: from any groups, into one, or a new one
 bpy.context.view_layer.objects.active = skirt_rig
