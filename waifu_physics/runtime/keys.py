@@ -60,6 +60,7 @@ class ChainKeys:
         self.ownable = True
         self.muted = False
         self.total = 0                     # chain curves in the action, muted or not: notices new keys
+        self.user_muted = set()            # chain curves the user muted: left alone, and their channels at rest
         data = obj.animation_data
         if data is None:
             return
@@ -68,7 +69,9 @@ class ChainKeys:
             found = _bone_path(curve.data_path)
             if found and found[0] in chain:
                 self.total += 1
-                if not curve.mute:
+                if curve.mute:
+                    self.user_muted.add((curve.data_path, curve.array_index))
+                else:
                     self.curves.append((curve, rig.index[found[0]], found[1], curve.array_index))
         # Animation Waifu Physics cannot take over: NLA strips and drivers on chain channels, or an
         # action that does not simply replace.
@@ -98,6 +101,27 @@ class ChainKeys:
         chain = {rig.names[i] for i in np.flatnonzero(rig.chain)}
         return sum(1 for c in _action_curves(data) if _bone_path(c.data_path)
                    and _bone_path(c.data_path)[0] in chain)
+
+    def mutes_changed(self, rig):
+        """Has a chain curve's mute been flipped since the curves were taken over? A curve the user unmuted
+        must be taken over, one they muted let go; one of ours unmuted would be applied over the physics.
+        Any of them: take the curves over again (Waifu Physics' own mute cannot show the user's)."""
+        data = self.obj.animation_data
+        if data is None:
+            return bool(self.user_muted)
+        chain = {rig.names[i] for i in np.flatnonzero(rig.chain)}
+        owned = {(c.data_path, c.array_index) for c, *_ in self.curves} if self.muted else set()
+        user_muted, owned_unmuted = set(), False
+        for curve in _action_curves(data):
+            found = _bone_path(curve.data_path)
+            if not found or found[0] not in chain:
+                continue
+            key = (curve.data_path, curve.array_index)
+            if key in owned:
+                owned_unmuted = owned_unmuted or not curve.mute
+            elif curve.mute:
+                user_muted.add(key)
+        return owned_unmuted or user_muted != self.user_muted
 
     def mute(self):
         """Take the chain curves over. Only curves not already muted are touched."""

@@ -21,9 +21,11 @@ def cm_per_unit(scene):
     return 100.0 * scene.unit_settings.scale_length
 
 
-def animated_channels(obj):
+def animated_channels(obj, owned=frozenset()):
     """{bone name: {"location", "rotation", "scale"}} that animation drives: the action's
-    slot, unmuted NLA strips and drivers."""
+    slot, unmuted NLA strips and drivers. A muted curve drives nothing, unless it is one of the
+    curves Waifu Physics muted to sample itself (owned: (data path, index)): a curve the user muted
+    leaves its channel at rest, as if it had no keys."""
     found = {}
     data = obj.animation_data
     if data is None:
@@ -48,7 +50,8 @@ def animated_channels(obj):
                 bag = strip.channelbag(slot)
                 if bag is not None:
                     for curve in bag.fcurves:
-                        note(curve.data_path)
+                        if not curve.mute or (curve.data_path, curve.array_index) in owned:
+                            note(curve.data_path)
 
     scan(data.action, data.action_slot)
     for track in data.nla_tracks:
@@ -171,7 +174,9 @@ class Rig:
         return sorted(set(found))
 
     def refresh_keyed(self):
-        channels = animated_channels(self.obj)
+        keys = self.keys
+        owned = {(c.data_path, c.array_index) for c, *_ in keys.curves} if keys is not None and keys.muted else ()
+        channels = animated_channels(self.obj, frozenset(owned))
         self.keyed = {kind: np.array([kind in channels.get(name, ()) for name in self.names])
                       for kind in ("location", "rotation", "scale")}
 

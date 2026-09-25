@@ -481,8 +481,10 @@ class Runtime:
                    for rig in self.rigs for kind in ("location", "rotation", "scale"))
 
     def keys_changed(self):
-        """Keys added to or removed from a chain: the curves Waifu Physics owns must be found again."""
-        return any(rig.keys.count(rig) != rig.keys.total for rig in self.rigs)
+        """Keys added to or removed from a chain, or a chain curve muted or unmuted: the curves Waifu Physics
+        owns must be found again."""
+        return any(rig.keys is not None and (rig.keys.count(rig) != rig.keys.total or rig.keys.mutes_changed(rig))
+                   for rig in self.rigs)
 
 
 def frame_of(scene):
@@ -807,6 +809,11 @@ def _depsgraph_updated(scene, depsgraph):
             rig.refresh_keyed()
         if current.keys_changed():
             mark_dirty(scene)
+    elif depsgraph.id_type_updated("ACTION") and current.keys_changed():
+        # One of our muted curves unmuted is no change to what the keys say (relevant_update skips our
+        # mutes), but Blender would now apply it over the physics: take the curves over again.
+        _outdate(current, "the keys changed")
+        mark_dirty(scene)
 
 
 @persistent
