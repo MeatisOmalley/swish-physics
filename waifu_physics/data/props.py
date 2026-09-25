@@ -370,7 +370,7 @@ class WaifuPhysicsGroup(PropertyGroup):
     use_scene_colliders: BoolProperty(
         name="Scene Colliders", default=True, update=_structure_changed,
         description="Collide with scene colliders, like a ground")
-    active_link: IntProperty()
+    active_link: IntProperty(default=-1)    # the link picked in the Links list, drawn red; -1 is none
 
     # FKawaiiPhysicsSettings, animatable. Radius is a length; limit angle an angle.
     damping: FloatProperty(name="Damping", default=0.1, min=0.0, max=1.0, update=_setting_changed("damping"),
@@ -458,10 +458,12 @@ class WaifuPhysicsGroup(PropertyGroup):
     compliance: EnumProperty(name="Link Compliance", items=COMPLIANCE_ITEMS, default="LEATHER",
                              update=_structure_changed,
                              description="How much links can stretch")
-    iterations_before_collision: IntProperty(name="Iterations Before Collision", default=1, min=0, max=20,
-                                             update=_structure_changed)
-    iterations_after_collision: IntProperty(name="Iterations After Collision", default=1, min=0, max=20,
-                                            update=_structure_changed)
+    iterations_before_collision: IntProperty(
+        name="Iterations Before Collision", default=1, min=0, max=20, update=_structure_changed,
+        description="Link passes before collision, settling the chains into shape. More holds spacing firmer")
+    iterations_after_collision: IntProperty(
+        name="Iterations After Collision", default=1, min=0, max=20, update=_structure_changed,
+        description="Link passes after collision, spreading a collider's push to neighbours. More can clip")
     auto_child_dummy_links: BoolProperty(name="Link Tips", default=True, update=_structure_changed,
                                          description="Also link the tip and extra points")
     bridge_count: IntProperty(name="Bridge Points", default=0, min=0, max=10, update=_structure_changed,

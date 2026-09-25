@@ -1,5 +1,6 @@
-"""Viewport overlay: a group's links drawn as lines between the bones they join, and with Show Colliders, the
-chains' collision spheres (a circle facing the view round each point, as big as it collides)."""
+"""Viewport overlay: a group's links drawn as lines between the bones they join (the link picked in the active
+group's Links list in red, on top), and with Show Colliders, the chains' collision spheres (a circle facing the
+view round each point, as big as it collides)."""
 import math
 
 import bpy
@@ -10,6 +11,7 @@ from mathutils import Vector
 
 _handle = None
 COLOURS = ((0.35, 0.8, 1.0, 1.0), (1.0, 0.6, 0.25, 1.0), (0.6, 1.0, 0.4, 1.0), (1.0, 0.45, 0.8, 1.0))
+PICKED = (1.0, 0.15, 0.15, 1.0)
 
 
 SEGMENTS = 20
@@ -84,7 +86,8 @@ def _draw():
         _draw_spheres(context, scene)
     if not settings.show_links:
         return
-    lines, colours = [], []
+    lines, colours, picked = [], [], []
+    active = context.object
     for obj in scene.objects:
         if obj.type != "ARMATURE" or not obj.visible_get():
             continue
@@ -94,22 +97,27 @@ def _draw():
             if not group.enabled:
                 continue
             colour = COLOURS[index % len(COLOURS)]
-            for link in group.links:
+            chosen = group.active_link if obj == active and index == obj.waifu_physics.active_group else -1
+            for number, link in enumerate(group.links):
                 a, b = bones.get(link.bone_a), bones.get(link.bone_b)
                 if a is None or b is None:
                     continue
+                if number == chosen:
+                    picked += [world @ a.head, world @ b.head]
+                    continue
                 lines += [world @ a.head, world @ b.head]
                 colours += [colour, colour]
-    if not lines:
+    if not lines and not picked:
         return
     shader = gpu.shader.from_builtin("POLYLINE_SMOOTH_COLOR")
     region = context.region
     shader.uniform_float("viewportSize", (region.width, region.height))
-    shader.uniform_float("lineWidth", 2.0)
-    batch = batch_for_shader(shader, "LINES", {"pos": [tuple(p) for p in lines], "color": colours})
     gpu.state.blend_set("ALPHA")
     gpu.state.depth_test_set("NONE")
-    batch.draw(shader)
+    for points, tints, width in ((lines, colours, 2.0), (picked, [PICKED] * len(picked), 4.0)):
+        if points:
+            shader.uniform_float("lineWidth", width)
+            batch_for_shader(shader, "LINES", {"pos": [tuple(p) for p in points], "color": tints}).draw(shader)
     gpu.state.blend_set("NONE")
 
 
