@@ -182,25 +182,20 @@ check("a group can leave the scene's colliders out", len(live.runtime(scene).sys
       len(live.runtime(scene).system.shape_type))
 g.use_scene_colliders = True
 g.use_all_colliders = True
-scene.waifu_physics.tab = "COLLIDERS"
-check("on the Colliders tab the colliders show", ground.visible_get())
-scene.waifu_physics.tab = "PHYSICS"
-check("on the Physics tab they are hidden, by their collection's eye (their own eyes stay the user's) ...",
+check("the colliders show by default", scene.waifu_physics.show_colliders and ground.visible_get())
+scene.waifu_physics.show_colliders = False
+check("the eye off hides them, by their collection's eye (their own eyes stay the user's) ...",
       not ground.visible_get() and not ground.hide_get()
       and bpy.context.view_layer.layer_collection.children[colliders.COLLECTION].hide_viewport)
 scene.frame_set(61)
 check("... and hidden, they still collide", len(live.runtime(scene).system.shape_type) == 2)
-scene.waifu_physics.always_show_colliders = True
-check("Always Show Colliders shows them on the Physics tab too", ground.visible_get())
-scene.waifu_physics.always_show_colliders = False
 extra = colliders.add_to_scene("Sphere")
-check("a collider made on the Physics tab is hidden like the rest", not extra.visible_get() and not ground.visible_get())
+check("a collider made while they are hidden is hidden like the rest", not extra.visible_get())
 ground.hide_set(True)
-scene.waifu_physics.tab = "COLLIDERS"
-check("a collider the user hid by its own eye stays hidden on the Colliders tab", not ground.visible_get()
+scene.waifu_physics.show_colliders = True
+check("a collider the user hid by its own eye stays hidden when they show", not ground.visible_get()
       and extra.visible_get())
 ground.hide_set(False)
-scene.waifu_physics.tab = "PHYSICS"
 scene.waifu_physics.simulate = False
 for obj in colliders.scene_colliders(scene, enabled_only=False):
     bpy.data.objects.remove(obj)
@@ -386,11 +381,9 @@ bpy.ops.object.mode_set(mode="OBJECT")
 for obj in [obj for obj in bpy.data.objects if colliders.is_collider(obj)]:
     colliders.remove(obj)
 bpy.data.collections.remove(bpy.data.collections[colliders.COLLECTION])
-settings.tab = "COLLIDERS"
-settings.always_show_colliders = True
-settings.tab = "PHYSICS"
-settings.always_show_colliders = False
-check("switching tabs with no colliders makes no collection", colliders.COLLECTION not in bpy.data.collections)
+settings.show_colliders = False
+settings.show_colliders = True
+check("the eye with no colliders makes no collection", colliders.COLLECTION not in bpy.data.collections)
 
 addon.unregister()
 finish()

@@ -112,7 +112,6 @@ bpy.context.view_layer.update()
 check("moving a collider keeps the bake, outdated", live.is_cached(scene)
       and live.runtime(scene).outdated == "the scene changed", live.runtime(scene).outdated)
 bpy.ops.waifu_physics.cache_all()
-scene.waifu_physics.tab = "COLLIDERS"                # colliders show there, so they can be picked and deleted
 for other in list(bpy.context.view_layer.objects.selected):
     other.select_set(False)
 ball.select_set(True)
@@ -130,7 +129,6 @@ check("changing the frame range keeps the bake too, outdated", live.is_cached(sc
       and live.runtime(scene).outdated == "the frame range or rate changed", live.runtime(scene).outdated)
 scene.frame_end = 20
 bpy.ops.waifu_physics.cache_all()
-scene.waifu_physics.tab = "PHYSICS"
 
 scene.frame_end = 30
 bpy.ops.waifu_physics.cache_all()

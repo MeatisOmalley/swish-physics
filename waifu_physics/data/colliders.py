@@ -235,10 +235,8 @@ def _view_layer(scene):
 
 
 def visible(scene):
-    """Are the colliders (and the chains' collision spheres) shown: on the Colliders tab always, on the Physics
-    tab with Always Show Colliders."""
-    settings = scene.waifu_physics
-    return settings.tab == "COLLIDERS" or settings.always_show_colliders
+    """Are the colliders (and the chains' collision spheres) shown: the Colliders panel's eye."""
+    return scene.waifu_physics.show_colliders
 
 
 def _layer_collection(view_layer):

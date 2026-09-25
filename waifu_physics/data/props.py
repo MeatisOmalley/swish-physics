@@ -522,11 +522,6 @@ class WaifuPhysicsArmature(PropertyGroup):
 
 
 class WaifuPhysicsScene(PropertyGroup):
-    tab: EnumProperty(
-        name="Tab", default="PHYSICS", update=lambda self, context: _colliders().apply_shown(self.id_data),
-        items=[("PHYSICS", "Physics", "The chains: their groups and settings", "PHYSICS", 0),
-               ("COLLIDERS", "Colliders", "What the chains collide with: colliders on bones and in the scene",
-                "MESH_CAPSULE", 1)])
     simulate: BoolProperty(name="Simulate", default=False, update=lambda self, context: _simulate_changed(self),
                            description="Simulate the chains while the timeline plays")
     target_framerate: IntProperty(name="Steps per Second", default=60, min=1, max=480, update=_structure_changed,
@@ -540,10 +535,9 @@ class WaifuPhysicsScene(PropertyGroup):
     use_cache: BoolProperty(name="Cache", default=False, update=_result_changed,
                             description="Store simulated frames for scrubbing and rendering")
     show_links: BoolProperty(name="Show Links", default=True, description="Show links in the viewport")
-    always_show_colliders: BoolProperty(
-        name="Always Show Colliders", default=False,
-        update=lambda self, context: _colliders().apply_shown(self.id_data),
-        description="Show colliders and collision spheres on the Physics tab too")
+    show_colliders: BoolProperty(
+        name="Show Colliders", default=True, update=lambda self, context: _colliders().apply_shown(self.id_data),
+        description="Show colliders and the chains' collision spheres in the viewport. Hidden, they still collide")
     # The Colliders list's pick is the viewport's selection (colliders.picked / pick); the list's index is
     # into bpy.data.objects.
     active_collider: IntProperty(name="Active Collider", options={"HIDDEN"},

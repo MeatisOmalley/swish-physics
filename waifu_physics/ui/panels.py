@@ -79,25 +79,7 @@ class WAIFU_PHYSICS_PT_main(bpy.types.Panel):
                 note.alert = True
                 note.label(text="Turn on Gizmos in the viewport header to see it.", icon="ERROR")
         _draw_groups(layout, context)
-        layout.separator(factor=1.2)
-        layout.separator(type="LINE")            # the tabs are a part of their own: set apart by space and a line
-        layout.separator(factor=0.6)
-        _tabs(layout, settings, "tab")
-        if settings.tab == "COLLIDERS":
-            _draw_colliders(layout, context)
-        else:
-            _draw_group_tools(layout, context, span)
-
-
-def _tabs(layout, owner, prop):
-    """Tabs for an enum: tall buttons apart from each other, every one embossed, the chosen one lit. (Blender's
-    own tab widget, prop_tabs_enum, is the Properties editor's vertical bar only, and in a panel overlaps its
-    labels.)"""
-    row = layout.row()
-    row.scale_y = 1.6
-    for item in owner.bl_rna.properties[prop].enum_items:
-        row.prop_enum(owner, prop, item.identifier)
-    layout.separator(factor=0.4)
+        _draw_group_tools(layout, context, span)
 
 
 def _outside_buttons(layout):
@@ -140,7 +122,7 @@ def _draw_groups(layout, context):
             if rig == obj:                       # one hint, for the armature being edited
                 hint = box.row()
                 hint.enabled = False
-                hint.label(text="Select bones in Pose Mode, then click +.")
+                hint.label(text="Select bones and click +.")
             continue
         lists = box.row()
         lists.active = rig == obj                # other armatures' lists are dimmed: not being edited
@@ -154,8 +136,8 @@ def _draw_groups(layout, context):
 
 
 def _draw_group_tools(layout, context, span):
-    """The Physics tab's head: the active armature's warnings and the group's preset. Its settings follow in
-    the subpanels."""
+    """Under the Groups box: the active armature's warnings and the group's preset. Its settings follow in the
+    subpanels."""
     obj = context.object
     if obj is None or obj.type != "ARMATURE" or not len(obj.waifu_physics.groups):
         return
@@ -195,8 +177,7 @@ class _GroupPanel:
     @classmethod
     def poll(cls, context):
         obj = context.object
-        return (context.scene.waifu_physics.tab == "PHYSICS" and obj is not None and obj.type == "ARMATURE"
-                and len(obj.waifu_physics.groups) > 0)
+        return obj is not None and obj.type == "ARMATURE" and len(obj.waifu_physics.groups) > 0
 
     @staticmethod
     def group(context):
@@ -309,7 +290,6 @@ class WAIFU_PHYSICS_PT_advanced(_GroupPanel, bpy.types.Panel):
         layout.label(text="Scene")
         layout.prop(settings, "target_framerate")
         layout.column(heading="Live Playback").prop(settings, "fixed_substepping")
-        layout.column(heading="Viewport").prop(settings, "always_show_colliders")
 
 
 class WAIFU_PHYSICS_UL_links(bpy.types.UIList):
@@ -406,8 +386,27 @@ def _collider_row(layout, obj, picked, indent=True):
 SCENE_SHAPES = (("Plane", "Ground"), ("Sphere", "Sphere"), ("Capsule", "Capsule"), ("Box", "Box"))
 
 
+class WAIFU_PHYSICS_PT_colliders(bpy.types.Panel):
+    """Colliders, under Physics. Shown whatever is active (a body with no groups can carry colliders, and the
+    scene's need no armature); the eye in the header shows or hides them and the chains' collision spheres."""
+    bl_idname = "WAIFU_PHYSICS_PT_colliders"
+    bl_label = "Colliders"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Waifu Physics"
+    bl_parent_id = "WAIFU_PHYSICS_PT_main"
+
+    def draw_header_preset(self, context):
+        settings = context.scene.waifu_physics
+        self.layout.prop(settings, "show_colliders", text="", toggle=True,
+                         icon="HIDE_OFF" if settings.show_colliders else "HIDE_ON")
+
+    def draw(self, context):
+        _draw_colliders(self.layout, context)
+
+
 def _draw_colliders(layout, context):
-    """The Colliders page, in sections that keep their places whatever is picked: Armature Colliders (with a
+    """The Colliders panel, in sections that keep their places whatever is picked: Armature Colliders (with a
     group's armature active, first how its chains collide: the radius and what they collide against; then a
     folder per armature with colliders), Add to Bones (one Shape; the active bone, or Generate for the selected
     ones), Scene Colliders (a button per shape, then the scene's colliders), and last the picked collider's
@@ -759,7 +758,7 @@ class WAIFU_PHYSICS_PT_sync(_GroupPanel, bpy.types.Panel):
 
 
 CLASSES = (WAIFU_PHYSICS_UL_groups, WAIFU_PHYSICS_UL_links, WAIFU_PHYSICS_UL_forces, WAIFU_PHYSICS_UL_sync, WAIFU_PHYSICS_UL_sync_targets, WAIFU_PHYSICS_PT_main,
-           WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
+           WAIFU_PHYSICS_PT_settings, WAIFU_PHYSICS_PT_colliders, WAIFU_PHYSICS_PT_links, WAIFU_PHYSICS_PT_forces, WAIFU_PHYSICS_PT_sync,
            WAIFU_PHYSICS_PT_advanced)
 
 
