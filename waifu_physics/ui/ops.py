@@ -30,6 +30,32 @@ def _selected_roots(context):
     return roots
 
 
+def _selection_ends(context, roots):
+    """Where the selected chains stop: a root selected with other bones of its chain covers only the run
+    selected, so every unselected bone hanging from a selected one is cut off (excluded). A root selected
+    alone covers its whole chain."""
+    obj = context.object
+    selected = {pb.name for pb in context.selected_pose_bones or () if pb.id_data == obj}
+    cuts = []
+    for root in roots:
+        below = obj.pose.bones[root].children_recursive
+        if any(bone.name in selected for bone in below):
+            cuts += [bone.name for bone in below if bone.name not in selected and bone.parent.name in selected]
+    return cuts
+
+
+def _covers(obj, root, excluded, name):
+    """Is the bone in the chain under root, and not cut off there by an excluded bone?"""
+    bone = obj.pose.bones.get(name)
+    while bone is not None:
+        if bone.name in excluded:
+            return False
+        if bone.name == root:
+            return True
+        bone = bone.parent
+    return False
+
+
 def _descends(obj, name, ancestor):
     bone = obj.pose.bones.get(name)
     while bone is not None:
@@ -39,9 +65,12 @@ def _descends(obj, name, ancestor):
     return False
 
 
-def _claim(obj, roots, keep=None):
-    """Take these chains out of every other group, so no bone is simulated twice. A group left
-    with no chains is removed."""
+def _claim(obj, roots, excluded=(), keep=None):
+    """Take these chains (roots, cut off at excluded) out of every other group, so no bone is simulated
+    twice. A chain they cover is taken over; a chain they start partway down is split: that group ends
+    above them (their root is excluded there), as two Kawaii nodes share a chain. A group left with no
+    chains is removed."""
+    excluded = set(excluded)
     emptied = []
     for group in obj.waifu_physics.groups:
         if group is keep:
@@ -49,9 +78,13 @@ def _claim(obj, roots, keep=None):
         before = len(group.roots)
         for k in reversed(range(len(group.roots))):
             existing = group.roots[k].name
-            if any(existing == root or _descends(obj, existing, root) or _descends(obj, root, existing)
-                   for root in roots):
+            if any(_covers(obj, root, excluded, existing) for root in roots):
                 group.roots.remove(k)
+        own = {bone.name for bone in group.excluded}
+        for root in roots:
+            if any(_covers(obj, item.name, own, root) for item in group.roots):
+                group.excluded.add().name = root
+                own.add(root)
         if before and not len(group.roots):
             emptied.append(group.name)
     for name in emptied:
@@ -151,11 +184,14 @@ class WAIFU_PHYSICS_OT_group_new(bpy.types.Operator):
             self.report({"INFO"}, "Pose Mode: select the first bone of each chain, then click + again")
             return {"CANCELLED"}
         roots = _selected_roots(context)
-        _claim(obj, roots)
+        ends = _selection_ends(context, roots)
+        _claim(obj, roots, ends)
         group = obj.waifu_physics.groups.add()
         group.name = group_name(obj, roots)
         for name in roots:
             group.roots.add().name = name
+        for name in ends:
+            group.excluded.add().name = name
         obj.waifu_physics.active_group = len(obj.waifu_physics.groups) - 1
         live.mark_dirty(context.scene)
         self.report({"INFO"}, f"New group with {len(roots)} chain{'s' if len(roots) != 1 else ''}")
@@ -176,9 +212,14 @@ class WAIFU_PHYSICS_OT_group_add(_PoseBonesOperator, bpy.types.Operator):
         obj = context.object
         group = obj.waifu_physics.groups[obj.waifu_physics.active_group]
         roots = [r for r in _selected_roots(context) if r not in {root.name for root in group.roots}]
-        _claim(obj, roots, keep=group)
+        ends = _selection_ends(context, roots)
+        _claim(obj, roots, ends, keep=group)
         for name in roots:
             group.roots.add().name = name
+        known = {bone.name for bone in group.excluded}
+        for name in ends:
+            if name not in known:
+                group.excluded.add().name = name
         live.mark_dirty(context.scene)
         return {"FINISHED"}
 

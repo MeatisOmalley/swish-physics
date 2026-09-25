@@ -8,7 +8,7 @@ Bone-chain physics for Blender: hair, skirts, tails and accessories. The simulat
 
 Everything is in the 3D Viewport sidebar, on the **Waifu Physics** tab.
 
-1. Select an armature, enter Pose Mode, select the first bone of each chain and click **New Group**. A group is one Kawaii Physics node: one set of settings for all of its chains.
+1. Select an armature, enter Pose Mode, select the first bone of each chain and click **New Group**. A group is one Kawaii Physics node: one set of settings for all of its chains. To give part of a chain its own settings, select just that run of bones: the group ends where the selection ends. A group started partway down another group's chain splits it, and hangs from the upper group's result, as a second Kawaii node on the chain does (the bone where they meet rides rigidly on the upper half, and the upper half never feels the lower one).
 2. Pick a **Preset** (Hair or Skirt) as a starting point, then press **Simulate** and play the timeline.
 3. Tune in the **Physics** panel. Every setting can be keyframed. The curve button next to a setting varies it from root to tip. With **Edit Selected Groups** on, a change reaches every group that holds a selected bone.
 The group list is a tree of armatures and their groups; the cursor toggle beside **New Group** limits it to the selected armature, and off it lists every armature with a group. Clicking a group edits it. In **Chains**, tick chains (or select their bones) to **Split** them into a new group with the same settings, **Move to** another group (moving all of them merges the two), remove them, or select them in the viewport.

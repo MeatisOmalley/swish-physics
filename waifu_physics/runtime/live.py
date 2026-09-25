@@ -19,6 +19,7 @@ from ..data import curves as group_curves
 from ..data.props import FORCE_CHANNELS
 from ..solver import forces as frame_forces
 from ..solver import native
+from ..solver import uemath as ue
 from ..solver.build import Skeleton, GroupSpec, build, ComponentMotion
 from ..solver.curves import LinearCurve
 from ..solver.system import Group, COMPLIANCE_TYPES, PLANAR_NONE, PLANAR_X, PLANAR_Y, PLANAR_Z
@@ -105,8 +106,9 @@ class Runtime:
         offsets = []
         for rig in self.rigs:
             groups = [props for props in rig.obj.waifu_physics.groups if props.enabled and len(props.roots)]
-            rig.set_chain(rig.subtree([root.name for props in groups for root in props.roots],
-                                      [bone.name for props in groups for bone in props.excluded]))
+            # Each group's chains cut off at its own excluded bones: a group can start where another ends.
+            rig.set_chain(sorted({bone for props in groups for bone in rig.subtree(
+                [root.name for root in props.roots], [bone.name for bone in props.excluded])}))
         self.stepped_ahead = None
         self.action_prints = {}
         if settle:
@@ -152,6 +154,7 @@ class Runtime:
         for i in self.real:
             s.bone_names[i] = names[s.bone[i]].split("|", 1)[1]
         self.point_of = {(int(s.group[i]), s.bone_names[i]): int(i) for i in self.real}
+        self._find_tiers()
         self.motions = [ComponentMotion() for _ in self.group_props]
         self.last_frame = None
         self.backend = native.backend()
@@ -162,6 +165,69 @@ class Runtime:
         self.outdated = None              # why a bake no longer matches the scene, or None
         self.own_update = False           # the next depsgraph update is our own write
         self.collider_prints = {}
+
+    def _find_tiers(self):
+        """Groups that start partway down another group's chain, as a second Kawaii node on the chain does.
+        Each such root's anchor is the other group's point it hangs from. A group's tier is one more than the
+        highest tier it hangs from, so tier 0 hangs from nothing simulated. Kawaii runs its nodes in order, each
+        starting from the pose the one before it made; step_seconds does the same, tier by tier."""
+        s = self.system
+        n = len(s.parent)
+        point = {(int(self.rig_of_point[k]), int(self.bone_of_point[k])): int(i) for k, i in enumerate(self.real)}
+        anchor_of_root = np.full(n, -1)
+        for k, i in enumerate(self.real):
+            if s.parent[i] >= 0:
+                continue
+            r = int(self.rig_of_point[k])
+            above = int(self.rigs[r].parents[self.bone_of_point[k]])
+            a = point.get((r, above), -1) if above >= 0 else -1
+            if a >= 0 and s.group[a] != s.group[i]:
+                anchor_of_root[i] = a
+        root = np.arange(n)
+        while True:                                       # each point's root, up its parents
+            up = s.parent[root] >= 0
+            if not up.any():
+                break
+            root[up] = s.parent[root[up]]
+        self.anchor = anchor_of_root[root]
+        groups = len(self.group_props)
+        hangs_from = [set() for _ in range(groups)]
+        for i in np.flatnonzero(anchor_of_root >= 0):
+            hangs_from[int(s.group[i])].add(int(s.group[anchor_of_root[i]]))
+        tier = np.zeros(groups, dtype=int)
+        for _ in range(groups):                           # at most one tier per group; a cycle stops there
+            tier = np.array([max((tier[h] + 1 for h in hangs_from[g]), default=0) for g in range(groups)],
+                            dtype=int).clip(max=groups)
+        self.tiers = int(tier.max()) + 1 if groups else 1
+        carried = np.intersect1d(self.real, np.flatnonzero(self.anchor >= 0))
+        self.tier_rows = [carried[tier[s.group[carried]] == t] for t in range(self.tiers)]
+
+    def _step_tiers(self, seconds):
+        """One frame's steps in Kawaii's node order. With groups hanging from others, the frame is stepped
+        once per tier from the same start. After each, the next tier's input pose is carried with the
+        points it hangs from: each keeps its place relative to its anchor, as a bone below an excluded one
+        keeps its local transform in Kawaii's output. The upper tiers never read the lower ones, so their
+        result is the same every time; the last step is the one kept."""
+        s = self.system
+        if self.tiers < 2:
+            s.step_frame(F32(seconds), self.backend)
+            return
+        start = frame_cache.Snapshot(self)
+        pose, rotation = s.frame_pose.copy(), s.frame_pose_rot.copy()
+        carried_pose, carried_rotation = pose.copy(), rotation.copy()
+        inverse = np.array([-1.0, -1.0, -1.0, 1.0])
+        for t in range(1, self.tiers):
+            s.step_frame(F32(seconds), self.backend)
+            rows = self.tier_rows[t]
+            if len(rows):
+                anchors = self.anchor[rows]
+                turned, _turned = s.results()
+                turn = ue.quat_multiply(turned[anchors], rotation[anchors] * inverse)
+                carried_pose[rows] = s.loc[anchors] + ue.rotate_vector(turn, pose[rows] - pose[anchors])
+                carried_rotation[rows] = ue.quat_multiply(turn, rotation[rows])
+            start.restore_state(self)
+            s.frame_pose[:], s.frame_pose_rot[:] = carried_pose, carried_rotation
+        s.step_frame(F32(seconds), self.backend)
 
     def _spec(self, r, props):
         prefix = f"{r}|"
@@ -378,7 +444,7 @@ class Runtime:
         if max_substeps is not None:
             s.max_substeps = max_substeps
         try:
-            s.step_frame(F32(seconds), self.backend)
+            self._step_tiers(seconds)
         finally:
             s.max_substeps = old_cap
         for g in range(len(self.group_props)):
